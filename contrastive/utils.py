@@ -15,12 +15,8 @@
 
 """Utilities for the contrastive RL agent."""
 import functools
-from typing import Dict
-from typing import Optional, Sequence
 
-from acme import types
 from acme.agents.jax import actors
-from acme.jax import networks as network_lib
 from acme.jax import utils
 from acme.utils.observers import base as observers_base
 from acme.wrappers import base
@@ -28,7 +24,7 @@ from acme.wrappers import canonical_spec
 from acme.wrappers import gym_wrapper
 from acme.wrappers import step_limit
 import dm_env
-import env_utils
+from old_envs import env_utils
 import jax
 import numpy as np
 
