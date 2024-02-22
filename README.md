@@ -1,5 +1,27 @@
 # [Contrastive Learning as Goal-Conditioned Reinforcement Learning](https://arxiv.org/pdf/2206.07568.pdf)
-<p align="center"><img src="contrastive_rl.png" width=60%></p>
+
+## Repo installation
+
+1. Create an Anaconda environment: `conda create -n contrastive_rl python=3.9 -y`
+2. Activate the environment: `conda activate contrastive_rl`
+3. Install the dependencies: `pip install -r requirements.txt --no-deps`
+4. Install acme from source:
+   1. Clone the acme repository: `git clone https://github.com/google-deepmind/acme.git`
+   2. Enter acme folder and run: `pip install .[jax,tf,testing,envs]`
+3. Check that the humanoid environment is working: `MUJOCO_GL=egl python humanoid_mj3.py`
+
+
+Additional things (probably not necessary):
+![img.png](imgs/img.png)
+
+Add to PATH environment path:
+```bash
+<path_to_env\>/contrastive_rl/bin
+```
+
+
+## Old stuff
+<p align="center"><img src="imgs/contrastive_rl.png" width=60%></p>
 
 <p align="center"> Benjamin Eysenbach, &nbsp; Tianjun Zhang, &nbsp; Ruslan Salakhutdinov &nbsp; Sergey Levine</p>
 <p align="center">
