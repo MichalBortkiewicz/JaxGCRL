@@ -154,8 +154,11 @@ if __name__ == "__main__":
         discounting=0.97,
         learning_rate=3e-4,
         entropy_cost=1e-3,
-        num_envs=2048,
-        batch_size=1024,
+        # num_envs=2048,
+        # batch_size=1024,
+        # For debug purposes
+        num_envs=1,
+        batch_size=16,
         seed=0,
     )
 

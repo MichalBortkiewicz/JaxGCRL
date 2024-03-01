@@ -20,7 +20,7 @@ See: https://arxiv.org/pdf/1707.06347.pdf
 from typing import Any, Tuple
 
 from brax.training import types
-from brax.training.agents.ppo import networks as ppo_networks
+from crl_new import networks as ppo_networks
 from brax.training.types import Params
 import flax
 import jax
