@@ -1,18 +1,10 @@
-from brax.envs.reacher import Reacher
 import functools
 from datetime import datetime
 
-import jax
-import mujoco
 from brax import envs
-from brax.envs.base import PipelineEnv, State
-from brax.io import mjcf
-from crl_new.train import train
-from etils import epath
-from jax import numpy as jp
 from matplotlib import pyplot as plt
-from mujoco import mjx
 
+from crl_new.train import train
 
 if __name__ == "__main__":
     env_name = 'reacher'
@@ -22,19 +14,14 @@ if __name__ == "__main__":
     train_fn = functools.partial(
         train,
         num_timesteps=1000000,
-        num_evals=500,
+        num_evals=50,
         reward_scaling=0.1,
         episode_length=50,
         normalize_observations=True,
         action_repeat=1,
-        unroll_length=10,
-        num_minibatches=32,
-        num_updates_per_batch=8,
+        grad_updates_per_step=2,
         discounting=0.97,
         learning_rate=3e-4,
-        entropy_cost=1e-3,
-        # num_envs=2048,
-        # batch_size=1024,
         # For debug purposes
         num_envs=16,
         batch_size=64,
