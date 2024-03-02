@@ -13,6 +13,8 @@ class SACNetworks:
     policy_network: networks.FeedForwardNetwork
     q_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
+    sa_encoder: networks.FeedForwardNetwork
+    g_encoder: networks.FeedForwardNetwork
 
 
 def make_inference_fn(sac_networks: SACNetworks):
@@ -43,6 +45,7 @@ def make_sac_networks(
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     hidden_layer_sizes: Sequence[int] = (256, 256),
     activation: networks.ActivationFn = linen.relu,
+    repr_dim: int = 64,
 ) -> SACNetworks:
     """Make SAC networks."""
     parametric_action_distribution = distribution.NormalTanhDistribution(
@@ -62,8 +65,20 @@ def make_sac_networks(
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
     )
+    sa_encoder = networks.make_model(
+        layer_sizes=list(hidden_layer_sizes) + [repr_dim],
+        obs_size=observation_size + action_size,
+        activation=activation,
+    )
+    g_encoder = networks.make_model(
+        layer_sizes=list(hidden_layer_sizes) + [repr_dim],
+        obs_size=observation_size,
+        activation=activation,
+    )
     return SACNetworks(
         policy_network=policy_network,
         q_network=q_network,
         parametric_action_distribution=parametric_action_distribution,
+        sa_encoder=sa_encoder,
+        g_encoder=g_encoder,
     )
