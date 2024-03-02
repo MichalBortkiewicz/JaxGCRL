@@ -1,6 +1,6 @@
 import functools
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 from absl import logging
 from brax import base
@@ -121,6 +121,8 @@ def train(
     randomization_fn: Optional[
         Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
     ] = None,
+    unroll_length: int = 2,
+    num_minibatches: int = 4
 ):
     """SAC training."""
     process_id = jax.process_index()
@@ -200,15 +202,15 @@ def train(
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
 
-    dummy_obs = jnp.zeros((obs_size,))
-    dummy_action = jnp.zeros((action_size,))
+    dummy_obs = jnp.zeros((unroll_length, obs_size))
+    dummy_action = jnp.zeros((unroll_length, action_size))
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
-        reward=0.0,
-        discount=0.0,
+        reward=jnp.zeros((unroll_length,)),
+        discount=jnp.zeros((unroll_length,)),
         next_observation=dummy_obs,
-        extras={"state_extras": {"truncation": 0.0}, "policy_extras": {}},
+        extras={"state_extras": {"truncation": jnp.zeros((unroll_length,))}, "policy_extras": {}},
     )
     replay_buffer = replay_buffers.UniformSamplingQueue(
         max_replay_size=max_replay_size // device_count,
@@ -313,15 +315,33 @@ def train(
         ReplayBufferState,
     ]:
         policy = make_policy((normalizer_params, policy_params))
-        env_state, transitions = acting.actor_step(
-            env, env_state, policy, key, extra_fields=("truncation",)
+
+        def f(carry, unused_t):
+            current_state, current_key = carry
+            current_key, next_key = jax.random.split(current_key)
+            next_state, data = acting.generate_unroll(
+                env,
+                current_state,
+                policy,
+                current_key,
+                unroll_length,
+                extra_fields=("truncation",),
+            )
+            return (next_state, next_key), data
+
+        # Generate unroll_length rollouts in parallel.
+        (state, _), data = jax.lax.scan(
+            f, (env_state, key), (), length=batch_size * num_minibatches // num_envs
         )
+        # To have leading dimensions (batch_size * num_minibatches, unroll_length)
+        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
+        data = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data)
+        assert data.discount.shape[1:] == (unroll_length,)
 
         normalizer_params = running_statistics.update(
-            normalizer_params, transitions.observation, pmap_axis_name=_PMAP_AXIS_NAME
+            normalizer_params, data.observation, pmap_axis_name=_PMAP_AXIS_NAME
         )
-
-        buffer_state = replay_buffer.insert(buffer_state, transitions)
+        buffer_state = replay_buffer.insert(buffer_state, data)
         return normalizer_params, env_state, buffer_state
 
     def training_step(
