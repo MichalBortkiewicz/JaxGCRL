@@ -7,6 +7,9 @@ from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
 
+from jax.numpy import einsum, eye
+from optax import sigmoid_binary_cross_entropy
+
 Transition = types.Transition
 
 
@@ -22,6 +25,8 @@ def make_losses(
     policy_network = sac_network.policy_network
     q_network = sac_network.q_network
     parametric_action_distribution = sac_network.parametric_action_distribution
+    sa_encoder = sac_network.sa_encoder
+    g_encoder = sac_network.g_encoder
 
     def alpha_loss(
         log_alpha: jnp.ndarray,
@@ -107,4 +112,23 @@ def make_losses(
         actor_loss = alpha * log_prob - min_q
         return jnp.mean(actor_loss)
 
-    return alpha_loss, critic_loss, actor_loss
+    def crl_critic_loss(
+        crl_critic_params: Params,
+        transitions: Transition,
+    ):
+        sa_encoder_params, g_encoder_params = crl_critic_params['sa_encoder'], crl_critic_params['g_encoder']
+        # TODO: ewentualnie tutaj rozbić z paramsów na sa_encoder i na g_encoder
+        # TODO: we should use positive and negative samples here
+        sa_repr = sa_encoder.apply(
+            sa_encoder_params,
+            jnp.concatenate(
+                [transitions.observation[:, 0, :], transitions.action[:, 0, :]], axis=-1
+            ),
+        )
+        g_repr = g_encoder.apply(g_encoder_params, transitions.next_observation[:, 0, :])
+        logits = einsum("ik,jk->ij", sa_repr, g_repr)
+        return jnp.mean(sigmoid_binary_cross_entropy(
+            logits, labels=eye(logits.shape[0])
+        ))  # shape[0] - is a batch size
+
+    return alpha_loss, critic_loss, actor_loss, crl_critic_loss

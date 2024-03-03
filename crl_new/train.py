@@ -46,6 +46,8 @@ class TrainingState:
     alpha_optimizer_state: optax.OptState
     alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
+    crl_critic_params: Params
+    crl_critic_optimizer_state: optax.OptState
 
 
 def _unpmap(v):
@@ -60,9 +62,10 @@ def _init_training_state(
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
+    crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q = jax.random.split(key)
+    key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -70,6 +73,13 @@ def _init_training_state(
     policy_optimizer_state = policy_optimizer.init(policy_params)
     q_params = sac_network.q_network.init(key_q)
     q_optimizer_state = q_optimizer.init(q_params)
+
+    sa_encoder_params = sac_network.sa_encoder.init(key_sa_enc)
+    g_encoder_params = sac_network.g_encoder.init(key_g_enc)
+    crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
+    crl_critic_state = crl_critics_optimizer.init(
+        crl_critic_params
+    )
 
     normalizer_params = running_statistics.init_state(
         specs.Array((obs_size,), jnp.dtype("float32"))
@@ -81,6 +91,8 @@ def _init_training_state(
         q_optimizer_state=q_optimizer_state,
         q_params=q_params,
         target_q_params=q_params,
+        crl_critic_optimizer_state=crl_critic_state,
+        crl_critic_params=crl_critic_params,
         gradient_steps=jnp.zeros(()),
         env_steps=jnp.zeros(()),
         alpha_optimizer_state=alpha_optimizer_state,
@@ -198,9 +210,9 @@ def train(
     make_policy = sac_networks.make_inference_fn(sac_network)
 
     alpha_optimizer = optax.adam(learning_rate=3e-4)
-
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
+    crl_critics_optimizer = optax.adam(learning_rate=3e-4)
 
     dummy_obs = jnp.zeros((unroll_length, obs_size))
     dummy_action = jnp.zeros((unroll_length, action_size))
@@ -218,7 +230,7 @@ def train(
         sample_batch_size=batch_size * grad_updates_per_step // device_count,
     )
 
-    alpha_loss, critic_loss, actor_loss = sac_losses.make_losses(
+    alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
         sac_network=sac_network,
         reward_scaling=reward_scaling,
         discounting=discounting,
@@ -237,6 +249,11 @@ def train(
     actor_update = (
         gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
             actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+        )
+    )
+    crl_critic_update = (
+        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
         )
     )
 
@@ -275,6 +292,11 @@ def train(
             key_actor,
             optimizer_state=training_state.policy_optimizer_state,
         )
+        crl_critic_loss, crl_critic_params, crl_critic_state = crl_critic_update(
+            training_state.crl_critic_params,
+            transitions,
+            optimizer_state=training_state.crl_critic_optimizer_state,
+        )
 
         new_target_q_params = jax.tree_util.tree_map(
             lambda x, y: x * (1 - tau) + y * tau,
@@ -287,6 +309,7 @@ def train(
             "actor_loss": actor_loss,
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params),
+            "crl_critic_loss": crl_critic_loss,
         }
 
         new_training_state = TrainingState(
@@ -300,6 +323,8 @@ def train(
             alpha_optimizer_state=alpha_optimizer_state,
             alpha_params=alpha_params,
             normalizer_params=training_state.normalizer_params,
+            crl_critic_params=crl_critic_params,
+            crl_critic_optimizer_state=crl_critic_state,
         )
         return (new_training_state, key), metrics
 
@@ -478,6 +503,7 @@ def train(
         alpha_optimizer=alpha_optimizer,
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
+        crl_critics_optimizer=crl_critics_optimizer
     )
     del global_key
 
