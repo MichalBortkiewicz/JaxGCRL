@@ -120,8 +120,7 @@ def make_losses(
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
         )
-        # TODO: ewentualnie tutaj rozbić z paramsów na sa_encoder i na g_encoder
-        # TODO: we should use positive and negative samples here
+        # TODO: we should use positive and negative samples here (all from one batch)
         sa_repr = sa_encoder.apply(
             sa_encoder_params,
             jnp.concatenate(

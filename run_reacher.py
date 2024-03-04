@@ -24,7 +24,7 @@ if __name__ == "__main__":
         learning_rate=3e-4,
         # For debug purposes
         num_envs=16,
-        batch_size=8,
+        batch_size=16,
         seed=0,
     )
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
             self.y_data_err = {}
             self.times = [datetime.now()]
 
-            self.max_x, self.min_x = 0, num_timesteps*1.1
+            self.max_x, self.min_x = num_timesteps*1.1, 0
 
         def record(self, num_steps, metrics):
             self.times.append(datetime.now())
@@ -80,13 +80,17 @@ if __name__ == "__main__":
             pass
         else:
             metrics["training/crl_critic_loss"] = 0
+        if "training/critic_loss" in metrics.keys():
+            pass
+        else:
+            metrics["training/critic_loss"] = 0
 
         metrics_recorder.record(
             num_steps,
             {
                 key: value
                 for key, value in metrics.items()
-                if key in ["eval/episode_reward", "training/crl_critic_loss"]
+                if key in ["eval/episode_reward", "training/crl_critic_loss", "training/critic_loss"]
             },
         )
 

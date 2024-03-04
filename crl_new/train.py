@@ -390,7 +390,9 @@ def train(
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
+        # Sampling of transitions
         buffer_state, transitions = replay_buffer.sample(buffer_state)
+
         # Change the front dimension of transitions so 'update_step' is called
         # grad_updates_per_step times by the scan.
         transitions = jax.tree_util.tree_map(
