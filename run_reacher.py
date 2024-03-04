@@ -1,14 +1,14 @@
 import functools
 from datetime import datetime
 
-from brax import envs
 from matplotlib import pyplot as plt
 
 from crl_new.train import train
+from reacher import Reacher
 
 if __name__ == "__main__":
-    env_name = 'reacher'
-    env = envs.get_environment(env_name)
+
+    env = Reacher()
 
     num_timesteps = 1000000
     train_fn = functools.partial(
@@ -24,7 +24,7 @@ if __name__ == "__main__":
         learning_rate=3e-4,
         # For debug purposes
         num_envs=16,
-        batch_size=16,
+        batch_size=32,
         seed=0,
     )
 
@@ -49,9 +49,6 @@ if __name__ == "__main__":
 
                 self.y_data[key].append(value)
                 self.y_data_err[key].append(metrics.get(f"{key}_std", 0))
-
-            self.plot_progress()
-            self.print_times()
 
         def plot_progress(self):
             fig, axs = plt.subplots(len(self.y_data), 1, figsize=(10, 5 * len(self.y_data)))
@@ -93,5 +90,7 @@ if __name__ == "__main__":
                 if key in ["eval/episode_reward", "training/crl_critic_loss", "training/critic_loss"]
             },
         )
+        metrics_recorder.plot_progress()
+        metrics_recorder.print_times()
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
