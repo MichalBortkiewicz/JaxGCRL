@@ -1,5 +1,6 @@
 import functools
 import time
+from collections import namedtuple
 from typing import Any, Callable, Optional, Tuple, Union
 
 from absl import logging
@@ -369,6 +370,51 @@ def train(
         buffer_state = replay_buffer.insert(buffer_state, data)
         return normalizer_params, env_state, buffer_state
 
+    @jax.jit
+    def flatten_fn(transition: Transition) -> Transition:
+        # TODO: move outside
+        Config = namedtuple("Config", "discount obs_dim start_index end_index")
+        config = Config(discount=0.99, obs_dim=10, start_index=0, end_index=9)
+        crl=False
+
+        seq_len = transition.observation.shape[0]  # Because it's jitted and vmaped it's shape is (T,obs_dim)
+        arrangement = jnp.arange(seq_len)
+        is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
+        discount = config.discount ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
+        probs = is_future_mask * discount
+
+        if crl:
+            goal_index = random.categorical(random.PRNGKey(0), jnp.log(probs))
+            goal = transition.observation[:, :config.obs_dim]
+            # TODO: probably use start_index and end_index if needed
+            goal = jnp.take(goal, goal_index[:-1], axis=0)
+        else:
+            goal = transition.observation[:-1, config.obs_dim:]
+
+        state = transition.observation[:-1, :config.obs_dim]
+        next_state = transition.observation[1:, :config.obs_dim]
+        new_obs = jnp.concatenate([state, goal], axis=1)
+        new_next_obs = jnp.concatenate([next_state, goal], axis=1)
+
+        extras = {
+            "next_action": transition.action[1:],
+            "policy_extras": {},
+            "state_extras": {
+                "truncation": transition.extras["state_extras"]["truncation"][:-1]
+            },
+        }
+        transition = Transition(
+            observation=new_obs,
+            action=transition.action[:-1],
+            reward=transition.reward[:-1],
+            discount=transition.discount[:-1],
+            next_observation=new_next_obs,
+            extras=extras,
+        )
+        shift = random.randint(random.PRNGKey(0), (1,), 0, seq_len)
+        transition = jax.tree_map(lambda t: jnp.roll(t, shift[0], axis=0), transition)
+        return transition
+
     def training_step(
         training_state: TrainingState,
         env_state: envs.State,
@@ -392,6 +438,9 @@ def train(
 
         # Sampling of transitions
         buffer_state, transitions = replay_buffer.sample(buffer_state)
+
+        flatten_func = jax.vmap(flatten_fn)
+        transitions = flatten_func(transitions)
 
         # Change the front dimension of transitions so 'update_step' is called
         # grad_updates_per_step times by the scan.
