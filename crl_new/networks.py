@@ -37,6 +37,8 @@ class SACNetworks:
     parametric_action_distribution: distribution.ParametricDistribution
     sa_encoder: networks.FeedForwardNetwork
     g_encoder: networks.FeedForwardNetwork
+    crl_policy_network: networks.FeedForwardNetwork
+    crl_parametric_action_distribution: distribution.ParametricDistribution
 
 
 def make_inference_fn(sac_networks: SACNetworks):
@@ -101,10 +103,24 @@ def make_sac_networks(
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
+
+    crl_parametric_action_distribution = distribution.NormalTanhDistribution(
+        event_size=action_size
+    )
+    crl_policy_network = networks.make_policy_network(
+        parametric_action_distribution.param_size,
+        observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=hidden_layer_sizes,
+        activation=activation,
+    )
+
     return SACNetworks(
         policy_network=policy_network,
         q_network=q_network,
         parametric_action_distribution=parametric_action_distribution,
         sa_encoder=sa_encoder,
         g_encoder=g_encoder,
+        crl_policy_network=crl_policy_network,
+        crl_parametric_action_distribution=crl_parametric_action_distribution,
     )

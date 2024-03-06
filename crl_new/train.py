@@ -138,6 +138,8 @@ class TrainingState:
     normalizer_params: running_statistics.RunningStatisticsState
     crl_critic_params: Params
     crl_critic_optimizer_state: optax.OptState
+    crl_policy_params: Params
+    crl_policy_optimizer_state: optax.OptState
 
 
 def _unpmap(v):
@@ -153,6 +155,7 @@ def _init_training_state(
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
     crl_critics_optimizer: optax.GradientTransformation,
+    crl_policy_optimizer: optax.GradientTransformation
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
     key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
@@ -170,6 +173,8 @@ def _init_training_state(
     crl_critic_state = crl_critics_optimizer.init(
         crl_critic_params
     )
+    crl_policy_params = sac_network.crl_policy_network.init(key_policy)
+    crl_policy_state = crl_policy_optimizer.init(crl_policy_params)
 
     normalizer_params = running_statistics.init_state(
         specs.Array((obs_size,), jnp.dtype("float32"))
@@ -188,6 +193,8 @@ def _init_training_state(
         normalizer_params=normalizer_params,
         crl_critic_optimizer_state=crl_critic_state,
         crl_critic_params=crl_critic_params,
+        crl_policy_params=crl_policy_params,
+        crl_policy_optimizer_state=crl_policy_state,
     )
     return jax.device_put_replicated(
         training_state, jax.local_devices()[:local_devices_to_use]
@@ -303,6 +310,7 @@ def train(
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
     crl_critics_optimizer = optax.adam(learning_rate=3e-4)
+    crl_actor_optimizer = optax.adam(learning_rate=3e-4)
 
     dummy_obs = jnp.zeros((unroll_length, obs_size))
     dummy_action = jnp.zeros((unroll_length, action_size))
@@ -328,7 +336,7 @@ def train(
             sample_batch_size=batch_size * grad_updates_per_step // device_count,
         )
 
-    alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
+    alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss = sac_losses.make_losses(
         sac_network=sac_network,
         reward_scaling=reward_scaling,
         discounting=discounting,
@@ -354,6 +362,11 @@ def train(
             crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
         )
     )
+    crl_actor_update = (
+        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+            crl_actor_loss, crl_actor_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+        )
+    )
 
     def sgd_step(
         carry: Tuple[TrainingState, PRNGKey], transitions: Transition
@@ -362,10 +375,19 @@ def train(
 
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
-        crl_critic_loss, crl_critic_params, crl_critic_state = crl_critic_update(
+        crl_critic_loss, crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
+            training_state.normalizer_params,
             transitions,
             optimizer_state=training_state.crl_critic_optimizer_state,
+        )
+        crl_actor_loss, crl_policy_params, crl_policy_optimizer_state = crl_actor_update(
+            training_state.crl_policy_params,
+            training_state.normalizer_params,
+            training_state.crl_critic_params,
+            transitions,
+            key_actor,
+            optimizer_state=training_state.crl_policy_optimizer_state,
         )
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
@@ -408,6 +430,7 @@ def train(
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params),
             "crl_critic_loss": crl_critic_loss,
+            "crl_actor_loss": crl_actor_loss,
         }
 
         new_training_state = TrainingState(
@@ -422,7 +445,9 @@ def train(
             alpha_params=alpha_params,
             normalizer_params=training_state.normalizer_params,
             crl_critic_params=crl_critic_params,
-            crl_critic_optimizer_state=crl_critic_state,
+            crl_critic_optimizer_state=crl_critic_optimizer_state,
+            crl_policy_params=crl_policy_params,
+            crl_policy_optimizer_state=crl_policy_optimizer_state,
         )
         return (new_training_state, key), metrics
 
@@ -601,7 +626,8 @@ def train(
         alpha_optimizer=alpha_optimizer,
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
-        crl_critics_optimizer=crl_critics_optimizer
+        crl_critics_optimizer=crl_critics_optimizer,
+        crl_policy_optimizer=crl_actor_optimizer
     )
     del global_key
 

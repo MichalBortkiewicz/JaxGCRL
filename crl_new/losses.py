@@ -28,6 +28,8 @@ def make_losses(
     parametric_action_distribution = sac_network.parametric_action_distribution
     sa_encoder = sac_network.sa_encoder
     g_encoder = sac_network.g_encoder
+    crl_policy_network = sac_network.crl_policy_network
+    crl_parametric_action_distribution = sac_network.crl_parametric_action_distribution
 
     def alpha_loss(
         log_alpha: jnp.ndarray,
@@ -141,4 +143,32 @@ def make_losses(
         )  # shape[0] - is a batch size
         return loss
 
-    return alpha_loss, critic_loss, actor_loss, crl_critic_loss
+    def crl_actor_loss(
+        crl_policy_params: Params,
+        normalizer_params: Any,
+        crl_critic_params: Params,
+        transitions: Transition,
+        key: PRNGKey,
+    ):
+        # TODO: make generic
+        obs_dim = 10
+        dist_params = crl_policy_network.apply(
+            normalizer_params, crl_policy_params, transitions.observation
+        )
+        actions = crl_parametric_action_distribution.sample_no_postprocessing(dist_params, key)
+        sa_encoder_params, g_encoder_params = (
+            crl_critic_params["sa_encoder"],
+            crl_critic_params["g_encoder"],
+        )
+        sa_repr = sa_encoder.apply(
+            normalizer_params,
+            sa_encoder_params,
+            jnp.concatenate([transitions.observation[:, :obs_dim], actions], axis=-1),
+        )
+        g_repr = g_encoder.apply(
+            normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
+        )
+        logits = einsum("ik,ik->i", sa_repr, g_repr)
+        return jnp.mean(-1.0 * logits)
+
+    return alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss
