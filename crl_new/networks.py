@@ -1,12 +1,34 @@
-from typing import Sequence, Tuple
+from typing import Callable, Sequence, Tuple
 
+import flax
+import jax.numpy as jnp
 from brax.training import distribution
 from brax.training import networks
 from brax.training import types
 from brax.training.types import PRNGKey
-import flax
 from flax import linen
 
+
+def make_embedder(
+    layer_sizes: Sequence[int],
+    obs_size: int,
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = linen.swish,
+    preprocess_observations_fn: types.PreprocessObservationFn = types,
+) -> networks.FeedForwardNetwork:
+
+    """Creates a model."""
+    dummy_obs = jnp.zeros((1, obs_size))
+    module = networks.MLP(layer_sizes=layer_sizes, activation=activation)
+
+    # TODO: should we have a function to preprocess the observations?
+    def apply(processor_params, policy_params, obs):
+        # obs = preprocess_observations_fn(obs, processor_params)
+        return module.apply(policy_params, obs)
+
+    model = networks.FeedForwardNetwork(
+        init=lambda rng: module.init(rng, dummy_obs), apply=apply
+    )
+    return model
 
 @flax.struct.dataclass
 class SACNetworks:
@@ -65,15 +87,19 @@ def make_sac_networks(
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
     )
-    sa_encoder = networks.make_model(
+
+    # TODO: refactor observation sizes
+    sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=observation_size + action_size,
+        obs_size=observation_size//2 + action_size,
         activation=activation,
+        preprocess_observations_fn=preprocess_observations_fn,
     )
-    g_encoder = networks.make_model(
+    g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=observation_size,
+        obs_size=observation_size//2,
         activation=activation,
+        preprocess_observations_fn=preprocess_observations_fn,
     )
     return SACNetworks(
         policy_network=policy_network,
