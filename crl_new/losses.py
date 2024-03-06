@@ -1,3 +1,4 @@
+# import functools
 from typing import Any
 
 from brax.training import types
@@ -120,14 +121,11 @@ def make_losses(
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
         )
-        # TODO: we should use positive and negative samples here (all from one batch)
         sa_repr = sa_encoder.apply(
             sa_encoder_params,
-            jnp.concatenate(
-                [transitions.observation[:, 0, :], transitions.action[:, 0, :]], axis=-1
-            ),
+            jnp.concatenate([transitions.observation, transitions.action], axis=-1),
         )
-        g_repr = g_encoder.apply(g_encoder_params, transitions.next_observation[:, 0, :])
+        g_repr = g_encoder.apply(g_encoder_params, transitions.next_observation)
         logits = einsum("ik,jk->ij", sa_repr, g_repr)
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=eye(logits.shape[0]))
