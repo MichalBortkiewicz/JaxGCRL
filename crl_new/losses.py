@@ -115,17 +115,26 @@ def make_losses(
 
     def crl_critic_loss(
         crl_critic_params: Params,
+        normalizer_params: Any,
         transitions: Transition,
     ):
+        # TODO: make generic
+        obs_dim = 10
+
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
         )
         sa_repr = sa_encoder.apply(
+            normalizer_params,
             sa_encoder_params,
-            jnp.concatenate([transitions.observation, transitions.action], axis=-1),
+            jnp.concatenate(
+                [transitions.observation[:, :obs_dim], transitions.action], axis=-1
+            ),
         )
-        g_repr = g_encoder.apply(g_encoder_params, transitions.next_observation)
+        g_repr = g_encoder.apply(
+            normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
+        )
         logits = einsum("ik,jk->ij", sa_repr, g_repr)
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=eye(logits.shape[0]))

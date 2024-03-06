@@ -68,7 +68,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     @staticmethod
     @jax.jit
     def flatten_fn(transition: Transition) -> Transition:
-        # TODO: take only one transition from here
+        # TODO: we can take more transitions, but they will be from the same trajectory
         # TODO: move outside
         Config = namedtuple("Config", "discount obs_dim start_index end_index")
         config = Config(discount=0.99, obs_dim=10, start_index=0, end_index=9)
@@ -119,8 +119,6 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             next_observation=jnp.squeeze(new_next_obs[id_transition_to_take]),
             extras=extras,
         )
-        # shift = random.randint(random.PRNGKey(0), (1,), 0, seq_len)
-        # transition = jax.tree_map(lambda t: jnp.roll(t, shift[0], axis=0), transition)
         return transition
 
 
