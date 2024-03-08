@@ -2,22 +2,11 @@
 
 ## Repo installation
 
-1. Create an Anaconda environment: `conda create -n contrastive_rl python=3.9 -y`
+1. Create an Anaconda environment: `conda create -n contrastive_rl python=3.10 -y`
 2. Activate the environment: `conda activate contrastive_rl`
-3. Install the dependencies: `pip install -r requirements.txt --no-deps`
-4. Install acme from source:
-   1. Clone the acme repository: `git clone https://github.com/google-deepmind/acme.git`
-   2. Enter acme folder and run: `pip install .[jax,tf,testing,envs]`
-3. Check that the humanoid environment is working: `MUJOCO_GL=egl python humanoid_mj3.py`
-4. Probably update some packages: ![img.png](imgs/img2.png)
-
-Additional things (probably not necessary):
-![img.png](imgs/img.png)
-
-Add to PATH environment path:
-```bash
-<path_to_env\>/contrastive_rl/bin
-```
+3. Install conda dependencies: `conda install -c conda-forge cudatoolkit cudatoolkit-dev cudnn nvidia/label/cuda-12.4.0::libcublas cuda-nvcc cuda-python`
+4. Install jax `pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html`
+5. Install other the dependencies: `pip install -r requirements.txt`
 
 
 ## Old stuff

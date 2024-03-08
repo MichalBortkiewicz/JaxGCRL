@@ -158,6 +158,7 @@ class ContrastiveBuilder(builders.ActorLearnerBuilder):
             # 3. Sample one of the future states. Note that we don't look for a goal
             # for the final state, because there are no future states.
             goal = sample.data.observation[:, : self._config.obs_dim]
+            # This basically strips further the observation (if goal is smaller than the state)
             goal = contrastive_utils.obs_to_goal_2d(
                 goal,
                 start_index=self._config.start_index,
