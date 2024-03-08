@@ -10,7 +10,6 @@ from brax.io import model
 from brax.training import acting
 from brax.training import gradients
 from brax.training import pmap
-from brax.training import replay_buffers
 from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
@@ -28,8 +27,7 @@ import optax
 from jax import random
 
 # For debug purposes
-CRL_RB = True
-CRL_GOAL_SAMPLING = False
+CRL_TRAINING = True
 
 Metrics = types.Metrics
 Transition = types.Transition
@@ -86,7 +84,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         probs = is_future_mask * discount
 
         # TODO: probably use start_index and end_index if needed
-        if CRL_GOAL_SAMPLING:
+        if CRL_TRAINING:
             goal_index = random.categorical(random.PRNGKey(0), jnp.log(probs))
             goal = transition.observation[:, : config.obs_dim]
             goal = jnp.take(goal, goal_index[:-1], axis=0)
@@ -230,7 +228,7 @@ def train(
     randomization_fn: Optional[
         Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
     ] = None,
-    unroll_length: int = 3,
+    unroll_length: int = 25,
     num_minibatches: int = 4
 ):
     """SAC training."""
@@ -323,18 +321,11 @@ def train(
         extras={"state_extras": {"truncation": jnp.zeros((unroll_length,))}, "policy_extras": {}},
     )
 
-    if CRL_RB:
-        replay_buffer = TrajectoryUniformSamplingQueue(
-            max_replay_size=max_replay_size // device_count,
-            dummy_data_sample=dummy_transition,
-            sample_batch_size=batch_size * grad_updates_per_step // device_count,
-        )
-    else:
-        replay_buffer = replay_buffers.UniformSamplingQueue(
-            max_replay_size=max_replay_size // device_count,
-            dummy_data_sample=dummy_transition,
-            sample_batch_size=batch_size * grad_updates_per_step // device_count,
-        )
+    replay_buffer = TrajectoryUniformSamplingQueue(
+        max_replay_size=max_replay_size // device_count,
+        dummy_data_sample=dummy_transition,
+        sample_batch_size=batch_size * grad_updates_per_step // device_count,
+    )
 
     alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss = sac_losses.make_losses(
         sac_network=sac_network,
@@ -373,7 +364,18 @@ def train(
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
+        # TODO: separate keys for crl?
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
+
+        alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
+            training_state.alpha_params,
+            training_state.policy_params,
+            training_state.normalizer_params,
+            transitions,
+            key_alpha,
+            optimizer_state=training_state.alpha_optimizer_state,
+        )
+        alpha = jnp.exp(training_state.alpha_params)
 
         crl_critic_loss, crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
@@ -385,19 +387,12 @@ def train(
             training_state.crl_policy_params,
             training_state.normalizer_params,
             training_state.crl_critic_params,
+            alpha,
             transitions,
             key_actor,
             optimizer_state=training_state.crl_policy_optimizer_state,
         )
-        alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
-            training_state.alpha_params,
-            training_state.policy_params,
-            training_state.normalizer_params,
-            transitions,
-            key_alpha,
-            optimizer_state=training_state.alpha_optimizer_state,
-        )
-        alpha = jnp.exp(training_state.alpha_params)
+
         critic_loss, q_params, q_optimizer_state = critic_update(
             training_state.q_params,
             training_state.policy_params,
@@ -454,6 +449,7 @@ def train(
     def get_experience(
         normalizer_params: running_statistics.RunningStatisticsState,
         policy_params: Params,
+        crl_policy_params: Params,
         env_state: Union[envs.State, envs_v1.State],
         buffer_state: ReplayBufferState,
         key: PRNGKey,
@@ -462,7 +458,10 @@ def train(
         Union[envs.State, envs_v1.State],
         ReplayBufferState,
     ]:
-        policy = make_policy((normalizer_params, policy_params))
+        if CRL_TRAINING:
+            policy = make_policy((normalizer_params, crl_policy_params))
+        else:
+            policy = make_policy((normalizer_params, policy_params))
 
         def f(carry, unused_t):
             current_state, current_key = carry
@@ -504,6 +503,7 @@ def train(
         normalizer_params, env_state, buffer_state = get_experience(
             training_state.normalizer_params,
             training_state.policy_params,
+            training_state.crl_policy_params,
             env_state,
             buffer_state,
             experience_key,
@@ -540,6 +540,7 @@ def train(
             new_normalizer_params, env_state, buffer_state = get_experience(
                 training_state.normalizer_params,
                 training_state.policy_params,
+                training_state.crl_policy_params,
                 env_state,
                 buffer_state,
                 key,
