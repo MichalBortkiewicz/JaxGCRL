@@ -6,7 +6,9 @@ import mujoco
 from brax import envs
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from crl_new.train import train
+from brax.training.agents.ppo.train import train
+# from crl_new.train import train
+
 from etils import epath
 from jax import numpy as jp
 from matplotlib import pyplot as plt
@@ -154,11 +156,8 @@ if __name__ == "__main__":
         discounting=0.97,
         learning_rate=3e-4,
         entropy_cost=1e-3,
-        # num_envs=2048,
-        # batch_size=1024,
-        # For debug purposes
-        num_envs=1,
-        batch_size=16,
+        num_envs=2048,
+        batch_size=1024,
         seed=0,
     )
 
