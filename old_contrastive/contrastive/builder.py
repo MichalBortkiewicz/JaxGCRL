@@ -15,25 +15,14 @@
 
 """Contrastive RL builder."""
 import functools
-from typing import Callable, Iterator, List, Optional
 
-import acme
-from acme import adders
-from acme import core
-from acme import specs
 from acme import types
 from acme.adders import reverb as adders_reverb
 from acme.agents.jax import actor_core as actor_core_lib
 from acme.agents.jax import actors
 from acme.agents.jax import builders
-from acme.jax import networks as networks_lib
 from acme.jax import variable_utils
-from acme.utils import counting
-from acme.utils import loggers
-from contrastive import config as contrastive_config
-from contrastive import learning
-from contrastive import networks as contrastive_networks
-from contrastive import utils as contrastive_utils
+from old_contrastive.contrastive import learning, utils as contrastive_utils
 import optax
 import reverb
 from reverb import rate_limiters

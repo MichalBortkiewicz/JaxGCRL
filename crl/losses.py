@@ -2,7 +2,7 @@
 from typing import Any
 
 from brax.training import types
-from crl_new import networks as sac_networks
+from crl import networks as sac_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax

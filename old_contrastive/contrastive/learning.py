@@ -15,7 +15,7 @@
 
 """Contrastive RL learner implementation."""
 import time
-from typing import Any, Dict, Iterator, List, NamedTuple, Optional, Tuple, Callable
+from typing import NamedTuple, Optional
 
 import acme
 from acme import types
@@ -23,12 +23,9 @@ from acme.jax import networks as networks_lib
 from acme.jax import utils
 from acme.utils import counting
 from acme.utils import loggers
-from contrastive import config as contrastive_config
-from contrastive import networks as contrastive_networks
 import jax
 import jax.numpy as jnp
 import optax
-import reverb
 
 
 class TrainingState(NamedTuple):
