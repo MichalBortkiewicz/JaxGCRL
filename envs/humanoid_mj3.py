@@ -15,6 +15,7 @@ from matplotlib import pyplot as plt
 from mujoco import mjx
 
 
+# TODO: not yet for CRL (no goal in state)
 class Humanoid(PipelineEnv):
     def __init__(
         self,

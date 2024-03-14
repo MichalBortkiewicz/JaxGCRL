@@ -713,7 +713,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy.
                 params = _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
+                    (training_state.normalizer_params, training_state.crl_policy_params)
                 )
                 path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
                 model.save_params(path, params)
@@ -721,7 +721,7 @@ def train(
             # Run evals.
             metrics = evaluator.run_evaluation(
                 _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
+                    (training_state.normalizer_params, training_state.crl_policy_params)
                 ),
                 training_metrics,
             )
@@ -731,7 +731,7 @@ def train(
     total_steps = current_step
     assert total_steps >= num_timesteps
 
-    params = _unpmap((training_state.normalizer_params, training_state.policy_params))
+    params = _unpmap((training_state.normalizer_params, training_state.crl_policy_params))
 
     # If there was no mistakes the training_state should still be identical on all
     # devices.

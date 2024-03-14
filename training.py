@@ -1,38 +1,61 @@
+import argparse
 import functools
+import os
+
+import jax
 import wandb
+from brax.io import model
+from brax.io import html
+
 
 from crl.train import train
 from envs.reacher import Reacher
 from utils import MetricsRecorder
 
-if __name__ == "__main__":
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Training script arguments')
+    parser.add_argument('--exp_name', type=str, default="test", help='Name of the experiment')
+    parser.add_argument('--num_timesteps', type=int, default=1000000, help='Number of training timesteps')
+    parser.add_argument('--max_replay_size', type=int, default=100000, help='Maximum size of replay buffer')
+    parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
+    parser.add_argument('--reward_scaling', type=float, default=0.1, help='Scaling factor for rewards')
+    parser.add_argument('--episode_length', type=int, default=50, help='Maximum length of each episode')
+    parser.add_argument('--normalize_observations', type=bool, default=True, help='Whether to normalize observations')
+    parser.add_argument('--action_repeat', type=int, default=1, help='Number of times to repeat each action')
+    parser.add_argument('--grad_updates_per_step', type=int, default=2, help='Number of gradient updates per step')
+    parser.add_argument('--discounting', type=float, default=0.97, help='Discounting factor for rewards')
+    parser.add_argument('--learning_rate', type=float, default=3e-4, help='Learning rate for the optimizer')
+    parser.add_argument('--num_envs', type=int, default=2048, help='Number of environments')
+    parser.add_argument('--batch_size', type=int, default=512, help='Batch size for training')
+    parser.add_argument('--seed', type=int, default=0, help='Seed for reproducibility')
+    parser.add_argument('--unroll_length', type=int, default=50, help='Length of the env unroll')
+    return parser.parse_args()
 
-    wandb.init(project="crl", name="reacher-test")
+if __name__ == "__main__":
+    args = parse_arguments()
+    wandb.init(project="crl", name=args.exp_name, config=vars(args))
 
     env = Reacher()
 
-    num_timesteps = 1000000
     train_fn = functools.partial(
         train,
-        num_timesteps=num_timesteps,
-        max_replay_size=100000,
-        num_evals=50,
-        reward_scaling=0.1,
-        episode_length=50,
-        normalize_observations=True,
-        action_repeat=1,
-        grad_updates_per_step=2,
-        discounting=0.97,
-        learning_rate=3e-4,
-        # For debug purposes
-        num_envs=2048,
-        batch_size=512,
-        seed=0,
-        unroll_length=50
+        num_timesteps=args.num_timesteps,
+        max_replay_size=args.max_replay_size,
+        num_evals=args.num_evals,
+        reward_scaling=args.reward_scaling,
+        episode_length=args.episode_length,
+        normalize_observations=args.normalize_observations,
+        action_repeat=args.action_repeat,
+        grad_updates_per_step=args.grad_updates_per_step,
+        discounting=args.discounting,
+        learning_rate=args.learning_rate,
+        num_envs=args.num_envs,
+        batch_size=args.batch_size,
+        seed=args.seed,
+        unroll_length=args.unroll_length
     )
 
-
-    metrics_recorder = MetricsRecorder(num_timesteps)
+    metrics_recorder = MetricsRecorder(args.num_timesteps)
 
     def ensure_metric(metrics, key):
         if key not in metrics:
@@ -53,8 +76,9 @@ if __name__ == "__main__":
             num_steps,
             {key: value for key, value in metrics.items() if key in metrics_to_collect},
         )
-        metrics_recorder.plot_progress()
         metrics_recorder.log_wandb()
-        # metrics_recorder.print_times()
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
+
+    os.makedirs("./params", exist_ok=True)
+    model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
