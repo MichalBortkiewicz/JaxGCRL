@@ -23,7 +23,7 @@ def parse_arguments():
     parser.add_argument('--normalize_observations', type=bool, default=True, help='Whether to normalize observations')
     parser.add_argument('--action_repeat', type=int, default=1, help='Number of times to repeat each action')
     parser.add_argument('--grad_updates_per_step', type=int, default=2, help='Number of gradient updates per step')
-    parser.add_argument('--discounting', type=float, default=0.97, help='Discounting factor for rewards')
+    parser.add_argument('--discounting', type=float, default=0.99, help='Discounting factor for rewards')
     parser.add_argument('--learning_rate', type=float, default=3e-4, help='Learning rate for the optimizer')
     parser.add_argument('--num_envs', type=int, default=2048, help='Number of environments')
     parser.add_argument('--batch_size', type=int, default=512, help='Batch size for training')
@@ -67,6 +67,11 @@ if __name__ == "__main__":
         "training/critic_loss",
         "training/crl_actor_loss",
         "training/actor_loss",
+        "training/binary_accuracy",
+        "training/categorical_accuracy",
+        "training/logits_pos",
+        "training/logits_neg",
+        "training/logsumexp",
     ]
 
     def progress(num_steps, metrics):
@@ -77,6 +82,7 @@ if __name__ == "__main__":
             {key: value for key, value in metrics.items() if key in metrics_to_collect},
         )
         metrics_recorder.log_wandb()
+        metrics_recorder.plot_progress()
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 

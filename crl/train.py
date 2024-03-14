@@ -350,7 +350,7 @@ def train(
     )
     crl_critic_update = (
         gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
         )
     )
     crl_actor_update = (
@@ -377,7 +377,7 @@ def train(
         )
         alpha = jnp.exp(training_state.alpha_params)
 
-        crl_critic_loss, crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
+        (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
             training_state.normalizer_params,
             transitions,
@@ -427,6 +427,7 @@ def train(
             "crl_critic_loss": crl_critic_loss,
             "crl_actor_loss": crl_actor_loss,
         }
+        metrics.update(metrics_crl)
 
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,

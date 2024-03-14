@@ -141,7 +141,24 @@ def make_losses(
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=eye(logits.shape[0]))
         )  # shape[0] - is a batch size
-        return loss
+
+        I = jnp.eye(logits.shape[0])
+        correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
+        logits_pos = jnp.sum(logits * I) / jnp.sum(I)
+        logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
+        if len(logits.shape) == 3:
+            logsumexp = jax.nn.logsumexp(logits[:, :, 0], axis=1) ** 2
+        else:
+            logsumexp = jax.nn.logsumexp(logits, axis=1) ** 2
+        metrics = {
+            "binary_accuracy": jnp.mean((logits > 0) == I),
+            "categorical_accuracy": jnp.mean(correct),
+            "logits_pos": logits_pos,
+            "logits_neg": logits_neg,
+            "logsumexp": logsumexp.mean(),
+        }
+
+        return loss, metrics
 
     def crl_actor_loss(
         crl_policy_params: Params,
