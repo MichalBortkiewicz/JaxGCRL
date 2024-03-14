@@ -4,7 +4,7 @@ from datetime import datetime
 from matplotlib import pyplot as plt
 
 from crl_new.train import train
-from reacher import Reacher
+from new_envs.reacher import Reacher
 
 if __name__ == "__main__":
 
