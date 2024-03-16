@@ -61,14 +61,16 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         transitions = self._unflatten_fn(batch)
         batch_keys = jax.random.split(sample_key, self._sample_batch_size)
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_fn, in_axes=(0, 0))(transitions, batch_keys)
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
     @jax.jit
-    def flatten_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
+    def flatten_to_s_a_g_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
         # TODO: we can take more transitions, but they will be from the same trajectory
         # TODO: move outside
+        goal_key, transition_key = jax.random.split(sample_key)
+
         Config = namedtuple("Config", "discount obs_dim start_index end_index")
         config = Config(discount=0.99, obs_dim=10, start_index=0, end_index=9)
 
@@ -86,7 +88,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         # TODO: probably use start_index and end_index if needed
         if CRL_TRAINING:
-            goal_index = random.categorical(sample_key, jnp.log(probs))
+            goal_index = random.categorical(goal_key, jnp.log(probs))
             goal = transition.observation[:, : config.obs_dim]
             goal = jnp.take(goal, goal_index[:-1], axis=0)
         else:
@@ -97,7 +99,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         new_obs = jnp.concatenate([state, goal], axis=1)
         new_next_obs = jnp.concatenate([next_state, goal], axis=1)
 
-        id_transition_to_take = random.randint(random.PRNGKey(0), (1,), 0, seq_len - 1)
+        id_transition_to_take = random.randint(transition_key, (1,), 0, seq_len - 1)
         extras = {
             "next_action": jnp.squeeze(transition.action[1:][id_transition_to_take]),
             "policy_extras": {},
