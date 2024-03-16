@@ -40,7 +40,7 @@ class SACNetworks:
     crl_policy_network: networks.FeedForwardNetwork
     crl_parametric_action_distribution: distribution.ParametricDistribution
 
-
+# TODO: here
 def make_inference_fn(sac_networks: SACNetworks):
     """Creates params and inference function for the SAC agent."""
 
@@ -50,11 +50,11 @@ def make_inference_fn(sac_networks: SACNetworks):
         def policy(
             observations: types.Observation, key_sample: PRNGKey
         ) -> Tuple[types.Action, types.Extra]:
-            logits = sac_networks.policy_network.apply(*params, observations)
+            logits = sac_networks.crl_policy_network.apply(*params, observations)
             if deterministic:
-                return sac_networks.parametric_action_distribution.mode(logits), {}
+                return sac_networks.crl_parametric_action_distribution.mode(logits), {}
             return (
-                sac_networks.parametric_action_distribution.sample(logits, key_sample),
+                sac_networks.crl_parametric_action_distribution.sample(logits, key_sample),
                 {},
             )
 
@@ -93,13 +93,13 @@ def make_sac_networks(
     # TODO: refactor observation sizes
     sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=observation_size//2 + action_size,
+        obs_size=2 + action_size,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
     g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=observation_size//2,
+        obs_size=2,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
@@ -108,7 +108,7 @@ def make_sac_networks(
         event_size=action_size
     )
     crl_policy_network = networks.make_policy_network(
-        parametric_action_distribution.param_size,
+        crl_parametric_action_distribution.param_size,
         observation_size,
         preprocess_observations_fn=preprocess_observations_fn,
         hidden_layer_sizes=hidden_layer_sizes,

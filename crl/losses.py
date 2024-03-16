@@ -174,7 +174,7 @@ def make_losses(
             normalizer_params, crl_policy_params, transitions.observation
         )
         actions = crl_parametric_action_distribution.sample_no_postprocessing(dist_params, key)
-        log_prob = parametric_action_distribution.log_prob(dist_params, actions)
+        log_prob = crl_parametric_action_distribution.log_prob(dist_params, actions)
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
@@ -188,6 +188,7 @@ def make_losses(
             normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
         )
         logits = einsum("ik,ik->i", sa_repr, g_repr)
+        alpha=alpha*0
         return jnp.mean(alpha * log_prob - 1.0 * logits)
 
     return alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss
