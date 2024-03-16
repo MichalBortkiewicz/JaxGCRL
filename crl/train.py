@@ -159,7 +159,7 @@ def _init_training_state(
     crl_policy_optimizer: optax.GradientTransformation
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
+    key_policy, key_q, key_sa_enc, key_g_enc, key_policy_crl = jax.random.split(key, 5)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -174,7 +174,7 @@ def _init_training_state(
     crl_critic_state = crl_critics_optimizer.init(
         crl_critic_params
     )
-    crl_policy_params = sac_network.crl_policy_network.init(key_policy)
+    crl_policy_params = sac_network.crl_policy_network.init(key_policy_crl)
     crl_policy_state = crl_policy_optimizer.init(crl_policy_params)
 
     normalizer_params = running_statistics.init_state(
@@ -368,17 +368,17 @@ def train(
         training_state, key = carry
 
         # TODO: separate keys for crl?
-        key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
+        key, key_alpha, key_critic, key_actor, key_crl_actor = jax.random.split(key, 5)
 
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
-            training_state.policy_params,
+            training_state.crl_policy_params,
             training_state.normalizer_params,
             transitions,
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
-        alpha = jnp.exp(training_state.alpha_params)
+        alpha = jnp.exp(training_state.alpha_params) * 0
 
         (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
@@ -392,7 +392,7 @@ def train(
             training_state.crl_critic_params,
             alpha,
             transitions,
-            key_actor,
+            key_crl_actor,
             optimizer_state=training_state.crl_policy_optimizer_state,
         )
 
@@ -674,7 +674,7 @@ def train(
     metrics = {}
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(
-            _unpmap((training_state.normalizer_params, training_state.policy_params)),
+            _unpmap((training_state.normalizer_params, training_state.crl_policy_params)),
             training_metrics={},
         )
         logging.info(metrics)
