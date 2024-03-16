@@ -175,6 +175,7 @@ def make_losses(
         )
         actions = crl_parametric_action_distribution.sample_no_postprocessing(dist_params, key)
         log_prob = crl_parametric_action_distribution.log_prob(dist_params, actions)
+        actions = crl_parametric_action_distribution.postprocess(actions)
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
