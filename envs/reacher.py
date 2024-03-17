@@ -57,8 +57,15 @@ class Reacher(PipelineEnv):
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
 
+        target_pos = pipeline_state.x.pos[2]
+        tip_pos = (
+            pipeline_state.x.take(1)
+            .do(base.Transform.create(pos=jp.array([0.11, 0, 0])))
+            .pos
+        )
         # vector from tip to target is last 3 entries of obs vector
-        reward_dist = -math.safe_norm(obs[-3:])
+        tip_to_target = tip_pos - target_pos
+        reward_dist = -math.safe_norm(tip_to_target)
         reward = reward_dist
 
         state.metrics.update(
@@ -89,9 +96,9 @@ class Reacher(PipelineEnv):
                 tip_pos,
                 tip_vel,
                 # target/goal
-                jp.zeros(4),
+                # jp.zeros(4),
                 target_pos,
-                jp.zeros(3),
+                # jp.zeros(3),
             ]
         )
 
