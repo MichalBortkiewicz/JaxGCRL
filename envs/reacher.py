@@ -59,12 +59,10 @@ class Reacher(PipelineEnv):
 
         # vector from tip to target is last 3 entries of obs vector
         reward_dist = -math.safe_norm(obs[-3:])
-        reward_ctrl = -jp.square(action).sum()
-        reward = reward_dist + reward_ctrl
+        reward = reward_dist
 
         state.metrics.update(
             reward_dist=reward_dist,
-            reward_ctrl=reward_ctrl,
         )
 
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
