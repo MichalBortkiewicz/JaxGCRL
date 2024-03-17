@@ -29,7 +29,7 @@ class Debug(PipelineEnv):
         super().__init__(sys=sys, backend=backend, **kwargs)
 
     def reset(self, rng: jax.Array) -> State:
-        rng, rng1, rng2 = jax.random.split(rng, 3)
+        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         q = self.sys.init_q + jax.random.uniform(
             rng1, (self.sys.q_size(),), minval=-0.1, maxval=0.1
@@ -46,6 +46,7 @@ class Debug(PipelineEnv):
         pipeline_state = self.pipeline_init(q, qd)
 
         obs = self._get_obs(pipeline_state)
+
         reward, done, zero = jp.zeros(3)
         metrics = {
             "reward_dist": zero,
@@ -54,8 +55,10 @@ class Debug(PipelineEnv):
         return State(pipeline_state, obs, reward, done, metrics)
 
     def step(self, state: State, action: jax.Array) -> State:
+
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
+        obs += state.obs + jp.array([0,1,0,1])
 
         # vector from tip to target is last 3 entries of obs vector
         reward_dist = -math.safe_norm(obs[-3:])
@@ -71,33 +74,28 @@ class Debug(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Returns egocentric observation of target and arm body."""
-        theta = pipeline_state.q[:2]
-        target_pos = pipeline_state.x.pos[2]
-        tip_pos = (
-            pipeline_state.x.take(1)
-            .do(base.Transform.create(pos=jp.array([0.11, 0, 0])))
-            .pos
-        )
-        tip_vel = (
-            base.Transform.create(pos=jp.array([0.11, 0, 0]))
-            .do(pipeline_state.xd.take(1))
-            .vel
-        )
-        tip_to_target = tip_pos - target_pos
-
         return jp.concatenate(
             [
-                # state
-                jp.cos(theta),
-                jp.sin(theta),
-                tip_pos,
-                tip_vel,
-                # tip_to_target,
-                # target/goal
-                # TODO: repair
-                jp.zeros(4),
-                target_pos,
-                jp.zeros(3),
+                jp.array(
+                    [
+                        0,
+                    ]
+                ),
+                jp.array(
+                    [
+                        0,
+                    ]
+                ),
+                jp.array(
+                    [
+                        0,
+                    ]
+                ),
+                jp.array(
+                    [
+                        0,
+                    ]
+                ),
             ]
         )
 
