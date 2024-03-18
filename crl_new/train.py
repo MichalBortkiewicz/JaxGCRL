@@ -31,7 +31,6 @@ ReplayBufferState = Any
 
 _PMAP_AXIS_NAME = "i"
 
-
 @flax.struct.dataclass
 class TrainingState:
     """Contains training state for the learner."""
@@ -314,15 +313,31 @@ def train(
         ReplayBufferState,
     ]:
         policy = make_policy((normalizer_params, policy_params))
-        env_state, transitions = acting.actor_step(
-            env, env_state, policy, key, extra_fields=("truncation",)
-        )
 
+        @jax.jit
+        def f(carry, unused_t):
+            env_state, current_key = carry
+            current_key, next_key = jax.random.split(current_key)
+            env_state, transition = acting.actor_step(
+                env, env_state, policy, current_key, extra_fields=("truncation",))
+            return (env_state, next_key), transition
+
+        (env_state, _), data = jax.lax.scan(
+            f, (env_state, key), (), length=5)
+
+        print("1. Obs shape", data.observation.shape)
+        # data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
+        data = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data)
+        print("2. Obs shape", data.observation.shape)
         normalizer_params = running_statistics.update(
-            normalizer_params, transitions.observation, pmap_axis_name=_PMAP_AXIS_NAME
+            normalizer_params, data.observation, pmap_axis_name=_PMAP_AXIS_NAME
         )
+        # jax.debug.print("Data observation : {x}" , x=data.observation)
+        # jax.debug.print("Data next_observation : {x}", x=data.next_observation)
+        # jax.debug.print("Data truncation  : {x}", x=data.extras["state_extras"]["truncation"])
+        # jax.debug.print("Data reward  : {x}", x=data.reward)
 
-        buffer_state = replay_buffer.insert(buffer_state, transitions)
+        buffer_state = replay_buffer.insert(buffer_state, data)
         return normalizer_params, env_state, buffer_state
 
     def training_step(
@@ -347,6 +362,8 @@ def train(
         )
 
         buffer_state, transitions = replay_buffer.sample(buffer_state)
+        print(transitions.observation.shape)
+        print(transitions.action.shape)
         # Change the front dimension of transitions so 'update_step' is called
         # grad_updates_per_step times by the scan.
         transitions = jax.tree_util.tree_map(

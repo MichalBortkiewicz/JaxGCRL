@@ -27,7 +27,7 @@ import optax
 from jax import random
 
 # For debug purposes
-CRL_TRAINING = False
+CRL_TRAINING = True
 
 Metrics = types.Metrics
 Transition = types.Transition
@@ -378,7 +378,7 @@ def train(
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
-        alpha = jnp.exp(training_state.alpha_params) * 0
+        alpha = jnp.exp(training_state.alpha_params)
 
         (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
@@ -468,21 +468,21 @@ def train(
             policy = make_policy((normalizer_params, policy_params))
 
         def f(carry, unused_t):
-            current_state, current_key = carry
+            env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
-            next_state, data = acting.generate_unroll(
+            env_state, data = acting.generate_unroll(
                 env,
-                current_state,
+                env_state,
                 policy,
                 current_key,
                 unroll_length,
                 extra_fields=("truncation",),
             )
-            return (next_state, next_key), data
+            return (env_state, next_key), data
 
         # Generate unroll_length rollouts in parallel.
-        (state, _), data = jax.lax.scan(
-            f, (env_state, key), (), length=batch_size * num_minibatches // num_envs
+        (env_state, _), data = jax.lax.scan(
+            f, (env_state, key), (), length=1
         )
         # To have leading dimensions (batch_size * num_minibatches, unroll_length)
         data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
