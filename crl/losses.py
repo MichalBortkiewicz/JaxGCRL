@@ -137,6 +137,11 @@ def make_losses(
         g_repr = g_encoder.apply(
             normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
         )
+        jax.debug.print("States and actions: {x} 🥶", x=jnp.concatenate(
+                [transitions.observation[:, :obs_dim], transitions.action], axis=-1
+            ))
+        jax.debug.print("Goals: {x} 🥶", x=transitions.observation[:, obs_dim:])
+
         logits = einsum("ik,jk->ij", sa_repr, g_repr)
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=eye(logits.shape[0]))
@@ -174,8 +179,11 @@ def make_losses(
             normalizer_params, crl_policy_params, transitions.observation
         )
         actions = crl_parametric_action_distribution.sample_no_postprocessing(dist_params, key)
+        jax.debug.print("Actions: {x} 💩", x=actions)
         log_prob = crl_parametric_action_distribution.log_prob(dist_params, actions)
         actions = crl_parametric_action_distribution.postprocess(actions)
+        jax.debug.print("Log probs: {x} 🤩", x=log_prob)
+        jax.debug.print("Actions processed: {x} 💩", x=actions)
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
@@ -190,6 +198,7 @@ def make_losses(
         )
         logits = einsum("ik,ik->i", sa_repr, g_repr)
         alpha=alpha*0
+        jax.debug.print("Logits: {x} 💩", x=logits)
         return jnp.mean(alpha * log_prob - 1.0 * logits)
 
     return alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss

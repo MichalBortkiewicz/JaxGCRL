@@ -27,7 +27,7 @@ import optax
 from jax import random
 
 # For debug purposes
-CRL_TRAINING = True
+CRL_TRAINING = False
 
 Metrics = types.Metrics
 Transition = types.Transition
@@ -89,7 +89,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         # TODO: probably use start_index and end_index if needed
         if CRL_TRAINING:
             goal_index = random.categorical(goal_key, jnp.log(probs))
-            goal = transition.observation[:, : config.obs_dim]
+            goal = transition.observation[:, 5: 8]
             goal = jnp.take(goal, goal_index[:-1], axis=0)
         else:
             goal = transition.observation[:-1, config.obs_dim :]
@@ -670,11 +670,15 @@ def train(
         key=eval_key,
     )
 
+    if CRL_TRAINING:
+        policy = training_state.crl_policy_params
+    else:
+        policy = training_state.policy_params
     # Run initial eval
     metrics = {}
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(
-            _unpmap((training_state.normalizer_params, training_state.crl_policy_params)),
+            _unpmap((training_state.normalizer_params, policy)),
             training_metrics={},
         )
         logging.info(metrics)
@@ -717,7 +721,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy.
                 params = _unpmap(
-                    (training_state.normalizer_params, training_state.crl_policy_params)
+                    (training_state.normalizer_params, policy)
                 )
                 path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
                 model.save_params(path, params)
@@ -725,7 +729,7 @@ def train(
             # Run evals.
             metrics = evaluator.run_evaluation(
                 _unpmap(
-                    (training_state.normalizer_params, training_state.crl_policy_params)
+                    (training_state.normalizer_params, policy)
                 ),
                 training_metrics,
             )
@@ -735,7 +739,7 @@ def train(
     total_steps = current_step
     assert total_steps >= num_timesteps
 
-    params = _unpmap((training_state.normalizer_params, training_state.crl_policy_params))
+    params = _unpmap((training_state.normalizer_params, policy))
 
     # If there was no mistakes the training_state should still be identical on all
     # devices.

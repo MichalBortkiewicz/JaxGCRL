@@ -119,13 +119,13 @@ def make_sac_networks(
     # TODO: refactor observation sizes
     sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=2 + action_size,
+        obs_size=10 + action_size,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
     g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [repr_dim],
-        obs_size=2,
+        obs_size=3,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
