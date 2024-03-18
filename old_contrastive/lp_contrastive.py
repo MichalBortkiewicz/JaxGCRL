@@ -25,12 +25,11 @@ Run using multi-threading
 
 """
 import functools
-from typing import Any, Dict
 
 from absl import app
 from absl import flags
-import contrastive
-from contrastive import utils as contrastive_utils
+from old_contrastive import contrastive
+from old_contrastive.contrastive import utils as contrastive_utils
 import launchpad as lp
 import logging
 

@@ -24,7 +24,7 @@ from acme.wrappers import canonical_spec
 from acme.wrappers import gym_wrapper
 from acme.wrappers import step_limit
 import dm_env
-from old_envs import env_utils
+from old_contrastive.old_envs import env_utils
 import jax
 import numpy as np
 

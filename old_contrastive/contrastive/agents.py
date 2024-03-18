@@ -16,19 +16,13 @@
 """Defines distributed contrastive RL agents, using JAX."""
 
 import functools
-from typing import Callable, Optional, Sequence
+from typing import Callable
 
 from acme import specs
 from acme.jax import utils
 from acme.utils import loggers
-from contrastive import builder
-from contrastive import config as contrastive_config
-from contrastive import distributed_layout
-from contrastive import networks
-from contrastive import utils as contrastive_utils
-
-import dm_env
-
+from old_contrastive.contrastive import distributed_layout
+from old_contrastive.contrastive import utils as contrastive_utils, builder, networks
 
 NetworkFactory = Callable[[specs.EnvironmentSpec], networks.ContrastiveNetworks]
 

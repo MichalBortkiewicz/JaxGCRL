@@ -7,7 +7,7 @@ from brax import envs
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from brax.training.agents.ppo.train import train
-# from crl_new.train import train
+# from crl.train import train
 
 from etils import epath
 from jax import numpy as jp
@@ -15,6 +15,7 @@ from matplotlib import pyplot as plt
 from mujoco import mjx
 
 
+# TODO: not yet for CRL (no goal in state)
 class Humanoid(PipelineEnv):
     def __init__(
         self,

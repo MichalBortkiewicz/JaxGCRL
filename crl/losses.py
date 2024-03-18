@@ -2,7 +2,7 @@
 from typing import Any
 
 from brax.training import types
-from crl_new import networks as sac_networks
+from crl import networks as sac_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax
@@ -141,7 +141,24 @@ def make_losses(
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=eye(logits.shape[0]))
         )  # shape[0] - is a batch size
-        return loss
+
+        I = jnp.eye(logits.shape[0])
+        correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
+        logits_pos = jnp.sum(logits * I) / jnp.sum(I)
+        logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
+        if len(logits.shape) == 3:
+            logsumexp = jax.nn.logsumexp(logits[:, :, 0], axis=1) ** 2
+        else:
+            logsumexp = jax.nn.logsumexp(logits, axis=1) ** 2
+        metrics = {
+            "binary_accuracy": jnp.mean((logits > 0) == I),
+            "categorical_accuracy": jnp.mean(correct),
+            "logits_pos": logits_pos,
+            "logits_neg": logits_neg,
+            "logsumexp": logsumexp.mean(),
+        }
+
+        return loss, metrics
 
     def crl_actor_loss(
         crl_policy_params: Params,
@@ -157,7 +174,8 @@ def make_losses(
             normalizer_params, crl_policy_params, transitions.observation
         )
         actions = crl_parametric_action_distribution.sample_no_postprocessing(dist_params, key)
-        log_prob = parametric_action_distribution.log_prob(dist_params, actions)
+        log_prob = crl_parametric_action_distribution.log_prob(dist_params, actions)
+        actions = crl_parametric_action_distribution.postprocess(actions)
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
@@ -171,6 +189,7 @@ def make_losses(
             normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
         )
         logits = einsum("ik,ik->i", sa_repr, g_repr)
+        alpha=alpha*0
         return jnp.mean(alpha * log_prob - 1.0 * logits)
 
     return alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss

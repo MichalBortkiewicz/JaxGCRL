@@ -10,3 +10,4 @@ chex==0.1.85
 brax==0.10.0
 dm-haiku==0.0.11
 matplotlib
+wandb

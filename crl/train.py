@@ -15,8 +15,8 @@ from brax.training.acme import running_statistics
 from brax.training.acme import specs
 from brax.training.replay_buffers import QueueBase, Sample
 
-from crl_new import losses as sac_losses
-from crl_new import networks as sac_networks
+from crl import losses as sac_losses
+from crl import networks as sac_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 from brax.v1 import envs as envs_v1
@@ -60,14 +60,17 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
 
         transitions = self._unflatten_fn(batch)
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_fn)(transitions)
+        batch_keys = jax.random.split(sample_key, self._sample_batch_size)
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
     @jax.jit
-    def flatten_fn(transition: Transition) -> Transition:
+    def flatten_to_s_a_g_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
         # TODO: we can take more transitions, but they will be from the same trajectory
         # TODO: move outside
+        goal_key, transition_key = jax.random.split(sample_key)
+
         Config = namedtuple("Config", "discount obs_dim start_index end_index")
         config = Config(discount=0.99, obs_dim=10, start_index=0, end_index=9)
 
@@ -85,7 +88,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         # TODO: probably use start_index and end_index if needed
         if CRL_TRAINING:
-            goal_index = random.categorical(random.PRNGKey(0), jnp.log(probs))
+            goal_index = random.categorical(goal_key, jnp.log(probs))
             goal = transition.observation[:, : config.obs_dim]
             goal = jnp.take(goal, goal_index[:-1], axis=0)
         else:
@@ -96,7 +99,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         new_obs = jnp.concatenate([state, goal], axis=1)
         new_next_obs = jnp.concatenate([next_state, goal], axis=1)
 
-        id_transition_to_take = random.randint(random.PRNGKey(0), (1,), 0, seq_len - 1)
+        id_transition_to_take = random.randint(transition_key, (1,), 0, seq_len - 1)
         extras = {
             "next_action": jnp.squeeze(transition.action[1:][id_transition_to_take]),
             "policy_extras": {},
@@ -156,7 +159,7 @@ def _init_training_state(
     crl_policy_optimizer: optax.GradientTransformation
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
+    key_policy, key_q, key_sa_enc, key_g_enc, key_policy_crl = jax.random.split(key, 5)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -171,7 +174,7 @@ def _init_training_state(
     crl_critic_state = crl_critics_optimizer.init(
         crl_critic_params
     )
-    crl_policy_params = sac_network.crl_policy_network.init(key_policy)
+    crl_policy_params = sac_network.crl_policy_network.init(key_policy_crl)
     crl_policy_state = crl_policy_optimizer.init(crl_policy_params)
 
     normalizer_params = running_statistics.init_state(
@@ -350,7 +353,7 @@ def train(
     )
     crl_critic_update = (
         gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
         )
     )
     crl_actor_update = (
@@ -365,19 +368,19 @@ def train(
         training_state, key = carry
 
         # TODO: separate keys for crl?
-        key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
+        key, key_alpha, key_critic, key_actor, key_crl_actor = jax.random.split(key, 5)
 
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
-            training_state.policy_params,
+            training_state.crl_policy_params,
             training_state.normalizer_params,
             transitions,
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
-        alpha = jnp.exp(training_state.alpha_params)
+        alpha = jnp.exp(training_state.alpha_params) * 0
 
-        crl_critic_loss, crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
+        (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
             training_state.normalizer_params,
             transitions,
@@ -389,7 +392,7 @@ def train(
             training_state.crl_critic_params,
             alpha,
             transitions,
-            key_actor,
+            key_crl_actor,
             optimizer_state=training_state.crl_policy_optimizer_state,
         )
 
@@ -427,6 +430,7 @@ def train(
             "crl_critic_loss": crl_critic_loss,
             "crl_actor_loss": crl_actor_loss,
         }
+        metrics.update(metrics_crl)
 
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,
@@ -670,7 +674,7 @@ def train(
     metrics = {}
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(
-            _unpmap((training_state.normalizer_params, training_state.policy_params)),
+            _unpmap((training_state.normalizer_params, training_state.crl_policy_params)),
             training_metrics={},
         )
         logging.info(metrics)
@@ -713,7 +717,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy.
                 params = _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
+                    (training_state.normalizer_params, training_state.crl_policy_params)
                 )
                 path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
                 model.save_params(path, params)
@@ -721,7 +725,7 @@ def train(
             # Run evals.
             metrics = evaluator.run_evaluation(
                 _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
+                    (training_state.normalizer_params, training_state.crl_policy_params)
                 ),
                 training_metrics,
             )
@@ -731,7 +735,7 @@ def train(
     total_steps = current_step
     assert total_steps >= num_timesteps
 
-    params = _unpmap((training_state.normalizer_params, training_state.policy_params))
+    params = _unpmap((training_state.normalizer_params, training_state.crl_policy_params))
 
     # If there was no mistakes the training_state should still be identical on all
     # devices.
