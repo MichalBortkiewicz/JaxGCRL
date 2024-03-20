@@ -10,6 +10,7 @@ from brax.io import html
 
 # from crl.train import train
 from crl_new.train import train
+from envs.debug_env import Debug
 from envs.reacher import Reacher
 from utils import MetricsRecorder
 

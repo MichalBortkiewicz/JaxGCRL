@@ -1,6 +1,6 @@
 import functools
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union, Generic
 
 from absl import logging
 from brax import base
@@ -9,10 +9,12 @@ from brax.io import model
 from brax.training import acting
 from brax.training import gradients
 from brax.training import pmap
-from brax.training import replay_buffers
 from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
+from brax.training.replay_buffers import QueueBase, Sample
+from jax import random
+
 from crl_new import losses as sac_losses
 from crl_new import networks as sac_networks
 from brax.training.types import Params
@@ -30,6 +32,63 @@ InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
 ReplayBufferState = Any
 
 _PMAP_AXIS_NAME = "i"
+
+
+class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
+    """Implements an uniform sampling limited-size replay queue BUT WITH TRAJECTORIES."""
+
+
+    def sample_internal(
+        self, buffer_state: ReplayBufferState
+    ) -> Tuple[ReplayBufferState, Sample]:
+        if buffer_state.data.shape != self._data_shape:
+            raise ValueError(
+                f"Data shape expected by the replay buffer ({self._data_shape}) does "
+                f"not match the shape of the buffer state ({buffer_state.data.shape})"
+            )
+
+        key, sample_key = jax.random.split(buffer_state.key)
+        idx = jax.random.randint(
+            sample_key,
+            (self._sample_batch_size,),
+            minval=buffer_state.sample_position,
+            maxval=buffer_state.insert_position,
+        )
+        batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
+
+        transitions = self._unflatten_fn(batch)
+        batch_keys = jax.random.split(sample_key, self._sample_batch_size)
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
+        return buffer_state.replace(key=key), transitions
+
+    @staticmethod
+    @jax.jit
+    def flatten_to_s_a_g_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
+        goal_key, transition_key = jax.random.split(sample_key)
+
+        id_transition_to_take = random.randint(transition_key, (1,), 0, 4-1)  # unroll length
+        extras = {
+            "next_action": jnp.squeeze(transition.action[id_transition_to_take]),
+            "policy_extras": {},
+            "state_extras": {
+                "truncation": jnp.squeeze(
+                    transition.extras["state_extras"]["truncation"][
+                        id_transition_to_take
+                    ]
+                )
+            },
+        }
+
+        transition = Transition(
+            observation=jnp.squeeze(transition.observation[id_transition_to_take]),
+            action=jnp.squeeze(transition.action[id_transition_to_take]),
+            reward=jnp.squeeze(transition.reward[id_transition_to_take]),
+            discount=jnp.squeeze(transition.discount[id_transition_to_take]),
+            next_observation=jnp.squeeze(transition.next_observation[id_transition_to_take]),
+            extras=extras,
+        )
+        return transition
+
 
 @flax.struct.dataclass
 class TrainingState:
@@ -200,17 +259,17 @@ def train(
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
 
-    dummy_obs = jnp.zeros((obs_size,))
-    dummy_action = jnp.zeros((action_size,))
+    dummy_obs = jnp.zeros((unroll_length, obs_size))
+    dummy_action = jnp.zeros((unroll_length, action_size))
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
-        reward=0.0,
-        discount=0.0,
+        reward=jnp.zeros((unroll_length,)),
+        discount=jnp.zeros((unroll_length,)),
         next_observation=dummy_obs,
-        extras={"state_extras": {"truncation": 0.0}, "policy_extras": {}},
+        extras={"state_extras": {"truncation": jnp.zeros((unroll_length,))}, "policy_extras": {}},
     )
-    replay_buffer = replay_buffers.UniformSamplingQueue(
+    replay_buffer = TrajectoryUniformSamplingQueue(
         max_replay_size=max_replay_size // device_count,
         dummy_data_sample=dummy_transition,
         sample_batch_size=batch_size * grad_updates_per_step // device_count,
@@ -323,15 +382,18 @@ def train(
             return (env_state, next_key), transition
 
         (env_state, _), data = jax.lax.scan(
-            f, (env_state, key), (), length=5)
+            f, (env_state, key), (), length=unroll_length)
 
         print("1. Obs shape", data.observation.shape)
-        # data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
-        data = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data)
-        print("2. Obs shape", data.observation.shape)
         normalizer_params = running_statistics.update(
-            normalizer_params, data.observation, pmap_axis_name=_PMAP_AXIS_NAME
+            normalizer_params,
+            jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
+            ).observation,  # so that batch size*unroll_length is the first dimension
+            pmap_axis_name=_PMAP_AXIS_NAME,
         )
+        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
+        print("2. Obs shape processed", data.observation.shape)
         # jax.debug.print("Data observation : {x}" , x=data.observation)
         # jax.debug.print("Data next_observation : {x}", x=data.next_observation)
         # jax.debug.print("Data truncation  : {x}", x=data.extras["state_extras"]["truncation"])
