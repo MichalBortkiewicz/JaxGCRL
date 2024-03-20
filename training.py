@@ -1,6 +1,7 @@
 import argparse
 import functools
 import os
+from collections import namedtuple
 
 import jax
 import wandb
@@ -39,6 +40,36 @@ if __name__ == "__main__":
 
     env = Reacher()
 
+    DEBUG = isinstance(env, Debug)
+    Config = namedtuple(
+        "Config",
+        "debug discount obs_dim start_index end_index goal_start_idx goal_end_idx unroll_length episode_length",
+    )
+    if DEBUG:
+        CONFIG = Config(
+            debug=True,
+            discount=0.99,
+            obs_dim=2,
+            start_index=0,
+            end_index=2,
+            goal_start_idx=0,
+            goal_end_idx=2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+        )
+    else:
+        CONFIG = Config(
+            debug=False,
+            discount=0.99,
+            obs_dim=10,
+            start_index=0,
+            end_index=10,
+            goal_start_idx=4,
+            goal_end_idx=7,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+        )
+
     train_fn = functools.partial(
         train,
         num_timesteps=args.num_timesteps,
@@ -54,7 +85,8 @@ if __name__ == "__main__":
         num_envs=args.num_envs,
         batch_size=args.batch_size,
         seed=args.seed,
-        unroll_length=args.unroll_length
+        unroll_length=args.unroll_length,
+        config=CONFIG
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
