@@ -57,8 +57,6 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
 
         transitions = self._unflatten_fn(batch)
-        batch_keys = jax.random.split(sample_key, self._sample_batch_size)
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
@@ -66,7 +64,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     def flatten_to_s_a_g_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
         goal_key, transition_key = jax.random.split(sample_key)
 
-        id_transition_to_take = random.randint(transition_key, (1,), 0, 4-1)  # unroll length
+        id_transition_to_take = random.randint(transition_key, (1,), 0, 2-1)  # unroll length
         extras = {
             "next_action": jnp.squeeze(transition.action[id_transition_to_take]),
             "policy_extras": {},
@@ -302,6 +300,11 @@ def train(
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
+        batch_keys = jax.random.split(key, batch_size)
+        print("3. Obs shape", transitions.observation.shape)
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
+        print("4. Obs shape", transitions.observation.shape)
+
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
@@ -384,7 +387,6 @@ def train(
         (env_state, _), data = jax.lax.scan(
             f, (env_state, key), (), length=unroll_length)
 
-        print("1. Obs shape", data.observation.shape)
         normalizer_params = running_statistics.update(
             normalizer_params,
             jax.tree_util.tree_map(
@@ -393,7 +395,7 @@ def train(
             pmap_axis_name=_PMAP_AXIS_NAME,
         )
         data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
-        print("2. Obs shape processed", data.observation.shape)
+
         # jax.debug.print("Data observation : {x}" , x=data.observation)
         # jax.debug.print("Data next_observation : {x}", x=data.next_observation)
         # jax.debug.print("Data truncation  : {x}", x=data.extras["state_extras"]["truncation"])
@@ -424,14 +426,14 @@ def train(
         )
 
         buffer_state, transitions = replay_buffer.sample(buffer_state)
-        print(transitions.observation.shape)
-        print(transitions.action.shape)
         # Change the front dimension of transitions so 'update_step' is called
         # grad_updates_per_step times by the scan.
+        print("1. Obs shape", transitions.observation.shape)
         transitions = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
             transitions,
         )
+        print("2. Obs shape processed", transitions.observation.shape)
         (training_state, _), metrics = jax.lax.scan(
             sgd_step, (training_state, training_key), transitions
         )
