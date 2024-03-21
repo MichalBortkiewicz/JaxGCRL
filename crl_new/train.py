@@ -96,7 +96,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         seq_len = transition.observation.shape[
             0
-        ]  # Because it's jitted and vmaped it's shape is (T,obs_dim)
+        ]  # Because it's jitted and vmaped transition obs.shape is (T,obs_dim)
         arrangement = jnp.arange(seq_len)
         is_future_mask = jnp.array(
             arrangement[:, None] < arrangement[None], dtype=jnp.float32
@@ -106,13 +106,13 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         )
         probs = is_future_mask * discount
 
-        jax.debug.print("Truncation : {x}", x=transition.extras["state_extras"]["truncation"])
+        # jax.debug.print("Truncation : {x}", x=transition.extras["state_extras"]["truncation"])
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
 
         goal = transition.observation[:, config.goal_start_idx: config.goal_end_idx]
         goal = jnp.take(goal, goal_index[:-1], axis=0)
-        jax.debug.print("goal_index : {x}", x=goal_index)
+        # jax.debug.print("goal_index : {x}", x=goal_index)
 
         state = transition.observation[:-1, : config.obs_dim]
         next_state = transition.observation[1:, : config.obs_dim]
@@ -120,7 +120,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         new_next_obs = jnp.concatenate([next_state, goal], axis=1)
 
         id_transition_to_take = random.randint(transition_key, (1,), 0, seq_len - 1)
-        jax.debug.print("id_transition_to_take : {x}", x=id_transition_to_take)
+        # jax.debug.print("id_transition_to_take : {x}", x=id_transition_to_take)
         extras = {
             "next_action": jnp.squeeze(transition.action[1:][id_transition_to_take]),
             "policy_extras": {},
@@ -160,6 +160,8 @@ class TrainingState:
     alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
 
+    crl_critic_params: Params
+    crl_critic_optimizer_state: optax.OptState
 
 def _unpmap(v):
     return jax.tree_util.tree_map(lambda x: x[0], v)
@@ -173,9 +175,10 @@ def _init_training_state(
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
+    crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q = jax.random.split(key)
+    key_policy, key_q, key_sa_enc, key_g_enc= jax.random.split(key, 4)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -186,6 +189,13 @@ def _init_training_state(
 
     normalizer_params = running_statistics.init_state(
         specs.Array((obs_size,), jnp.dtype("float32"))
+    )
+
+    sa_encoder_params = sac_network.sa_encoder.init(key_sa_enc)
+    g_encoder_params = sac_network.g_encoder.init(key_g_enc)
+    crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
+    crl_critic_state = crl_critics_optimizer.init(
+        crl_critic_params
     )
 
     training_state = TrainingState(
@@ -199,6 +209,8 @@ def _init_training_state(
         alpha_optimizer_state=alpha_optimizer_state,
         alpha_params=log_alpha,
         normalizer_params=normalizer_params,
+        crl_critic_optimizer_state=crl_critic_state,
+        crl_critic_params=crl_critic_params,
     )
     return jax.device_put_replicated(
         training_state, jax.local_devices()[:local_devices_to_use]
@@ -258,7 +270,7 @@ def train(
         max_replay_size = num_timesteps
 
     # The number of environment steps executed for every `actor_step()` call.
-    env_steps_per_actor_step = action_repeat * num_envs
+    env_steps_per_actor_step = action_repeat * num_envs * unroll_length # TODO: * unroll_length
     # equals to ceil(min_replay_size / env_steps_per_actor_step)
     num_prefill_actor_steps = -(-min_replay_size // num_envs)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
@@ -304,6 +316,7 @@ def train(
     if normalize_observations:
         normalize_fn = running_statistics.normalize
     sac_network = network_factory(
+        config=config,
         observation_size=obs_size,
         action_size=action_size,
         preprocess_observations_fn=normalize_fn,
@@ -314,6 +327,7 @@ def train(
 
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
+    crl_critics_optimizer = optax.adam(learning_rate=3e-4)
 
     dummy_obs = jnp.zeros((unroll_length, obs_size))
     dummy_action = jnp.zeros((unroll_length, action_size))
@@ -331,7 +345,8 @@ def train(
         sample_batch_size=batch_size * grad_updates_per_step // device_count,
     )
 
-    alpha_loss, critic_loss, actor_loss = sac_losses.make_losses(
+    alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
+        config=config,
         sac_network=sac_network,
         reward_scaling=reward_scaling,
         discounting=discounting,
@@ -352,6 +367,11 @@ def train(
             actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
         )
     )
+    crl_critic_update = (
+        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
+        )
+    )
 
     def sgd_step(
         carry: Tuple[TrainingState, PRNGKey], transitions: Transition
@@ -359,12 +379,12 @@ def train(
         training_state, key = carry
 
         batch_keys = jax.random.split(key, batch_size)
-        print("3. Obs shape", transitions.observation.shape)
+        # print("3. Obs shape", transitions.observation.shape)
         transitions_sac = jax.vmap(TrajectoryUniformSamplingQueue.flatten_sac_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
         transitions_crl = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
-        print("4. Obs shape", transitions_sac.observation.shape)
-        print("5. Obs CRL shape", transitions_crl.observation.shape)
-        jax.debug.print("Transitions CRL observation : {x} 🤩", x=transitions_crl.observation)
+        # print("4. Obs shape", transitions_sac.observation.shape)
+        # print("5. Obs CRL shape", transitions_crl.observation.shape)
+        # jax.debug.print("Transitions CRL observation : {x} 🤩", x=transitions_crl.observation)
 
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
@@ -377,6 +397,13 @@ def train(
             optimizer_state=training_state.alpha_optimizer_state,
         )
         alpha = jnp.exp(training_state.alpha_params)
+        (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
+            training_state.crl_critic_params,
+            training_state.normalizer_params,
+            transitions_crl,
+            optimizer_state=training_state.crl_critic_optimizer_state,
+        )
+
         critic_loss, q_params, q_optimizer_state = critic_update(
             training_state.q_params,
             training_state.policy_params,
@@ -408,7 +435,9 @@ def train(
             "actor_loss": actor_loss,
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params),
+            "crl_critic_loss": crl_critic_loss,
         }
+        metrics.update(metrics_crl)
 
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,
@@ -421,6 +450,8 @@ def train(
             alpha_optimizer_state=alpha_optimizer_state,
             alpha_params=alpha_params,
             normalizer_params=training_state.normalizer_params,
+            crl_critic_params=crl_critic_params,
+            crl_critic_optimizer_state=crl_critic_optimizer_state,
         )
         return (new_training_state, key), metrics
 
@@ -602,6 +633,7 @@ def train(
         alpha_optimizer=alpha_optimizer,
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
+        crl_critics_optimizer=crl_critics_optimizer,
     )
     del global_key
 

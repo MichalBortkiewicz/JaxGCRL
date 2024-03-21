@@ -3,11 +3,9 @@ import functools
 import os
 from collections import namedtuple
 
-import jax
 import wandb
 from brax.io import model
-from brax.io import html
-
+from pyinstrument import Profiler
 
 # from crl.train import train
 from crl_new.train import train
@@ -34,40 +32,42 @@ def parse_arguments():
     parser.add_argument('--unroll_length', type=int, default=50, help='Length of the env unroll')
     return parser.parse_args()
 
-if __name__ == "__main__":
-    args = parse_arguments()
-    wandb.init(project="crl", name=args.exp_name, config=vars(args))
+def main(args):
 
     env = Reacher()
 
     DEBUG = isinstance(env, Debug)
     Config = namedtuple(
         "Config",
-        "debug discount obs_dim start_index end_index goal_start_idx goal_end_idx unroll_length episode_length",
+        "debug discount obs_dim start_index end_index goal_start_idx goal_end_idx goal_dim unroll_length episode_length repr_dim",
     )
     if DEBUG:
         CONFIG = Config(
             debug=True,
-            discount=0.99,
+            discount=args.discounting,
             obs_dim=2,
             start_index=0,
             end_index=2,
             goal_start_idx=0,
             goal_end_idx=2,
+            goal_dim=2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
+            repr_dim=64,
         )
     else:
         CONFIG = Config(
             debug=False,
-            discount=0.99,
+            discount=args.discounting,
             obs_dim=10,
             start_index=0,
             end_index=10,
             goal_start_idx=4,
             goal_end_idx=7,
+            goal_dim=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
+            repr_dim=64,
         )
 
     train_fn = functools.partial(
@@ -122,3 +122,13 @@ if __name__ == "__main__":
 
     os.makedirs("./params", exist_ok=True)
     model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
+
+
+if __name__ == "__main__":
+    args = parse_arguments()
+    wandb.init(project="crl", name=args.exp_name, config=vars(args))
+
+    with Profiler(interval=0.1) as profiler:
+        main(args)
+    profiler.print()
+    profiler.open_in_browser()
