@@ -418,6 +418,7 @@ def train(
             training_state.policy_params,
             training_state.normalizer_params,
             training_state.q_params,
+            training_state.crl_critic_params,
             alpha,
             transitions_sac,
             key_actor,

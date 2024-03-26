@@ -4,7 +4,9 @@ import os
 from collections import namedtuple
 
 import wandb
+# from brax.envs.reacher import Reacher
 from brax.io import model
+# from brax.training.agents.sac.train import train
 from pyinstrument import Profiler
 
 # from crl.train import train
@@ -18,14 +20,15 @@ def parse_arguments():
     parser.add_argument('--exp_name', type=str, default="test", help='Name of the experiment')
     parser.add_argument('--num_timesteps', type=int, default=1000000, help='Number of training timesteps')
     parser.add_argument('--max_replay_size', type=int, default=100000, help='Maximum size of replay buffer')
+    parser.add_argument('--min_replay_size', type=int, default=8192, help='Minimum size of replay buffer')
     parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
     parser.add_argument('--reward_scaling', type=float, default=0.1, help='Scaling factor for rewards')
     parser.add_argument('--episode_length', type=int, default=50, help='Maximum length of each episode')
     parser.add_argument('--normalize_observations', type=bool, default=True, help='Whether to normalize observations')
-    parser.add_argument('--action_repeat', type=int, default=1, help='Number of times to repeat each action')
+    parser.add_argument('--action_repeat', type=int, default=2, help='Number of times to repeat each action')
     parser.add_argument('--grad_updates_per_step', type=int, default=2, help='Number of gradient updates per step')
-    parser.add_argument('--discounting', type=float, default=0.99, help='Discounting factor for rewards')
-    parser.add_argument('--learning_rate', type=float, default=3e-4, help='Learning rate for the optimizer')
+    parser.add_argument('--discounting', type=float, default=0.997, help='Discounting factor for rewards')
+    parser.add_argument('--learning_rate', type=float, default=6e-4, help='Learning rate for the optimizer')
     parser.add_argument('--num_envs', type=int, default=2048, help='Number of environments')
     parser.add_argument('--batch_size', type=int, default=512, help='Batch size for training')
     parser.add_argument('--seed', type=int, default=0, help='Seed for reproducibility')
@@ -34,15 +37,16 @@ def parse_arguments():
 
 def main(args):
 
-    env = Reacher()
+    env = Reacher(backend="spring")
 
     DEBUG = isinstance(env, Debug)
     Config = namedtuple(
         "Config",
-        "debug discount obs_dim start_index end_index goal_start_idx goal_end_idx goal_dim unroll_length episode_length repr_dim",
+        "sac debug discount obs_dim start_index end_index goal_start_idx goal_end_idx goal_dim unroll_length episode_length repr_dim",
     )
     if DEBUG:
         CONFIG = Config(
+            sac=False,
             debug=True,
             discount=args.discounting,
             obs_dim=2,
@@ -57,14 +61,15 @@ def main(args):
         )
     else:
         CONFIG = Config(
+            sac=False,
             debug=False,
             discount=args.discounting,
             obs_dim=10,
             start_index=0,
             end_index=10,
             goal_start_idx=4,
-            goal_end_idx=7,
-            goal_dim=3,
+            goal_end_idx=10,
+            goal_dim=6,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
@@ -74,6 +79,7 @@ def main(args):
         train,
         num_timesteps=args.num_timesteps,
         max_replay_size=args.max_replay_size,
+        min_replay_size=args.min_replay_size,
         num_evals=args.num_evals,
         reward_scaling=args.reward_scaling,
         episode_length=args.episode_length,

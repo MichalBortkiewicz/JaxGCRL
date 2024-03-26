@@ -29,6 +29,7 @@ def make_losses(
     g_encoder = sac_network.g_encoder
 
     obs_dim = config.obs_dim
+    SAC = config.sac
 
     def alpha_loss(
         log_alpha: jnp.ndarray,
@@ -110,11 +111,6 @@ def make_losses(
         g_repr = g_encoder.apply(
             normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
         )
-        # jax.debug.print("States and actions: {x} 🥶", x=jnp.concatenate(
-        #         [transitions.observation[:, :obs_dim], transitions.action], axis=-1
-        #     ))
-        # jax.debug.print("Goals: {x} 🥶", x=transitions.observation[:, obs_dim:])
-
         logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
         loss = jnp.mean(
             sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
@@ -143,6 +139,7 @@ def make_losses(
         policy_params: Params,
         normalizer_params: Any,
         q_params: Params,
+        crl_critic_params: Params,
         alpha: jnp.ndarray,
         transitions: Transition,
         key: PRNGKey,
@@ -155,10 +152,28 @@ def make_losses(
         )
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         action = parametric_action_distribution.postprocess(action)
-        q_action = q_network.apply(
-            normalizer_params, q_params, transitions.observation, action
-        )
-        min_q = jnp.min(q_action, axis=-1)
+
+
+        if SAC:
+            q_action = q_network.apply(
+                normalizer_params, q_params, transitions.observation, action
+            )
+            min_q = jnp.min(q_action, axis=-1)
+        else:
+            sa_encoder_params, g_encoder_params = (
+                crl_critic_params["sa_encoder"],
+                crl_critic_params["g_encoder"],
+            )
+            sa_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([transitions.observation[:, :obs_dim], action], axis=-1),
+            )
+            g_repr = g_encoder.apply(
+                normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
+            )
+            min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
+
         actor_loss = alpha * log_prob - min_q
         return jnp.mean(actor_loss)
 
