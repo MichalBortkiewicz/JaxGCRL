@@ -1,7 +1,6 @@
 import functools
 import time
-from collections import namedtuple
-from typing import Any, Callable, Optional, Tuple, Union, Generic
+from typing import Any, Callable, Optional, Tuple, Union, Generic, NamedTuple
 
 from absl import logging
 from brax import base
@@ -14,9 +13,10 @@ from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
 from brax.training.replay_buffers import QueueBase, Sample
+from jax import random
 
-from crl import losses as sac_losses
-from crl import networks as sac_networks
+from crl_new import losses as sac_losses
+from crl_new import networks as sac_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 from brax.v1 import envs as envs_v1
@@ -24,10 +24,6 @@ import flax
 import jax
 import jax.numpy as jnp
 import optax
-from jax import random
-
-# For debug purposes
-CRL_TRAINING = True
 
 Metrics = types.Metrics
 Transition = types.Transition
@@ -37,7 +33,7 @@ ReplayBufferState = Any
 
 _PMAP_AXIS_NAME = "i"
 
-# Custom Replay buffer
+
 class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     """Implements an uniform sampling limited-size replay queue BUT WITH TRAJECTORIES."""
 
@@ -60,23 +56,49 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
 
         transitions = self._unflatten_fn(batch)
-        batch_keys = jax.random.split(sample_key, self._sample_batch_size)
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_to_s_a_g_fn, in_axes=(0, 0))(transitions, batch_keys)
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
-    @jax.jit
-    def flatten_to_s_a_g_fn(transition: Transition, sample_key:PRNGKey) -> Transition:
-        # TODO: we can take more transitions, but they will be from the same trajectory
-        # TODO: move outside
+    @functools.partial(jax.jit, static_argnames="config")
+    def flatten_sac_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
         goal_key, transition_key = jax.random.split(sample_key)
 
-        Config = namedtuple("Config", "discount obs_dim start_index end_index")
-        config = Config(discount=0.99, obs_dim=10, start_index=0, end_index=9)
+        id_transition_to_take = random.randint(transition_key, (1,), 0, config.unroll_length-1)  # TODO: change unroll length
+        extras = {
+            "next_action": jnp.squeeze(transition.action[id_transition_to_take]),
+            "policy_extras": {},
+            "state_extras": {
+                "truncation": jnp.squeeze(
+                    transition.extras["state_extras"]["truncation"][
+                        id_transition_to_take
+                    ]
+                )
+            },
+        }
+
+        transition = Transition(
+            observation=jnp.squeeze(transition.observation[id_transition_to_take]),
+            action=jnp.squeeze(transition.action[id_transition_to_take]),
+            reward=jnp.squeeze(transition.reward[id_transition_to_take]),
+            discount=jnp.squeeze(transition.discount[id_transition_to_take]),
+            next_observation=jnp.squeeze(transition.next_observation[id_transition_to_take]),
+            extras=extras,
+        )
+        return transition
+
+    @staticmethod
+    @functools.partial(jax.jit, static_argnames="config")
+    def flatten_crl_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
+        # TODO: add truncation handling if unroll_length is not equal to episode_length
+        # assert config.unroll_length == config.episode_length, "Remember to handle truncation for unroll_length != episode_length"
+        assert config.unroll_length >= 50, (f"Unroll length should be greater than 50, got {config.unroll_length}\n"
+                                            f"Remember that trajectories can be scrambled when unroll_length != episode_length")
+
+        goal_key, transition_key = jax.random.split(sample_key)
 
         seq_len = transition.observation.shape[
             0
-        ]  # Because it's jitted and vmaped it's shape is (T,obs_dim)
+        ]  # Because it's jitted and vmaped transition obs.shape is (T,obs_dim)
         arrangement = jnp.arange(seq_len)
         is_future_mask = jnp.array(
             arrangement[:, None] < arrangement[None], dtype=jnp.float32
@@ -86,13 +108,13 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         )
         probs = is_future_mask * discount
 
-        # TODO: probably use start_index and end_index if needed
-        if CRL_TRAINING:
-            goal_index = random.categorical(goal_key, jnp.log(probs))
-            goal = transition.observation[:, : config.obs_dim]
-            goal = jnp.take(goal, goal_index[:-1], axis=0)
-        else:
-            goal = transition.observation[:-1, config.obs_dim :]
+        # jax.debug.print("Truncation : {x}", x=transition.extras["state_extras"]["truncation"])
+
+        goal_index = random.categorical(goal_key, jnp.log(probs))
+
+        goal = transition.observation[:, config.goal_start_idx: config.goal_end_idx]
+        goal = jnp.take(goal, goal_index[:-1], axis=0)
+        # jax.debug.print("goal_index : {x}", x=goal_index)
 
         state = transition.observation[:-1, : config.obs_dim]
         next_state = transition.observation[1:, : config.obs_dim]
@@ -100,6 +122,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         new_next_obs = jnp.concatenate([next_state, goal], axis=1)
 
         id_transition_to_take = random.randint(transition_key, (1,), 0, seq_len - 1)
+        # jax.debug.print("id_transition_to_take : {x}", x=id_transition_to_take)
         extras = {
             "next_action": jnp.squeeze(transition.action[1:][id_transition_to_take]),
             "policy_extras": {},
@@ -123,6 +146,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         return transition
 
 
+
 @flax.struct.dataclass
 class TrainingState:
     """Contains training state for the learner."""
@@ -137,11 +161,9 @@ class TrainingState:
     alpha_optimizer_state: optax.OptState
     alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
+
     crl_critic_params: Params
     crl_critic_optimizer_state: optax.OptState
-    crl_policy_params: Params
-    crl_policy_optimizer_state: optax.OptState
-
 
 def _unpmap(v):
     return jax.tree_util.tree_map(lambda x: x[0], v)
@@ -156,10 +178,9 @@ def _init_training_state(
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
     crl_critics_optimizer: optax.GradientTransformation,
-    crl_policy_optimizer: optax.GradientTransformation
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q, key_sa_enc, key_g_enc, key_policy_crl = jax.random.split(key, 5)
+    key_policy, key_q, key_sa_enc, key_g_enc= jax.random.split(key, 4)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -168,17 +189,15 @@ def _init_training_state(
     q_params = sac_network.q_network.init(key_q)
     q_optimizer_state = q_optimizer.init(q_params)
 
+    normalizer_params = running_statistics.init_state(
+        specs.Array((obs_size,), jnp.dtype("float32"))
+    )
+
     sa_encoder_params = sac_network.sa_encoder.init(key_sa_enc)
     g_encoder_params = sac_network.g_encoder.init(key_g_enc)
     crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
     crl_critic_state = crl_critics_optimizer.init(
         crl_critic_params
-    )
-    crl_policy_params = sac_network.crl_policy_network.init(key_policy_crl)
-    crl_policy_state = crl_policy_optimizer.init(crl_policy_params)
-
-    normalizer_params = running_statistics.init_state(
-        specs.Array((obs_size,), jnp.dtype("float32"))
     )
 
     training_state = TrainingState(
@@ -194,8 +213,6 @@ def _init_training_state(
         normalizer_params=normalizer_params,
         crl_critic_optimizer_state=crl_critic_state,
         crl_critic_params=crl_critic_params,
-        crl_policy_params=crl_policy_params,
-        crl_policy_optimizer_state=crl_policy_state,
     )
     return jax.device_put_replicated(
         training_state, jax.local_devices()[:local_devices_to_use]
@@ -231,8 +248,8 @@ def train(
     randomization_fn: Optional[
         Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
     ] = None,
-    unroll_length: int = 25,
-    num_minibatches: int = 4
+    unroll_length: int = 50,
+    config:NamedTuple=None
 ):
     """SAC training."""
     process_id = jax.process_index()
@@ -255,7 +272,7 @@ def train(
         max_replay_size = num_timesteps
 
     # The number of environment steps executed for every `actor_step()` call.
-    env_steps_per_actor_step = action_repeat * num_envs
+    env_steps_per_actor_step = action_repeat * num_envs * unroll_length # TODO: * unroll_length
     # equals to ceil(min_replay_size / env_steps_per_actor_step)
     num_prefill_actor_steps = -(-min_replay_size // num_envs)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
@@ -301,6 +318,7 @@ def train(
     if normalize_observations:
         normalize_fn = running_statistics.normalize
     sac_network = network_factory(
+        config=config,
         observation_size=obs_size,
         action_size=action_size,
         preprocess_observations_fn=normalize_fn,
@@ -308,10 +326,10 @@ def train(
     make_policy = sac_networks.make_inference_fn(sac_network)
 
     alpha_optimizer = optax.adam(learning_rate=3e-4)
+
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
     crl_critics_optimizer = optax.adam(learning_rate=3e-4)
-    crl_actor_optimizer = optax.adam(learning_rate=3e-4)
 
     dummy_obs = jnp.zeros((unroll_length, obs_size))
     dummy_action = jnp.zeros((unroll_length, action_size))
@@ -323,14 +341,14 @@ def train(
         next_observation=dummy_obs,
         extras={"state_extras": {"truncation": jnp.zeros((unroll_length,))}, "policy_extras": {}},
     )
-
     replay_buffer = TrajectoryUniformSamplingQueue(
         max_replay_size=max_replay_size // device_count,
         dummy_data_sample=dummy_transition,
         sample_batch_size=batch_size * grad_updates_per_step // device_count,
     )
 
-    alpha_loss, critic_loss, actor_loss, crl_critic_loss, crl_actor_loss = sac_losses.make_losses(
+    alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
+        config=config,
         sac_network=sac_network,
         reward_scaling=reward_scaling,
         discounting=discounting,
@@ -356,44 +374,36 @@ def train(
             crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
         )
     )
-    crl_actor_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            crl_actor_loss, crl_actor_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
-    )
 
     def sgd_step(
         carry: Tuple[TrainingState, PRNGKey], transitions: Transition
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
-        # TODO: separate keys for crl?
-        key, key_alpha, key_critic, key_actor, key_crl_actor = jax.random.split(key, 5)
+        batch_keys = jax.random.split(key, batch_size)
+        # print("3. Obs shape", transitions.observation.shape)
+        transitions_sac = jax.vmap(TrajectoryUniformSamplingQueue.flatten_sac_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
+        transitions_crl = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
+        # print("4. Obs shape", transitions_sac.observation.shape)
+        # print("5. Obs CRL shape", transitions_crl.observation.shape)
+        # jax.debug.print("Transitions CRL observation : {x} 🤩", x=transitions_crl.observation)
+
+        key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
-            training_state.crl_policy_params,
+            training_state.policy_params,
             training_state.normalizer_params,
-            transitions,
+            transitions_sac,
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
-        alpha = jnp.exp(training_state.alpha_params) * 0
-
+        alpha = jnp.exp(training_state.alpha_params)
         (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
             training_state.normalizer_params,
-            transitions,
+            transitions_crl,
             optimizer_state=training_state.crl_critic_optimizer_state,
-        )
-        crl_actor_loss, crl_policy_params, crl_policy_optimizer_state = crl_actor_update(
-            training_state.crl_policy_params,
-            training_state.normalizer_params,
-            training_state.crl_critic_params,
-            alpha,
-            transitions,
-            key_crl_actor,
-            optimizer_state=training_state.crl_policy_optimizer_state,
         )
 
         critic_loss, q_params, q_optimizer_state = critic_update(
@@ -402,7 +412,7 @@ def train(
             training_state.normalizer_params,
             training_state.target_q_params,
             alpha,
-            transitions,
+            transitions_sac,
             key_critic,
             optimizer_state=training_state.q_optimizer_state,
         )
@@ -410,8 +420,9 @@ def train(
             training_state.policy_params,
             training_state.normalizer_params,
             training_state.q_params,
+            training_state.crl_critic_params,
             alpha,
-            transitions,
+            transitions_sac,
             key_actor,
             optimizer_state=training_state.policy_optimizer_state,
         )
@@ -428,7 +439,6 @@ def train(
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params),
             "crl_critic_loss": crl_critic_loss,
-            "crl_actor_loss": crl_actor_loss,
         }
         metrics.update(metrics_crl)
 
@@ -445,15 +455,12 @@ def train(
             normalizer_params=training_state.normalizer_params,
             crl_critic_params=crl_critic_params,
             crl_critic_optimizer_state=crl_critic_optimizer_state,
-            crl_policy_params=crl_policy_params,
-            crl_policy_optimizer_state=crl_policy_optimizer_state,
         )
         return (new_training_state, key), metrics
 
     def get_experience(
         normalizer_params: running_statistics.RunningStatisticsState,
         policy_params: Params,
-        crl_policy_params: Params,
         env_state: Union[envs.State, envs_v1.State],
         buffer_state: ReplayBufferState,
         key: PRNGKey,
@@ -462,36 +469,36 @@ def train(
         Union[envs.State, envs_v1.State],
         ReplayBufferState,
     ]:
-        if CRL_TRAINING:
-            policy = make_policy((normalizer_params, crl_policy_params))
-        else:
-            policy = make_policy((normalizer_params, policy_params))
+        policy = make_policy((normalizer_params, policy_params))
 
+        @jax.jit
         def f(carry, unused_t):
-            current_state, current_key = carry
+            env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
-            next_state, data = acting.generate_unroll(
-                env,
-                current_state,
-                policy,
-                current_key,
-                unroll_length,
-                extra_fields=("truncation",),
-            )
-            return (next_state, next_key), data
+            env_state, transition = acting.actor_step(
+                env, env_state, policy, current_key, extra_fields=("truncation",))
+            return (env_state, next_key), transition
 
-        # Generate unroll_length rollouts in parallel.
-        (state, _), data = jax.lax.scan(
-            f, (env_state, key), (), length=batch_size * num_minibatches // num_envs
-        )
-        # To have leading dimensions (batch_size * num_minibatches, unroll_length)
-        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
-        data = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data)
-        assert data.discount.shape[1:] == (unroll_length,)
+        (env_state, _), data = jax.lax.scan(
+            f, (env_state, key), (), length=unroll_length)
 
         normalizer_params = running_statistics.update(
-            normalizer_params, data.observation, pmap_axis_name=_PMAP_AXIS_NAME
+            normalizer_params,
+            jax.tree_util.tree_map(
+                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
+            ).observation,  # so that batch size*unroll_length is the first dimension
+            pmap_axis_name=_PMAP_AXIS_NAME,
         )
+        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)  # returns (batch_size, unroll_length, obs_dim)
+
+        if config.debug:
+            data = data._replace(
+                observation=data.observation
+                + jnp.array(
+                    [replay_buffer.size(buffer_state), 0, replay_buffer.size(buffer_state), 0]
+                )
+            )
+
         buffer_state = replay_buffer.insert(buffer_state, data)
         return normalizer_params, env_state, buffer_state
 
@@ -507,7 +514,6 @@ def train(
         normalizer_params, env_state, buffer_state = get_experience(
             training_state.normalizer_params,
             training_state.policy_params,
-            training_state.crl_policy_params,
             env_state,
             buffer_state,
             experience_key,
@@ -517,10 +523,10 @@ def train(
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
-        # Sampling of transitions
         buffer_state, transitions = replay_buffer.sample(buffer_state)
-
-        transitions = jax.tree_map(
+        # Change the front dimension of transitions so 'update_step' is called
+        # grad_updates_per_step times by the scan.
+        transitions = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
             transitions,
         )
@@ -544,7 +550,6 @@ def train(
             new_normalizer_params, env_state, buffer_state = get_experience(
                 training_state.normalizer_params,
                 training_state.policy_params,
-                training_state.crl_policy_params,
                 env_state,
                 buffer_state,
                 key,
@@ -632,7 +637,6 @@ def train(
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
         crl_critics_optimizer=crl_critics_optimizer,
-        crl_policy_optimizer=crl_actor_optimizer
     )
     del global_key
 
@@ -674,7 +678,7 @@ def train(
     metrics = {}
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(
-            _unpmap((training_state.normalizer_params, training_state.crl_policy_params)),
+            _unpmap((training_state.normalizer_params, training_state.policy_params)),
             training_metrics={},
         )
         logging.info(metrics)
@@ -717,7 +721,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy.
                 params = _unpmap(
-                    (training_state.normalizer_params, training_state.crl_policy_params)
+                    (training_state.normalizer_params, training_state.policy_params)
                 )
                 path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
                 model.save_params(path, params)
@@ -725,7 +729,7 @@ def train(
             # Run evals.
             metrics = evaluator.run_evaluation(
                 _unpmap(
-                    (training_state.normalizer_params, training_state.crl_policy_params)
+                    (training_state.normalizer_params, training_state.policy_params)
                 ),
                 training_metrics,
             )
@@ -735,7 +739,7 @@ def train(
     total_steps = current_step
     assert total_steps >= num_timesteps
 
-    params = _unpmap((training_state.normalizer_params, training_state.crl_policy_params))
+    params = _unpmap((training_state.normalizer_params, training_state.policy_params))
 
     # If there was no mistakes the training_state should still be identical on all
     # devices.

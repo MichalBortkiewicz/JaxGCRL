@@ -41,10 +41,6 @@ class MetricsRecorder:
             row = idx // 2
             col = idx % 2
 
-            print(
-                f"step: {self.x_data[-1]}, {key}: {y_values[-1]:.3f} +/- {self.y_data_err[key][-1]:.3f}"
-            )
-
             axs[row, col].set_xlim(self.min_x, self.max_x)
             axs[row, col].set_xlabel("# environment steps")
             axs[row, col].set_ylabel(key)
@@ -58,6 +54,12 @@ class MetricsRecorder:
             axs[row, col].axis("off")
         plt.tight_layout()
         plt.show()
+
+    def print_progress(self):
+        for idx, (key, y_values) in enumerate(self.y_data.items()):
+            print(
+                f"step: {self.x_data[-1]}, {key}: {y_values[-1]:.3f} +/- {self.y_data_err[key][-1]:.3f}"
+            )
 
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
