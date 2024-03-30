@@ -3,11 +3,14 @@ import functools
 import os
 from collections import namedtuple
 
+import jax
 import wandb
 # from brax.envs.reacher import Reacher
 from brax.io import model
 # from brax.training.agents.sac.train import train
 from pyinstrument import Profiler
+from brax.io import html
+
 
 # from crl.train import train
 from crl_new.train import train
@@ -19,7 +22,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Training script arguments')
     parser.add_argument('--exp_name', type=str, default="test", help='Name of the experiment')
     parser.add_argument('--num_timesteps', type=int, default=1000000, help='Number of training timesteps')
-    parser.add_argument('--max_replay_size', type=int, default=100000, help='Maximum size of replay buffer')
+    parser.add_argument('--max_replay_size', type=int, default=50000, help='Maximum size of replay buffer')
     parser.add_argument('--min_replay_size', type=int, default=8192, help='Minimum size of replay buffer')
     parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
     parser.add_argument('--reward_scaling', type=float, default=0.1, help='Scaling factor for rewards')
@@ -34,6 +37,28 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=0, help='Seed for reproducibility')
     parser.add_argument('--unroll_length', type=int, default=50, help='Length of the env unroll')
     return parser.parse_args()
+
+def render(inf_fun_factory, params, env, exp_dir, exp_name):
+    inference_fn = inf_fun_factory(params)
+    jit_env_reset = jax.jit(env.reset)
+    jit_env_step = jax.jit(env.step)
+    jit_inference_fn = jax.jit(inference_fn)
+
+    rollout = []
+    rng = jax.random.PRNGKey(seed=1)
+    state = jit_env_reset(rng=rng)
+    for i in range(2500):
+        rollout.append(state.pipeline_state)
+        act_rng, rng = jax.random.split(rng)
+        act, _ = jit_inference_fn(state.obs, act_rng)
+        state = jit_env_step(state, act)
+        if i % 500 == 0:
+            state = jit_env_reset(rng=rng)
+
+    url = html.render(env.sys.replace(dt=env.dt), rollout)
+    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+        file.write(url)
+
 
 def main(args):
 
@@ -112,6 +137,7 @@ def main(args):
         "training/logits_pos",
         "training/logits_neg",
         "training/logsumexp",
+        "training/sps"
     ]
 
     def progress(num_steps, metrics):
@@ -122,13 +148,13 @@ def main(args):
             {key: value for key, value in metrics.items() if key in metrics_to_collect},
         )
         metrics_recorder.log_wandb()
-        metrics_recorder.plot_progress()
+        metrics_recorder.print_progress()
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 
     os.makedirs("./params", exist_ok=True)
     model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
-
+    render(make_inference_fn, params, env, "./renders", args.exp_name)
 
 if __name__ == "__main__":
     args = parse_arguments()
