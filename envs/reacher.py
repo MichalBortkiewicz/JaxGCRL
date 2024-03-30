@@ -63,8 +63,7 @@ class Reacher(PipelineEnv):
             .do(base.Transform.create(pos=jp.array([0.11, 0, 0])))
             .pos
         )
-        # vector from tip to target is last 3 entries of obs vector
-        tip_to_target = tip_pos - target_pos
+        tip_to_target = target_pos - tip_pos
         reward_dist = -math.safe_norm(tip_to_target)
         reward = reward_dist
 
@@ -96,9 +95,8 @@ class Reacher(PipelineEnv):
                 tip_pos,
                 tip_vel,
                 # target/goal
-                # jp.zeros(4),
                 target_pos,
-                # jp.zeros(3),
+                jp.zeros(3),
             ]
         )
 
