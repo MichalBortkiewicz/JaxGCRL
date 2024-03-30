@@ -90,7 +90,9 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     @functools.partial(jax.jit, static_argnames="config")
     def flatten_crl_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
         # TODO: add truncation handling if unroll_length is not equal to episode_length
-        assert config.unroll_length == config.episode_length, "Remember to handle truncation for unroll_length != episode_length"
+        # assert config.unroll_length == config.episode_length, "Remember to handle truncation for unroll_length != episode_length"
+        assert config.unroll_length >= 50, (f"Unroll length should be greater than 50, got {config.unroll_length}\n"
+                                            f"Remember that trajectories can be scrambled when unroll_length != episode_length")
 
         goal_key, transition_key = jax.random.split(sample_key)
 
