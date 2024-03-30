@@ -56,7 +56,7 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
         if i % 500 == 0:
             state = jit_env_reset(rng=rng)
 
-    url = html.render(env.sys.replace(dt=env.dt), rollout)
+    url = html.render(env.sys.replace(dt=env.dt), rollout, height=1024)
     with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
         file.write(url)
 
