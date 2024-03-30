@@ -4,9 +4,12 @@ from collections import namedtuple
 import jax
 from brax.io import model
 from brax.io import html
+from brax.training.acme import running_statistics
+
 from crl_new import networks as sac_networks
 from envs.reacher import Reacher
-
+# from brax.envs.reacher import Reacher
+# from brax.training.agents.sac import networks as sac_networks
 
 def save_html_file(html_code, file_path):
     with open(file_path, 'w') as file:
@@ -37,7 +40,8 @@ CONFIG = Config(
 )
 
 network_factory = sac_networks.make_sac_networks
-normalize_fn = lambda x, y: x
+# normalize_fn = lambda x, y: x
+normalize_fn = running_statistics.normalize
 sac_network = network_factory(
     config=CONFIG,
     observation_size=16,
@@ -46,26 +50,22 @@ sac_network = network_factory(
 )
 make_inference_fn = sac_networks.make_inference_fn(sac_network)
 
-params = model.load_params('./params/param_big_test2_s_1')
+params = model.load_params('./params/param_crl_proper_500_s_1')
 inference_fn = make_inference_fn(params)
 rollout = []
 jit_inference_fn = jax.jit(inference_fn)
 
-env = Reacher()
+env = Reacher(backend="spring")
 jit_env_reset = jax.jit(env.reset)
 jit_env_step = jax.jit(env.step)
 rng = jax.random.PRNGKey(seed=1)
 state = jit_env_reset(rng=rng)
-for i in range(1, 1000):
+for i in range(1,5000):
     rollout.append(state.pipeline_state)
     act_rng, rng = jax.random.split(rng)
     act, _ = jit_inference_fn(state.obs, act_rng)
     state = jit_env_step(state, act)
-    if i % 50 == 0:
-        env = Reacher()
-        jit_env_reset = jax.jit(env.reset)
-        jit_env_step = jax.jit(env.step)
-        rng = jax.random.PRNGKey(seed=i)
+    if i % 500 == 0:
         state = jit_env_reset(rng=rng)
 
 url = html.render(env.sys.replace(dt=env.dt), rollout)
