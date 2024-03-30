@@ -14,6 +14,7 @@ from brax.io import html
 
 # from crl.train import train
 from crl_new.train import train
+from envs.ant import Ant
 from envs.debug_env import Debug
 from envs.reacher import Reacher
 from utils import MetricsRecorder
@@ -63,6 +64,7 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
 def main(args):
 
     env = Reacher(backend="spring")
+    env = Ant(backend="spring")
 
     DEBUG = isinstance(env, Debug)
     Config = namedtuple(
@@ -86,7 +88,7 @@ def main(args):
         )
     else:
         CONFIG = Config(
-            sac=False,
+            sac=True,
             debug=False,
             discount=args.discounting,
             obs_dim=10,

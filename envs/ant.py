@@ -1,3 +1,5 @@
+import os
+
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
@@ -23,7 +25,7 @@ class Ant(PipelineEnv):
         backend="generalized",
         **kwargs,
     ):
-        path = epath.resource_path("brax") / "envs/assets/ant.xml"
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
