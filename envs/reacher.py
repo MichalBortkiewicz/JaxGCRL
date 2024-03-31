@@ -10,7 +10,6 @@ from jax import numpy as jp
 
 
 class Reacher(PipelineEnv):
-
     def __init__(self, backend="generalized", **kwargs):
         path = epath.resource_path("brax") / "envs/assets/reacher.xml"
         sys = mjcf.load(path)

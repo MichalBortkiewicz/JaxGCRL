@@ -1,4 +1,5 @@
 import os
+from typing import Tuple
 
 from brax import base
 from brax import math
@@ -73,6 +74,7 @@ class Ant(PipelineEnv):
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
+
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
@@ -80,6 +82,11 @@ class Ant(PipelineEnv):
             rng1, (self.sys.q_size(),), minval=low, maxval=hi
         )
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+
+        # set the target q, qd
+        _, target = self._random_target(rng)
+        q = q.at[-2:].set(target)
+        qd = qd.at[-2:].set(0)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
@@ -103,6 +110,10 @@ class Ant(PipelineEnv):
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
+
+        print(pipeline_state.x.pos.shape)
+        print(pipeline_state.q.shape)
+        print(pipeline_state.qd.shape)
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -141,7 +152,20 @@ class Ant(PipelineEnv):
         qpos = pipeline_state.q
         qvel = pipeline_state.qd
 
+        target_pos = pipeline_state.x.pos[-1]
+
         if self._exclude_current_positions_from_observation:
             qpos = pipeline_state.q[2:]
 
-        return jp.concatenate([qpos] + [qvel])
+        return jp.concatenate([qpos] + [qvel] + [target_pos])
+
+    def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        """Returns a target location in a random circle slightly above xy plane."""
+        # rng, rng1, rng2 = jax.random.split(rng, 3)
+        # dist = 20 * jax.random.uniform(rng1)
+        # ang = jp.pi * 2.0 * jax.random.uniform(rng2)
+        # target_x = dist * jp.cos(ang)
+        # target_y = dist * jp.sin(ang)
+        target_x = jp.asarray(10)
+        target_y = jp.asarray(10)
+        return rng, jp.array([target_x, target_y])
