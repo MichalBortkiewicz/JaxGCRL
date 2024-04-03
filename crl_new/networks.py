@@ -62,7 +62,7 @@ def make_inference_fn(sac_networks: SACNetworks):
 
 
 def make_sac_networks(
-        config: NamedTuple,
+    config: NamedTuple,
     observation_size: int,
     action_size: int,
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
@@ -96,11 +96,10 @@ def make_sac_networks(
     )
     g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=config.goal_dim,
+        obs_size=config.goal_end_idx - config.goal_start_idx,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
     )
-
 
     return SACNetworks(
         policy_network=policy_network,
