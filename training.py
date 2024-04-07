@@ -78,7 +78,11 @@ def main(args):
         "training/logits_pos",
         "training/logits_neg",
         "training/logsumexp",
-        "training/sps"
+        "training/sps",
+        'eval/episode_dist',
+        'eval/episode_success',
+        'eval/episode_success_easy',
+        'eval/episode_reward_survive',
     ]
 
     def progress(num_steps, metrics):
