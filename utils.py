@@ -45,12 +45,18 @@ def create_env(env_name: str):
     if env_name == "reacher":
         env = Reacher(backend="spring")
     elif env_name == "ant":
-        env = Ant(backend="spring")
+        env = Ant(
+            backend="spring",
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+        )
     elif env_name == "debug":
         env = Debug(backend="spring")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
+
+
 def get_env_config(args: argparse.Namespace):
     if args.env_name == "debug":
         config = Config(
@@ -66,7 +72,7 @@ def get_env_config(args: argparse.Namespace):
         )
     elif args.env_name == "reacher":
         config = Config(
-            sac=True,
+            sac=args.use_sac,
             debug=False,
             discount=args.discounting,
             obs_dim=10,
@@ -76,26 +82,39 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
         )
+    elif args.env_name == "ant":
+        config = Config(
+            sac=args.use_sac,
+            debug=False,
+            discount=args.discounting,
+            obs_dim=29,
+            goal_start_idx=0,
+            goal_end_idx=2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+        )
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")
     return config
 
-def get_tested_args(args):    # Parse arguments
-    if args.env_name=="reacher":
+
+def get_tested_args(args):  # Parse arguments
+    if args.env_name == "reacher":
         parameters = {
-            'num_evals': 10,
-            'seed': 1,
-            'num_timesteps': 500000,
-            'batch_size': 128,
-            'num_envs': 128,
-            'exp_name': 'crl_proper_500',
-            'episode_length': 1000,
-            'unroll_length': 50,
-            'grad_updates_per_step': 8192,
-            'min_replay_size': 0,
+            "num_evals": 10,
+            "seed": 1,
+            "num_timesteps": 500000,
+            "batch_size": 128,
+            "num_envs": 128,
+            "exp_name": "crl_proper_500",
+            "episode_length": 1000,
+            "unroll_length": 50,
+            "grad_updates_per_step": 8192,
+            "action_repeat": 4,
+            "min_replay_size": 0,
             "normalize_observations": True,
             "use_sac": False,
-
         }
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")
@@ -104,6 +123,7 @@ def get_tested_args(args):    # Parse arguments
         if key in parameters:
             setattr(args, key, parameters[key])
     return args
+
 
 class MetricsRecorder:
     def __init__(self, num_timesteps):
