@@ -144,15 +144,17 @@ def make_losses(
         transitions: Transition,
         key: PRNGKey,
     ) -> jnp.ndarray:
+        state, goal = transitions.observation[:, :obs_dim], transitions.observation[:, obs_dim:]
+        observation = jnp.concatenate((state, goal), axis=1)
+
         dist_params = policy_network.apply(
-            normalizer_params, policy_params, transitions.observation
+            normalizer_params, policy_params, observation
         )
         action = parametric_action_distribution.sample_no_postprocessing(
             dist_params, key
         )
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         action = parametric_action_distribution.postprocess(action)
-
 
         if SAC:
             q_action = q_network.apply(
@@ -167,10 +169,10 @@ def make_losses(
             sa_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([transitions.observation[:, :obs_dim], action], axis=-1),
+                jnp.concatenate([state, action], axis=-1),
             )
             g_repr = g_encoder.apply(
-                normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
+                normalizer_params, g_encoder_params, goal
             )
             min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
 
