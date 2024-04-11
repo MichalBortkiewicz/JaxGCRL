@@ -58,6 +58,7 @@ def main(args):
         batch_size=args.batch_size,
         seed=args.seed,
         unroll_length=args.unroll_length,
+        multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
         config=config
     )
 

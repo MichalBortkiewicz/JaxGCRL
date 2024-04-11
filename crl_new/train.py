@@ -249,6 +249,7 @@ def train(
         Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
     ] = None,
     unroll_length: int = 50,
+    multiplier_num_sgd_steps: int = 1,
     config:NamedTuple=None
 ):
     """SAC training."""
@@ -522,19 +523,7 @@ def train(
             normalizer_params=normalizer_params,
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
-
-        buffer_state, transitions = replay_buffer.sample(buffer_state)
-        # Change the front dimension of transitions so 'update_step' is called
-        # grad_updates_per_step times by the scan.
-        transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
-            transitions,
-        )
-        (training_state, _), metrics = jax.lax.scan(
-            sgd_step, (training_state, training_key), transitions
-        )
-
-        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+        training_state, buffer_state, metrics = perform_sgd(training_state, buffer_state, training_key)
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(
@@ -569,6 +558,33 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
+    def perform_sgd(
+        training_state: TrainingState,
+        buffer_state: ReplayBufferState,
+        key: PRNGKey,
+    )->Tuple[
+        TrainingState, ReplayBufferState, Metrics
+    ]:
+        buffer_state, transitions = replay_buffer.sample(buffer_state)
+
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
+            transitions,
+        )
+        (training_state, _), metrics = jax.lax.scan(
+            sgd_step, (training_state, key), transitions
+        )
+        return training_state, buffer_state, metrics
+
+    def perform_sgd_n_times(n, ts, bs, a_sgd_key, metrics):
+        def body(i, carry):
+            ts, bs, sgd_key, metrics = carry
+            new_key, sgd_key = jax.random.split(sgd_key)
+            ts, vs, metrics = perform_sgd(ts, bs, sgd_key)
+            return ts, bs, new_key, metrics
+
+        return jax.lax.fori_loop(0, n, body, (ts, bs, a_sgd_key, metrics))
+
     def training_epoch(
         training_state: TrainingState,
         env_state: envs.State,
@@ -577,8 +593,9 @@ def train(
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         def f(carry, unused_t):
             ts, es, bs, k = carry
-            k, new_key = jax.random.split(k)
-            ts, es, bs, metrics = training_step(ts, es, bs, k)
+            k, new_key, sgd_key = jax.random.split(k, 3)
+            ts, es, bs, metrics = training_step(ts, es, bs, k)  # Does one sgd update to get the metrics for for_i_loop
+            ts, bs, sgd_key, metrics = perform_sgd_n_times(multiplier_num_sgd_steps - 1, ts, bs, sgd_key, metrics)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
@@ -587,6 +604,7 @@ def train(
             (),
             length=num_training_steps_per_epoch,
         )
+        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, env_state, buffer_state, metrics
 
