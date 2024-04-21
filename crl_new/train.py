@@ -1,10 +1,11 @@
 import functools
 import time
-from typing import Any, Callable, Optional, Tuple, Union, Generic, NamedTuple
+from typing import Any, Callable, Optional, Tuple, Union, Generic, NamedTuple, Sequence
 
 from absl import logging
 from brax import base
 from brax import envs
+from brax.envs import Env
 from brax.io import model
 from brax.training import acting
 from brax.training import gradients
@@ -12,12 +13,13 @@ from brax.training import pmap
 from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
+from brax.training.acme.types import NestedArray
 from brax.training.replay_buffers import QueueBase, Sample
-from jax import random
+from jax import random, lax
 
 from crl_new import losses as sac_losses
 from crl_new import networks as sac_networks
-from brax.training.types import Params
+from brax.training.types import Params, Policy
 from brax.training.types import PRNGKey
 from brax.v1 import envs as envs_v1
 import flax
@@ -26,7 +28,40 @@ import jax.numpy as jnp
 import optax
 
 Metrics = types.Metrics
-Transition = types.Transition
+# Transition = types.Transition
+Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
+State = Union[envs.State, envs_v1.State]
+
+class Transition(NamedTuple):
+    """Container for a transition."""
+
+    observation: NestedArray
+    action: NestedArray
+    reward: NestedArray
+    discount: NestedArray
+    extras: NestedArray = ()  # pytype: disable=annotation-type-mismatch  # jax-ndarray
+
+
+def actor_step(
+    env: Env,
+    env_state: State,
+    policy: Policy,
+    key: PRNGKey,
+    extra_fields: Sequence[str] = (),
+) -> Tuple[State, Transition]:
+    """Collect data."""
+    actions, policy_extras = policy(env_state.obs, key)
+    nstate = env.step(env_state, actions)
+    state_extras = {x: nstate.info[x] for x in extra_fields}
+    return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        observation=env_state.obs,
+        action=actions,
+        reward=nstate.reward,
+        discount=1 - nstate.done,
+        extras={"policy_extras": policy_extras, "state_extras": state_extras},
+    )
+
+
 InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
 
 ReplayBufferState = Any
@@ -90,15 +125,13 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     @functools.partial(jax.jit, static_argnames="config")
     def flatten_crl_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
         # TODO: add truncation handling if unroll_length is not equal to episode_length
-        # assert config.unroll_length == config.episode_length, "Remember to handle truncation for unroll_length != episode_length"
-        assert config.unroll_length >= 50, (f"Unroll length should be greater than 50, got {config.unroll_length}\n"
-                                            f"Remember that trajectories can be scrambled when unroll_length != episode_length")
+        # assert config.unroll_length >= 50, (f"Unroll length should be greater than 50, got {config.unroll_length}\n"
+        #                                     f"Remember that trajectories can be scrambled when unroll_length != episode_length")
 
         goal_key, transition_key = jax.random.split(sample_key)
 
-        seq_len = transition.observation.shape[
-            0
-        ]  # Because it's jitted and vmaped transition obs.shape is (T,obs_dim)
+        # Because it's jitted and vmaped transition obs.shape is (T,obs_dim)
+        seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
         is_future_mask = jnp.array(
             arrangement[:, None] < arrangement[None], dtype=jnp.float32
@@ -106,9 +139,10 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         discount = config.discount ** jnp.array(
             arrangement[None] - arrangement[:, None], dtype=jnp.float32
         )
-        probs = is_future_mask * discount
 
-        # jax.debug.print("Truncation : {x}", x=transition.extras["state_extras"]["truncation"])
+        # single_trajectory_mask = jnp.where(transition.extras["state_extras"]["seed"]==transition.extras["state_extras"]["seed"][0], 1, 0)
+        # probs = is_future_mask * discount * transition.extras["state_extras"]["is_healthy"] * single_trajectory_mask
+        probs = is_future_mask * discount
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
 
@@ -140,7 +174,6 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             action=jnp.squeeze(transition.action[:-1][id_transition_to_take]),
             reward=jnp.squeeze(transition.reward[:-1][id_transition_to_take]),
             discount=jnp.squeeze(transition.discount[:-1][id_transition_to_take]),
-            next_observation=jnp.squeeze(new_next_obs[id_transition_to_take]),
             extras=extras,
         )
         return transition
@@ -153,9 +186,6 @@ class TrainingState:
 
     policy_optimizer_state: optax.OptState
     policy_params: Params
-    q_optimizer_state: optax.OptState
-    q_params: Params
-    target_q_params: Params
     gradient_steps: jnp.ndarray
     env_steps: jnp.ndarray
     alpha_optimizer_state: optax.OptState
@@ -203,9 +233,6 @@ def _init_training_state(
     training_state = TrainingState(
         policy_optimizer_state=policy_optimizer_state,
         policy_params=policy_params,
-        q_optimizer_state=q_optimizer_state,
-        q_params=q_params,
-        target_q_params=q_params,
         gradient_steps=jnp.zeros(()),
         env_steps=jnp.zeros(()),
         alpha_optimizer_state=alpha_optimizer_state,
@@ -334,13 +361,21 @@ def train(
 
     dummy_obs = jnp.zeros((unroll_length, obs_size))
     dummy_action = jnp.zeros((unroll_length, action_size))
+    # TODO: reduce RB size (remove next_observation for CRL)
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
         reward=jnp.zeros((unroll_length,)),
         discount=jnp.zeros((unroll_length,)),
-        next_observation=dummy_obs,
-        extras={"state_extras": {"truncation": jnp.zeros((unroll_length,))}, "policy_extras": {}},
+        extras={
+            "state_extras": {
+                "truncation": jnp.zeros((unroll_length,)),
+                "is_healthy": jnp.zeros((unroll_length,)),
+                "seed": jnp.zeros((unroll_length,)),
+                "steps": jnp.zeros((unroll_length,)),
+            },
+            "policy_extras": {},
+        },
     )
     replay_buffer = TrajectoryUniformSamplingQueue(
         max_replay_size=max_replay_size // device_count,
@@ -382,12 +417,7 @@ def train(
         training_state, key = carry
 
         batch_keys = jax.random.split(key, batch_size)
-        # print("3. Obs shape", transitions.observation.shape)
-        transitions_sac = jax.vmap(TrajectoryUniformSamplingQueue.flatten_sac_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
         transitions_crl = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
-        # print("4. Obs shape", transitions_sac.observation.shape)
-        # print("5. Obs CRL shape", transitions_crl.observation.shape)
-        # jax.debug.print("Transitions CRL observation : {x} 🤩", x=transitions_crl.observation)
 
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
@@ -395,7 +425,7 @@ def train(
             training_state.alpha_params,
             training_state.policy_params,
             training_state.normalizer_params,
-            transitions_sac,
+            transitions_crl,
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
@@ -407,35 +437,38 @@ def train(
             optimizer_state=training_state.crl_critic_optimizer_state,
         )
 
-        critic_loss, q_params, q_optimizer_state = critic_update(
-            training_state.q_params,
-            training_state.policy_params,
-            training_state.normalizer_params,
-            training_state.target_q_params,
-            alpha,
-            transitions_sac,
-            key_critic,
-            optimizer_state=training_state.q_optimizer_state,
-        )
+        if config.sac:
+            critic_loss, q_params, q_optimizer_state = critic_update(
+                training_state.q_params,
+                training_state.policy_params,
+                training_state.normalizer_params,
+                training_state.target_q_params,
+                alpha,
+                transitions_sac,
+                key_critic,
+                optimizer_state=training_state.q_optimizer_state,
+            )
+
+            new_target_q_params = jax.tree_util.tree_map(
+                lambda x, y: x * (1 - tau) + y * tau,
+                training_state.target_q_params,
+                q_params,
+            )
+
+        # TODO: shouldn't we use the same transitions for actor and critic?
         actor_loss, policy_params, policy_optimizer_state = actor_update(
             training_state.policy_params,
             training_state.normalizer_params,
-            training_state.q_params,
+            # training_state.q_params,
             training_state.crl_critic_params,
             alpha,
-            transitions_sac,
+            transitions_crl,
             key_actor,
             optimizer_state=training_state.policy_optimizer_state,
         )
 
-        new_target_q_params = jax.tree_util.tree_map(
-            lambda x, y: x * (1 - tau) + y * tau,
-            training_state.target_q_params,
-            q_params,
-        )
-
         metrics = {
-            "critic_loss": critic_loss,
+            "critic_loss": 0,
             "actor_loss": actor_loss,
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params),
@@ -446,9 +479,6 @@ def train(
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,
             policy_params=policy_params,
-            q_optimizer_state=q_optimizer_state,
-            q_params=q_params,
-            target_q_params=new_target_q_params,
             gradient_steps=training_state.gradient_steps + 1,
             env_steps=training_state.env_steps,
             alpha_optimizer_state=alpha_optimizer_state,
@@ -476,8 +506,8 @@ def train(
         def f(carry, unused_t):
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
-            env_state, transition = acting.actor_step(
-                env, env_state, policy, current_key, extra_fields=("truncation",))
+            env_state, transition = actor_step(
+                env, env_state, policy, current_key, extra_fields=("truncation", "is_healthy", "seed", "steps"))
             return (env_state, next_key), transition
 
         (env_state, _), data = jax.lax.scan(
@@ -492,6 +522,7 @@ def train(
         )
         data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)  # returns (batch_size, unroll_length, obs_dim)
 
+        # just for debugging
         if config.debug:
             data = data._replace(
                 observation=data.observation
@@ -523,7 +554,19 @@ def train(
             normalizer_params=normalizer_params,
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
-        training_state, buffer_state, metrics = perform_sgd(training_state, buffer_state, training_key)
+
+        buffer_state, transitions = replay_buffer.sample(buffer_state)
+        # Change the front dimension of transitions so 'update_step' is called
+        # grad_updates_per_step times by the scan.
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
+            transitions,
+        )
+        (training_state, _), metrics = jax.lax.scan(
+            sgd_step, (training_state, training_key), transitions
+        )
+
+        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(
@@ -558,13 +601,14 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
-    def perform_sgd(
+    def additional_sgds(
         training_state: TrainingState,
         buffer_state: ReplayBufferState,
         key: PRNGKey,
     )->Tuple[
-        TrainingState, ReplayBufferState, Metrics
+        TrainingState, ReplayBufferState
     ]:
+        experience_key, training_key = jax.random.split(key)
         buffer_state, transitions = replay_buffer.sample(buffer_state)
 
         transitions = jax.tree_util.tree_map(
@@ -572,18 +616,18 @@ def train(
             transitions,
         )
         (training_state, _), metrics = jax.lax.scan(
-            sgd_step, (training_state, key), transitions
+            sgd_step, (training_state, training_key), transitions
         )
-        return training_state, buffer_state, metrics
+        return training_state, buffer_state
 
-    def perform_sgd_n_times(n, ts, bs, a_sgd_key, metrics):
+    def scan_additional_sgds(n, ts, bs, a_sgd_key):
         def body(i, carry):
-            ts, bs, sgd_key, metrics = carry
-            new_key, sgd_key = jax.random.split(sgd_key)
-            ts, vs, metrics = perform_sgd(ts, bs, sgd_key)
-            return ts, bs, new_key, metrics
+            ts, bs, a_sgd_key = carry
+            new_key, a_sgd_key = jax.random.split(a_sgd_key)
+            ts, vs = additional_sgds(ts, bs, a_sgd_key)
+            return ts, bs, new_key
 
-        return jax.lax.fori_loop(0, n, body, (ts, bs, a_sgd_key, metrics))
+        return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key))
 
     def training_epoch(
         training_state: TrainingState,
@@ -593,9 +637,9 @@ def train(
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         def f(carry, unused_t):
             ts, es, bs, k = carry
-            k, new_key, sgd_key = jax.random.split(k, 3)
-            ts, es, bs, metrics = training_step(ts, es, bs, k)  # Does one sgd update to get the metrics for for_i_loop
-            ts, bs, sgd_key, metrics = perform_sgd_n_times(multiplier_num_sgd_steps - 1, ts, bs, sgd_key, metrics)
+            k, new_key, a_sgd_key = jax.random.split(k, 3)
+            ts, es, bs, metrics = training_step(ts, es, bs, k)
+            ts, bs, a_sgd_key = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
@@ -604,7 +648,6 @@ def train(
             (),
             length=num_training_steps_per_epoch,
         )
-        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, env_state, buffer_state, metrics
 

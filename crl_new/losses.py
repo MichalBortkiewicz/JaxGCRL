@@ -138,7 +138,7 @@ def make_losses(
     def actor_loss(
         policy_params: Params,
         normalizer_params: Any,
-        q_params: Params,
+        # q_params: Params,
         crl_critic_params: Params,
         alpha: jnp.ndarray,
         transitions: Transition,
@@ -146,6 +146,10 @@ def make_losses(
     ) -> jnp.ndarray:
         state, goal = transitions.observation[:, :obs_dim], transitions.observation[:, obs_dim:]
         observation = jnp.concatenate((state, goal), axis=1)
+
+        if True:
+            state = state
+            goal = jnp.roll(state[:,:2], 1, axis=0)
 
         dist_params = policy_network.apply(
             normalizer_params, policy_params, observation
