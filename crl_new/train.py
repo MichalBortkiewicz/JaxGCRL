@@ -624,7 +624,7 @@ def train(
         def body(i, carry):
             ts, bs, a_sgd_key = carry
             new_key, a_sgd_key = jax.random.split(a_sgd_key)
-            ts, vs = additional_sgds(ts, bs, a_sgd_key)
+            ts, bs = additional_sgds(ts, bs, a_sgd_key)
             return ts, bs, new_key
 
         return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key))
