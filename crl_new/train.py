@@ -555,18 +555,7 @@ def train(
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
-        buffer_state, transitions = replay_buffer.sample(buffer_state)
-        # Change the front dimension of transitions so 'update_step' is called
-        # grad_updates_per_step times by the scan.
-        transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
-            transitions,
-        )
-        (training_state, _), metrics = jax.lax.scan(
-            sgd_step, (training_state, training_key), transitions
-        )
-
-        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
+        training_state, buffer_state, metrics = additional_sgds(training_state, buffer_state, training_key)
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(
@@ -606,7 +595,7 @@ def train(
         buffer_state: ReplayBufferState,
         key: PRNGKey,
     )->Tuple[
-        TrainingState, ReplayBufferState
+        TrainingState, ReplayBufferState, Metrics
     ]:
         experience_key, training_key = jax.random.split(key)
         buffer_state, transitions = replay_buffer.sample(buffer_state)
@@ -618,16 +607,15 @@ def train(
         (training_state, _), metrics = jax.lax.scan(
             sgd_step, (training_state, training_key), transitions
         )
-        return training_state, buffer_state
+        return training_state, buffer_state, metrics
 
-    def scan_additional_sgds(n, ts, bs, a_sgd_key):
+    def scan_additional_sgds(n, ts, bs, a_sgd_key, metrics):
         def body(i, carry):
-            ts, bs, a_sgd_key = carry
+            ts, bs, a_sgd_key, metrics = carry
             new_key, a_sgd_key = jax.random.split(a_sgd_key)
-            ts, bs = additional_sgds(ts, bs, a_sgd_key)
-            return ts, bs, new_key
-
-        return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key))
+            ts, bs, metrics = additional_sgds(ts, bs, a_sgd_key)
+            return ts, bs, new_key, metrics
+        return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key, metrics))
 
     def training_epoch(
         training_state: TrainingState,
@@ -639,7 +627,7 @@ def train(
             ts, es, bs, k = carry
             k, new_key, a_sgd_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            ts, bs, a_sgd_key = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
+            ts, bs, a_sgd_key, metrics = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key, metrics)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
@@ -648,6 +636,7 @@ def train(
             (),
             length=num_training_steps_per_epoch,
         )
+        metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, env_state, buffer_state, metrics
 
