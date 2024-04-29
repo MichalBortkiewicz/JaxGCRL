@@ -151,33 +151,25 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         # jax.debug.print("goal_index : {x}", x=goal_index)
 
         state = transition.observation[:-1, : config.obs_dim]
-        next_state = transition.observation[1:, : config.obs_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
-        new_next_obs = jnp.concatenate([next_state, goal], axis=1)
 
-        id_transition_to_take = random.randint(transition_key, (1,), 0, seq_len - 1)
-        # jax.debug.print("id_transition_to_take : {x}", x=id_transition_to_take)
         extras = {
-            "next_action": jnp.squeeze(transition.action[1:][id_transition_to_take]),
+            "next_action": jnp.squeeze(transition.action[1:]),
             "policy_extras": {},
             "state_extras": {
                 "truncation": jnp.squeeze(
-                    transition.extras["state_extras"]["truncation"][:-1][
-                        id_transition_to_take
-                    ]
+                    transition.extras["state_extras"]["truncation"][:-1]
                 )
             },
         }
-
         transition = Transition(
-            observation=jnp.squeeze(new_obs[id_transition_to_take]),
-            action=jnp.squeeze(transition.action[:-1][id_transition_to_take]),
-            reward=jnp.squeeze(transition.reward[:-1][id_transition_to_take]),
-            discount=jnp.squeeze(transition.discount[:-1][id_transition_to_take]),
+            observation=jnp.squeeze(new_obs),
+            action=jnp.squeeze(transition.action[:-1]),
+            reward=jnp.squeeze(transition.reward[:-1]),
+            discount=jnp.squeeze(transition.discount[:-1]),
             extras=extras,
         )
         return transition
-
 
 
 @flax.struct.dataclass
@@ -416,16 +408,13 @@ def train(
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
-        batch_keys = jax.random.split(key, batch_size)
-        transitions_crl = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(config, transitions, batch_keys)
-
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
             training_state.policy_params,
             training_state.normalizer_params,
-            transitions_crl,
+            transitions,
             key_alpha,
             optimizer_state=training_state.alpha_optimizer_state,
         )
@@ -433,7 +422,7 @@ def train(
         (crl_critic_loss, metrics_crl), crl_critic_params, crl_critic_optimizer_state = crl_critic_update(
             training_state.crl_critic_params,
             training_state.normalizer_params,
-            transitions_crl,
+            transitions,
             optimizer_state=training_state.crl_critic_optimizer_state,
         )
 
@@ -462,7 +451,7 @@ def train(
             # training_state.q_params,
             training_state.crl_critic_params,
             alpha,
-            transitions_crl,
+            transitions,
             key_actor,
             optimizer_state=training_state.policy_optimizer_state,
         )
@@ -597,11 +586,15 @@ def train(
     )->Tuple[
         TrainingState, ReplayBufferState, Metrics
     ]:
-        experience_key, training_key = jax.random.split(key)
+        experience_key, training_key, sampling_key = jax.random.split(key,3)
         buffer_state, transitions = replay_buffer.sample(buffer_state)
 
+        batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
+        transitions = jax.vmap(
+            TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0)
+        )(config, transitions, batch_keys)
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (grad_updates_per_step, -1) + x.shape[1:]),
+            lambda x: jnp.reshape(x, (-1, 256) + x.shape[2:], order="F"),
             transitions,
         )
         (training_state, _), metrics = jax.lax.scan(
