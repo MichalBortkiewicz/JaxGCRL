@@ -143,6 +143,9 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         # single_trajectory_mask = jnp.where(transition.extras["state_extras"]["seed"]==transition.extras["state_extras"]["seed"][0], 1, 0)
         # probs = is_future_mask * discount * transition.extras["state_extras"]["is_healthy"] * single_trajectory_mask
         probs = is_future_mask * discount
+        seeds = jnp.concatenate([transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0)
+        probs = probs * jnp.equal(seeds, seeds.T)
+
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
 
