@@ -2,10 +2,13 @@ import functools
 import time
 from typing import Any, Callable, Optional, Tuple, Union, Generic, NamedTuple, Sequence
 
+import flax
+import jax
+import jax.numpy as jnp
+import optax
 from absl import logging
 from brax import base
 from brax import envs
-from brax.envs import Env
 from brax.io import model
 from brax.training import acting
 from brax.training import gradients
@@ -14,18 +17,14 @@ from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
 from brax.training.acme.types import NestedArray
-from brax.training.replay_buffers import QueueBase, Sample
+from brax.training.types import PRNGKey
+from brax.training.types import Params, Policy
+from brax.v1 import envs as envs_v1
 from jax import random, lax
 
 from crl_new import losses as sac_losses
 from crl_new import networks as sac_networks
-from brax.training.types import Params, Policy
-from brax.training.types import PRNGKey
-from brax.v1 import envs as envs_v1
-import flax
-import jax
-import jax.numpy as jnp
-import optax
+from crl_new.replay_buffer import QueueBase, Sample
 
 Metrics = types.Metrics
 # Transition = types.Transition
@@ -80,57 +79,42 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
                 f"Data shape expected by the replay buffer ({self._data_shape}) does "
                 f"not match the shape of the buffer state ({buffer_state.data.shape})"
             )
+        key, sample_key, shuffle_key = jax.random.split(buffer_state.key, 3)
+        shape = self.num_envs//4  # TODO: it's the number of envs to sample
 
-        key, sample_key = jax.random.split(buffer_state.key)
-        idx = jax.random.randint(
+        # Sampling envs idxs
+        envs_idxs = jax.random.choice(sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False)
+
+        def create_matrix(rows, cols, min_val, max_val, rng_key):
+            rng_key, subkey = random.split(rng_key)
+            start_values = random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
+            row_indices = jnp.arange(cols)
+            matrix = start_values[:, jnp.newaxis] + row_indices
+            return matrix
+
+        def create_batch(arr_2d, indices):
+            return jnp.take(arr_2d, indices, axis=0, mode="wrap")
+
+        matrix = create_matrix(
+            shape,
+            self.episode_length,
+            buffer_state.sample_position,
+            buffer_state.insert_position - self.episode_length,
             sample_key,
-            (self._sample_batch_size,),
-            minval=buffer_state.sample_position,
-            maxval=buffer_state.insert_position,
         )
-        batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
 
+        create_batch_vmaped = jax.vmap(create_batch, in_axes=(1, 0))
+
+        batch = create_batch_vmaped(buffer_state.data[:,envs_idxs, :], matrix)
         transitions = self._unflatten_fn(batch)
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
     @functools.partial(jax.jit, static_argnames="config")
-    def flatten_sac_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
-        goal_key, transition_key = jax.random.split(sample_key)
-
-        id_transition_to_take = random.randint(transition_key, (1,), 0, config.unroll_length-1)  # TODO: change unroll length
-        extras = {
-            "next_action": jnp.squeeze(transition.action[id_transition_to_take]),
-            "policy_extras": {},
-            "state_extras": {
-                "truncation": jnp.squeeze(
-                    transition.extras["state_extras"]["truncation"][
-                        id_transition_to_take
-                    ]
-                )
-            },
-        }
-
-        transition = Transition(
-            observation=jnp.squeeze(transition.observation[id_transition_to_take]),
-            action=jnp.squeeze(transition.action[id_transition_to_take]),
-            reward=jnp.squeeze(transition.reward[id_transition_to_take]),
-            discount=jnp.squeeze(transition.discount[id_transition_to_take]),
-            next_observation=jnp.squeeze(transition.next_observation[id_transition_to_take]),
-            extras=extras,
-        )
-        return transition
-
-    @staticmethod
-    @functools.partial(jax.jit, static_argnames="config")
     def flatten_crl_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
-        # TODO: add truncation handling if unroll_length is not equal to episode_length
-        # assert config.unroll_length >= 50, (f"Unroll length should be greater than 50, got {config.unroll_length}\n"
-        #                                     f"Remember that trajectories can be scrambled when unroll_length != episode_length")
-
         goal_key, transition_key = jax.random.split(sample_key)
 
-        # Because it's jitted and vmaped transition obs.shape is (T,obs_dim)
+        # Because it's vmaped transition obs.shape is of shape (transitions,obs_dim)
         seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
         is_future_mask = jnp.array(
@@ -139,20 +123,13 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         discount = config.discount ** jnp.array(
             arrangement[None] - arrangement[:, None], dtype=jnp.float32
         )
-
-        # single_trajectory_mask = jnp.where(transition.extras["state_extras"]["seed"]==transition.extras["state_extras"]["seed"][0], 1, 0)
-        # probs = is_future_mask * discount * transition.extras["state_extras"]["is_healthy"] * single_trajectory_mask
         probs = is_future_mask * discount
-        seeds = jnp.concatenate([transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0)
-        probs = probs * jnp.equal(seeds, seeds.T)
-
+        single_trajectories = jnp.concatenate([transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0)
+        probs = probs * jnp.equal(single_trajectories, single_trajectories.T)
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
-
         goal = transition.observation[:, config.goal_start_idx: config.goal_end_idx]
         goal = jnp.take(goal, goal_index[:-1], axis=0)
-        # jax.debug.print("goal_index : {x}", x=goal_index)
-
         state = transition.observation[:-1, : config.obs_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
 
@@ -295,11 +272,10 @@ def train(
         max_replay_size = num_timesteps
 
     # The number of environment steps executed for every `actor_step()` call.
-    env_steps_per_actor_step = action_repeat * num_envs * unroll_length # TODO: * unroll_length
-    # equals to ceil(min_replay_size / env_steps_per_actor_step)
-    num_prefill_actor_steps = -(-min_replay_size // num_envs)
+    env_steps_per_actor_step = action_repeat * num_envs * unroll_length 
+    num_prefill_actor_steps = min_replay_size//unroll_length + 1
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
-    assert num_timesteps - num_prefill_env_steps >= 0
+    assert num_timesteps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)
     # The number of run_one_sac_epoch calls per run_sac_training.
     # equals to
@@ -354,20 +330,18 @@ def train(
     q_optimizer = optax.adam(learning_rate=learning_rate)
     crl_critics_optimizer = optax.adam(learning_rate=3e-4)
 
-    dummy_obs = jnp.zeros((unroll_length, obs_size))
-    dummy_action = jnp.zeros((unroll_length, action_size))
-    # TODO: reduce RB size (remove next_observation for CRL)
+    dummy_obs = jnp.zeros((obs_size,))
+    dummy_action = jnp.zeros((action_size,))
     dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
         observation=dummy_obs,
         action=dummy_action,
-        reward=jnp.zeros((unroll_length,)),
-        discount=jnp.zeros((unroll_length,)),
+        reward=0.0,
+        discount=0.0,
         extras={
             "state_extras": {
-                "truncation": jnp.zeros((unroll_length,)),
-                "is_healthy": jnp.zeros((unroll_length,)),
-                "seed": jnp.zeros((unroll_length,)),
-                "steps": jnp.zeros((unroll_length,)),
+                "truncation": 0.0,
+                "seed": 0.0,
+                "steps": 0.0,
             },
             "policy_extras": {},
         },
@@ -376,6 +350,8 @@ def train(
         max_replay_size=max_replay_size // device_count,
         dummy_data_sample=dummy_transition,
         sample_batch_size=batch_size * grad_updates_per_step // device_count,
+        num_envs=num_envs,
+        episode_length=episode_length,
     )
 
     alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
@@ -499,7 +475,8 @@ def train(
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
             env_state, transition = actor_step(
-                env, env_state, policy, current_key, extra_fields=("truncation", "is_healthy", "seed", "steps"))
+                env, env_state, policy, current_key, extra_fields=("truncation", "seed", "steps")
+            )
             return (env_state, next_key), transition
 
         (env_state, _), data = jax.lax.scan(
@@ -512,17 +489,6 @@ def train(
             ).observation,  # so that batch size*unroll_length is the first dimension
             pmap_axis_name=_PMAP_AXIS_NAME,
         )
-        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)  # returns (batch_size, unroll_length, obs_dim)
-
-        # just for debugging
-        if config.debug:
-            data = data._replace(
-                observation=data.observation
-                + jnp.array(
-                    [replay_buffer.size(buffer_state), 0, replay_buffer.size(buffer_state), 0]
-                )
-            )
-
         buffer_state = replay_buffer.insert(buffer_state, data)
         return normalizer_params, env_state, buffer_state
 
@@ -596,8 +562,9 @@ def train(
         transitions = jax.vmap(
             TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0)
         )(config, transitions, batch_keys)
+
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1, 256) + x.shape[2:], order="F"),
+            lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[2:], order="F"),
             transitions,
         )
         (training_state, _), metrics = jax.lax.scan(
