@@ -125,7 +125,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         )
         probs = is_future_mask * discount
         single_trajectories = jnp.concatenate([transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0)
-        probs = probs * jnp.equal(single_trajectories, single_trajectories.T)
+        probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
         goal = transition.observation[:, config.goal_start_idx: config.goal_end_idx]
