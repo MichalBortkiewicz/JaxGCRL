@@ -17,6 +17,7 @@ from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
 from brax.training.acme.types import NestedArray
+from brax.training.replay_buffers_test import jit_wrap
 from brax.training.types import PRNGKey
 from brax.training.types import Params, Policy
 from brax.v1 import envs as envs_v1
@@ -85,6 +86,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         # Sampling envs idxs
         envs_idxs = jax.random.choice(sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False)
 
+        @functools.partial(jax.jit, static_argnames=("rows", "cols"))
         def create_matrix(rows, cols, min_val, max_val, rng_key):
             rng_key, subkey = random.split(rng_key)
             start_values = random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
@@ -92,6 +94,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             matrix = start_values[:, jnp.newaxis] + row_indices
             return matrix
 
+        @jax.jit
         def create_batch(arr_2d, indices):
             return jnp.take(arr_2d, indices, axis=0, mode="wrap")
 
@@ -105,7 +108,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         create_batch_vmaped = jax.vmap(create_batch, in_axes=(1, 0))
 
-        batch = create_batch_vmaped(buffer_state.data[:,envs_idxs, :], matrix)
+        batch = create_batch_vmaped(buffer_state.data[:, envs_idxs, :], matrix)
         transitions = self._unflatten_fn(batch)
         return buffer_state.replace(key=key), transitions
 
@@ -346,12 +349,14 @@ def train(
             "policy_extras": {},
         },
     )
-    replay_buffer = TrajectoryUniformSamplingQueue(
-        max_replay_size=max_replay_size // device_count,
-        dummy_data_sample=dummy_transition,
-        sample_batch_size=batch_size * grad_updates_per_step // device_count,
-        num_envs=num_envs,
-        episode_length=episode_length,
+    replay_buffer = jit_wrap(
+        TrajectoryUniformSamplingQueue(
+            max_replay_size=max_replay_size // device_count,
+            dummy_data_sample=dummy_transition,
+            sample_batch_size=batch_size * grad_updates_per_step // device_count,
+            num_envs=num_envs,
+            episode_length=episode_length,
+        )
     )
 
     alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
