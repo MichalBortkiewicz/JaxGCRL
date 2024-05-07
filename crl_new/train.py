@@ -168,7 +168,6 @@ class TrainingState:
     alpha_optimizer_state: optax.OptState
     alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
-
     crl_critic_params: Params
     crl_critic_optimizer_state: optax.OptState
 
@@ -183,7 +182,6 @@ def _init_training_state(
     crl_network: crl_networks.CRLNetworks,
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
-    q_optimizer: optax.GradientTransformation,
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
@@ -193,8 +191,6 @@ def _init_training_state(
 
     policy_params = crl_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
-    q_params = crl_network.q_network.init(key_q)
-    q_optimizer_state = q_optimizer.init(q_params)
 
     normalizer_params = running_statistics.init_state(
         specs.Array((obs_size,), jnp.dtype("float32"))
@@ -237,8 +233,6 @@ def train(
     num_evals: int = 1,
     normalize_observations: bool = False,
     max_devices_per_host: Optional[int] = None,
-    reward_scaling: float = 1.0,
-    tau: float = 0.005,
     min_replay_size: int = 0,
     max_replay_size: Optional[int] = None,
     grad_updates_per_step: int = 1,
@@ -332,7 +326,6 @@ def train(
     alpha_optimizer = optax.adam(learning_rate=3e-4)
 
     policy_optimizer = optax.adam(learning_rate=learning_rate)
-    q_optimizer = optax.adam(learning_rate=learning_rate)
     crl_critics_optimizer = optax.adam(learning_rate=3e-4)
 
     dummy_obs = jnp.zeros((obs_size,))
@@ -361,21 +354,14 @@ def train(
         )
     )
 
-    alpha_loss, critic_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
+    alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
         crl_network=crl_network,
-        reward_scaling=reward_scaling,
-        discounting=discounting,
         action_size=action_size,
     )
     alpha_update = (
         gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
             alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
-    )
-    critic_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
         )
     )
     actor_update = (
@@ -412,29 +398,10 @@ def train(
             optimizer_state=training_state.crl_critic_optimizer_state,
         )
 
-        if config.sac:
-            critic_loss, q_params, q_optimizer_state = critic_update(
-                training_state.q_params,
-                training_state.policy_params,
-                training_state.normalizer_params,
-                training_state.target_q_params,
-                alpha,
-                transitions_sac,
-                key_critic,
-                optimizer_state=training_state.q_optimizer_state,
-            )
-
-            new_target_q_params = jax.tree_util.tree_map(
-                lambda x, y: x * (1 - tau) + y * tau,
-                training_state.target_q_params,
-                q_params,
-            )
-
         # TODO: shouldn't we use the same transitions for actor and critic?
         actor_loss, policy_params, policy_optimizer_state = actor_update(
             training_state.policy_params,
             training_state.normalizer_params,
-            # training_state.q_params,
             training_state.crl_critic_params,
             alpha,
             transitions,
@@ -655,7 +622,6 @@ def train(
         crl_network=crl_network,
         alpha_optimizer=alpha_optimizer,
         policy_optimizer=policy_optimizer,
-        q_optimizer=q_optimizer,
         crl_critics_optimizer=crl_critics_optimizer,
     )
     del global_key

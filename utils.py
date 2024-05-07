@@ -21,7 +21,6 @@ def create_parser():
     parser.add_argument('--max_replay_size', type=int, default=50000, help='Maximum size of replay buffer')
     parser.add_argument('--min_replay_size', type=int, default=8192, help='Minimum size of replay buffer')
     parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
-    parser.add_argument('--reward_scaling', type=float, default=0.1, help='Scaling factor for rewards')
     parser.add_argument('--episode_length', type=int, default=50, help='Maximum length of each episode')
     parser.add_argument('--action_repeat', type=int, default=2, help='Number of times to repeat each action')
     parser.add_argument('--grad_updates_per_step', type=int, default=2, help='Number of gradient updates per step')

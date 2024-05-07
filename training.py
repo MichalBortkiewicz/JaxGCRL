@@ -47,7 +47,6 @@ def main(args):
         max_replay_size=args.max_replay_size,
         min_replay_size=args.min_replay_size,
         num_evals=args.num_evals,
-        reward_scaling=args.reward_scaling,
         episode_length=args.episode_length,
         normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
@@ -117,7 +116,12 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
-    sgd_to_env = (args.num_envs * args.episode_length * args.multiplier_num_sgd_steps / args.batch_size) / (args.num_envs * args.unroll_length)
+    sgd_to_env = (
+        args.num_envs
+        * args.episode_length
+        * args.multiplier_num_sgd_steps
+        / args.batch_size
+    ) / (args.num_envs * args.unroll_length)
     print(f"SGD steps per env steps: {sgd_to_env}")
     args.sgd_to_env = sgd_to_env
 
