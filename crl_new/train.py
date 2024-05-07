@@ -10,7 +10,6 @@ from absl import logging
 from brax import base
 from brax import envs
 from brax.io import model
-from brax.training import acting
 from brax.training import gradients
 from brax.training import pmap
 from brax.training import types
@@ -26,6 +25,8 @@ from jax import random, lax
 from crl_new import losses as sac_losses
 from crl_new import networks as sac_networks
 from crl_new.replay_buffer import QueueBase, Sample
+from crl_new.evaluator import CrlEvaluator
+
 
 Metrics = types.Metrics
 # Transition = types.Transition
@@ -81,7 +82,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
                 f"not match the shape of the buffer state ({buffer_state.data.shape})"
             )
         key, sample_key, shuffle_key = jax.random.split(buffer_state.key, 3)
-        shape = self.num_envs//4  # TODO: it's the number of envs to sample
+        # NOTE: this is the number of envs to sample but it can be modified if there is OOM
+        shape = self.num_envs
 
         # Sampling envs idxs
         envs_idxs = jax.random.choice(sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False)
@@ -98,6 +100,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         def create_batch(arr_2d, indices):
             return jnp.take(arr_2d, indices, axis=0, mode="wrap")
 
+        create_batch_vmaped = jax.vmap(create_batch, in_axes=(1, 0))
+
         matrix = create_matrix(
             shape,
             self.episode_length,
@@ -105,8 +109,6 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             buffer_state.insert_position - self.episode_length,
             sample_key,
         )
-
-        create_batch_vmaped = jax.vmap(create_batch, in_axes=(1, 0))
 
         batch = create_batch_vmaped(buffer_state.data[:, envs_idxs, :], matrix)
         transitions = self._unflatten_fn(batch)
@@ -683,7 +685,7 @@ def train(
         randomization_fn=v_randomization_fn,
     )
 
-    evaluator = acting.Evaluator(
+    evaluator = CrlEvaluator(
         eval_env,
         functools.partial(make_policy, deterministic=deterministic_eval),
         num_eval_envs=num_eval_envs,
