@@ -50,7 +50,6 @@ def main(args):
         episode_length=args.episode_length,
         normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
-        grad_updates_per_step=args.grad_updates_per_step,
         discounting=args.discounting,
         learning_rate=args.learning_rate,
         num_envs=args.num_envs,

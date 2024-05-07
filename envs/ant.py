@@ -114,7 +114,6 @@ class Ant(PipelineEnv):
         info = {"is_healthy": is_healthy, "seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
         state.info.update(info)
-        # jax.debug.print("seed reset: {x}",  x=state.info["seed"])
         return state
 
     # Todo rename seed to traj_id
@@ -127,10 +126,6 @@ class Ant(PipelineEnv):
             seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
-
-        print(pipeline_state.x.pos.shape)
-        print(pipeline_state.q.shape)
-        print(pipeline_state.qd.shape)
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -146,14 +141,12 @@ class Ant(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
-        print("Obs.shape: {x}", obs.shape)
         reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
-        # jax.debug.print("dist: {x}", x=dist)
         info = {"is_healthy": is_healthy, "seed": seed}
 
         state.metrics.update(
@@ -187,9 +180,6 @@ class Ant(PipelineEnv):
         if self._exclude_current_positions_from_observation:
             qpos = qpos[2:]
 
-        print("target_position.shape", target_pos.shape)
-        print("qpos.shape", qpos.shape)
-        print("qvel.shape", qvel.shape)
         return jp.concatenate([qpos] + [qvel] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:

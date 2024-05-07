@@ -11,7 +11,7 @@ from envs.reacher import Reacher
 
 Config = namedtuple(
     "Config",
-    "sac debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim",
+    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim",
 )
 
 def create_parser():
@@ -23,18 +23,15 @@ def create_parser():
     parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
     parser.add_argument('--episode_length', type=int, default=50, help='Maximum length of each episode')
     parser.add_argument('--action_repeat', type=int, default=2, help='Number of times to repeat each action')
-    parser.add_argument('--grad_updates_per_step', type=int, default=2, help='Number of gradient updates per step')
     parser.add_argument('--discounting', type=float, default=0.997, help='Discounting factor for rewards')
     parser.add_argument('--learning_rate', type=float, default=6e-4, help='Learning rate for the optimizer')
     parser.add_argument('--num_envs', type=int, default=2048, help='Number of environments')
     parser.add_argument('--batch_size', type=int, default=512, help='Batch size for training')
     parser.add_argument('--seed', type=int, default=0, help='Seed for reproducibility')
     parser.add_argument('--unroll_length', type=int, default=50, help='Length of the env unroll')
-    parser.add_argument('--multiplier_num_sgd_steps', type=int, default=1, help='Total number of gradient steps == grad_updates_per_step*multiplier_num_sgd_steps')
-
+    parser.add_argument('--multiplier_num_sgd_steps', type=int, default=1, help='Multiplier of total number of gradient steps resulting from other args.')
     parser.add_argument('--env_name', type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument('--normalize_observations', default=False, action="store_true", help='Whether to normalize observations')
-    parser.add_argument('--use_sac', default=False, action="store_true", help="Whether to use SAC or not")
     parser.add_argument('--use_tested_args', default=False, action="store_true", help='Whether to use tested arguments')
     parser.add_argument('--log_wandb', default=False, action="store_true", help='Whether to log to wandb')
     return parser
@@ -59,7 +56,6 @@ def create_env(env_name: str):
 def get_env_config(args: argparse.Namespace):
     if args.env_name == "debug":
         config = Config(
-            sac=False,
             debug=True,
             discount=args.discounting,
             obs_dim=2,
@@ -71,7 +67,6 @@ def get_env_config(args: argparse.Namespace):
         )
     elif args.env_name == "reacher":
         config = Config(
-            sac=args.use_sac,
             debug=False,
             discount=args.discounting,
             obs_dim=10,
@@ -83,7 +78,6 @@ def get_env_config(args: argparse.Namespace):
         )
     elif args.env_name == "ant":
         config = Config(
-            sac=args.use_sac,
             debug=False,
             discount=args.discounting,
             obs_dim=29,
@@ -100,6 +94,7 @@ def get_env_config(args: argparse.Namespace):
 
 def get_tested_args(args):  # Parse arguments
     if args.env_name == "reacher":
+        # NOTE: it was tested on old RB, which was flat and used grad_updates_per_step
         parameters = {
             "num_evals": 10,
             "seed": 1,
@@ -109,11 +104,9 @@ def get_tested_args(args):  # Parse arguments
             "exp_name": "crl_proper_500",
             "episode_length": 1000,
             "unroll_length": 50,
-            "grad_updates_per_step": 8192,
             "action_repeat": 4,
             "min_replay_size": 0,
             "normalize_observations": True,
-            "use_sac": False,
         }
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")

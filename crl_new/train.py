@@ -235,7 +235,6 @@ def train(
     max_devices_per_host: Optional[int] = None,
     min_replay_size: int = 0,
     max_replay_size: Optional[int] = None,
-    grad_updates_per_step: int = 1,
     deterministic_eval: bool = False,
     network_factory: types.NetworkFactory[
         crl_networks.CRLNetworks
@@ -348,7 +347,7 @@ def train(
         TrajectoryUniformSamplingQueue(
             max_replay_size=max_replay_size // device_count,
             dummy_data_sample=dummy_transition,
-            sample_batch_size=batch_size * grad_updates_per_step // device_count,
+            sample_batch_size=batch_size // device_count,
             num_envs=num_envs,
             episode_length=episode_length,
         )
