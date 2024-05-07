@@ -14,7 +14,7 @@ Transition = types.Transition
 
 def make_losses(
     config:NamedTuple,
-    sac_network: sac_networks.SACNetworks,
+    sac_network: sac_networks.CRLNetworks,
     reward_scaling: float,
     discounting: float,
     action_size: int,

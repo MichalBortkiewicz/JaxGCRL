@@ -180,7 +180,7 @@ def _init_training_state(
     key: PRNGKey,
     obs_size: int,
     local_devices_to_use: int,
-    sac_network: sac_networks.SACNetworks,
+    sac_network: sac_networks.CRLNetworks,
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
@@ -244,8 +244,8 @@ def train(
     grad_updates_per_step: int = 1,
     deterministic_eval: bool = False,
     network_factory: types.NetworkFactory[
-        sac_networks.SACNetworks
-    ] = sac_networks.make_sac_networks,
+        sac_networks.CRLNetworks
+    ] = sac_networks.make_crl_networks,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
