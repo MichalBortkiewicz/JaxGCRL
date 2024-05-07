@@ -22,12 +22,12 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
     rollout = []
     rng = jax.random.PRNGKey(seed=1)
     state = jit_env_reset(rng=rng)
-    for i in range(2500):
+    for i in range(5000):
         rollout.append(state.pipeline_state)
         act_rng, rng = jax.random.split(rng)
         act, _ = jit_inference_fn(state.obs, act_rng)
         state = jit_env_step(state, act)
-        if i % 500 == 0:
+        if i % 1000 == 0:
             state = jit_env_reset(rng=rng)
 
     url = html.render(env.sys.replace(dt=env.dt), rollout, height=1024)
@@ -84,6 +84,9 @@ def main(args):
         'eval/episode_success',
         'eval/episode_success_easy',
         'eval/episode_reward_survive',
+        "eval/episode_success_any",
+        "training/alpha",
+        "training/alpha_loss",
     ]
 
     def progress(num_steps, metrics):
@@ -114,6 +117,9 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
+    sgd_to_env = (args.num_envs * args.episode_length * args.multiplier_num_sgd_steps / args.batch_size) / (args.num_envs * args.unroll_length)
+    print(f"SGD steps per env steps: {sgd_to_env}")
+    args.sgd_to_env = sgd_to_env
 
     wandb.init(
         project="crl",
