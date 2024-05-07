@@ -22,8 +22,8 @@ from brax.training.types import Params, Policy
 from brax.v1 import envs as envs_v1
 from jax import random, lax
 
-from crl_new import losses as sac_losses
-from crl_new import networks as sac_networks
+from crl_new import losses as crl_losses
+from crl_new import networks as crl_networks
 from crl_new.replay_buffer import QueueBase, Sample
 from crl_new.evaluator import CrlEvaluator
 
@@ -180,7 +180,7 @@ def _init_training_state(
     key: PRNGKey,
     obs_size: int,
     local_devices_to_use: int,
-    sac_network: sac_networks.CRLNetworks,
+    crl_network: crl_networks.CRLNetworks,
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
@@ -191,17 +191,17 @@ def _init_training_state(
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
-    policy_params = sac_network.policy_network.init(key_policy)
+    policy_params = crl_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
-    q_params = sac_network.q_network.init(key_q)
+    q_params = crl_network.q_network.init(key_q)
     q_optimizer_state = q_optimizer.init(q_params)
 
     normalizer_params = running_statistics.init_state(
         specs.Array((obs_size,), jnp.dtype("float32"))
     )
 
-    sa_encoder_params = sac_network.sa_encoder.init(key_sa_enc)
-    g_encoder_params = sac_network.g_encoder.init(key_g_enc)
+    sa_encoder_params = crl_network.sa_encoder.init(key_sa_enc)
+    g_encoder_params = crl_network.g_encoder.init(key_g_enc)
     crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
     crl_critic_state = crl_critics_optimizer.init(
         crl_critic_params
@@ -244,8 +244,8 @@ def train(
     grad_updates_per_step: int = 1,
     deterministic_eval: bool = False,
     network_factory: types.NetworkFactory[
-        sac_networks.CRLNetworks
-    ] = sac_networks.make_crl_networks,
+        crl_networks.CRLNetworks
+    ] = crl_networks.make_crl_networks,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
@@ -256,7 +256,7 @@ def train(
     multiplier_num_sgd_steps: int = 1,
     config:NamedTuple=None
 ):
-    """SAC training."""
+    """CRL training."""
     process_id = jax.process_index()
     local_devices_to_use = jax.local_device_count()
     if max_devices_per_host is not None:
@@ -282,7 +282,7 @@ def train(
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
     assert num_timesteps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)
-    # The number of run_one_sac_epoch calls per run_sac_training.
+    # The number of epoch calls per training
     # equals to
     # ceil(num_timesteps - num_prefill_env_steps /
     #      (num_evals_after_init * env_steps_per_actor_step))
@@ -321,13 +321,13 @@ def train(
     normalize_fn = lambda x, y: x
     if normalize_observations:
         normalize_fn = running_statistics.normalize
-    sac_network = network_factory(
+    crl_network = network_factory(
         config=config,
         observation_size=obs_size,
         action_size=action_size,
         preprocess_observations_fn=normalize_fn,
     )
-    make_policy = sac_networks.make_inference_fn(sac_network)
+    make_policy = crl_networks.make_inference_fn(crl_network)
 
     alpha_optimizer = optax.adam(learning_rate=3e-4)
 
@@ -361,9 +361,9 @@ def train(
         )
     )
 
-    alpha_loss, critic_loss, actor_loss, crl_critic_loss = sac_losses.make_losses(
+    alpha_loss, critic_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
-        sac_network=sac_network,
+        crl_network=crl_network,
         reward_scaling=reward_scaling,
         discounting=discounting,
         action_size=action_size,
@@ -652,7 +652,7 @@ def train(
         key=global_key,
         obs_size=obs_size,
         local_devices_to_use=local_devices_to_use,
-        sac_network=sac_network,
+        crl_network=crl_network,
         alpha_optimizer=alpha_optimizer,
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
@@ -743,7 +743,7 @@ def train(
                 params = _unpmap(
                     (training_state.normalizer_params, training_state.policy_params)
                 )
-                path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
+                path = f"{checkpoint_logdir}_{current_step}.pkl"
                 model.save_params(path, params)
 
             # Run evals.

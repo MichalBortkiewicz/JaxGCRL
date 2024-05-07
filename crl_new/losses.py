@@ -3,7 +3,7 @@ from typing import Any, NamedTuple
 from brax.training import types
 from optax import sigmoid_binary_cross_entropy
 
-from crl_new import networks as sac_networks
+from crl_new import networks as crl_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax
@@ -14,19 +14,19 @@ Transition = types.Transition
 
 def make_losses(
     config:NamedTuple,
-    sac_network: sac_networks.CRLNetworks,
+    crl_network: crl_networks.CRLNetworks,
     reward_scaling: float,
     discounting: float,
     action_size: int,
 ):
-    """Creates the SAC losses."""
+    """Creates the CRL losses."""
 
     target_entropy = -0.5 * action_size
-    policy_network = sac_network.policy_network
-    q_network = sac_network.q_network
-    parametric_action_distribution = sac_network.parametric_action_distribution
-    sa_encoder = sac_network.sa_encoder
-    g_encoder = sac_network.g_encoder
+    policy_network = crl_network.policy_network
+    q_network = crl_network.q_network
+    parametric_action_distribution = crl_network.parametric_action_distribution
+    sa_encoder = crl_network.sa_encoder
+    g_encoder = crl_network.g_encoder
 
     obs_dim = config.obs_dim
     SAC = config.sac
