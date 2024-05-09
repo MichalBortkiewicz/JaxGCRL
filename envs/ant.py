@@ -103,17 +103,29 @@ class Ant(PipelineEnv):
             "x_velocity": zero,
             "y_velocity": zero,
             "forward_reward": zero,
+            "dist": zero,
+            "success": zero,
+            "success_easy": zero
         }
-        return State(pipeline_state, obs, reward, done, metrics)
+        min_z, max_z = self._healthy_z_range
+        is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
+        is_healthy = jp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
+        # info = {"is_healthy": is_healthy, "seed": rng[0]}
+        info = {"is_healthy": is_healthy, "seed": 0}
+        state = State(pipeline_state, obs, reward, done, metrics)
+        state.info.update(info)
+        return state
 
+    # Todo rename seed to traj_id
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-        print(pipeline_state.x.pos.shape)
-        print(pipeline_state.q.shape)
-        print(pipeline_state.qd.shape)
+        if "steps" in state.info.keys():
+            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
+        else:
+            seed = state.info["seed"]
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -131,6 +143,12 @@ class Ant(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+
+        dist = jp.linalg.norm(obs[:2] - obs[-2:])
+        success = jp.array(dist < 0.5, dtype=float)
+        success_easy = jp.array(dist < 2., dtype=float)
+        info = {"is_healthy": is_healthy, "seed": seed}
+
         state.metrics.update(
             reward_forward=forward_reward,
             reward_survive=healthy_reward,
@@ -142,30 +160,33 @@ class Ant(PipelineEnv):
             x_velocity=velocity[0],
             y_velocity=velocity[1],
             forward_reward=forward_reward,
+            dist=dist,
+            success=success,
+            success_easy=success_easy
         )
+        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
-        qpos = pipeline_state.q
-        qvel = pipeline_state.qd
+        # remove target q, qd
+        qpos = pipeline_state.q[:-2]
+        qvel = pipeline_state.qd[:-2]
 
-        target_pos = pipeline_state.x.pos[-1]
+        target_pos = pipeline_state.x.pos[-1][:2]
 
         if self._exclude_current_positions_from_observation:
-            qpos = pipeline_state.q[2:]
+            qpos = qpos[2:]
 
         return jp.concatenate([qpos] + [qvel] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
         """Returns a target location in a random circle slightly above xy plane."""
-        # rng, rng1, rng2 = jax.random.split(rng, 3)
-        # dist = 20 * jax.random.uniform(rng1)
-        # ang = jp.pi * 2.0 * jax.random.uniform(rng2)
-        # target_x = dist * jp.cos(ang)
-        # target_y = dist * jp.sin(ang)
-        target_x = jp.asarray(10)
-        target_y = jp.asarray(10)
+        rng, rng1, rng2 = jax.random.split(rng, 3)
+        dist = 10
+        ang = jp.pi * 2.0 * jax.random.uniform(rng2)
+        target_x = dist * jp.cos(ang)
+        target_y = dist * jp.sin(ang)
         return rng, jp.array([target_x, target_y])

@@ -46,16 +46,20 @@ class Debug(PipelineEnv):
         pipeline_state = self.pipeline_init(q, qd)
 
         obs = self._get_obs(pipeline_state)
+        seed=0
+        info = {"seed": seed}
+        obs += obs + jp.array([seed,0,seed,0], dtype=jp.float32)
 
         reward, done, zero = jp.zeros(3)
         metrics = {
             "reward_dist": zero,
             "reward_ctrl": zero,
         }
-        return State(pipeline_state, obs, reward, done, metrics)
+        state = State(pipeline_state, obs, reward, done, metrics)
+        state.info.update(info)
+        return state
 
     def step(self, state: State, action: jax.Array) -> State:
-
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
         obs += state.obs + jp.array([0,1,0,1])
@@ -70,6 +74,14 @@ class Debug(PipelineEnv):
             reward_ctrl=reward_ctrl,
         )
 
+        env_reseted = jp.where(state.info["steps"], 0, 1)
+        seed = state.info["seed"] + env_reseted
+
+        info = {"seed": seed}
+        state.info.update(info)
+
+        step_now = state.info["steps"]
+        obs = jp.array([seed, step_now, seed, step_now], dtype=jp.float32)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
