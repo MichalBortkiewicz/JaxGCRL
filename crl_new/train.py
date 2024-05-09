@@ -271,7 +271,8 @@ def train(
 
     # The number of environment steps executed for every `actor_step()` call.
     env_steps_per_actor_step = action_repeat * num_envs * unroll_length 
-    num_prefill_actor_steps = min_replay_size//unroll_length + 1
+    num_prefill_actor_steps = min_replay_size // unroll_length + 1
+    print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
     assert num_timesteps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)

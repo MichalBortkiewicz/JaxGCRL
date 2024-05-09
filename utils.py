@@ -108,6 +108,21 @@ def get_tested_args(args):  # Parse arguments
             "min_replay_size": 0,
             "normalize_observations": True,
         }
+    elif args.env_name == "ant":
+        # Best works with bigger networks - 4x1024
+        parameters = {
+            "num_evals": 50,
+            "seed": 1,
+            "num_timesteps": 50000000,
+            "batch_size": 256,
+            "num_envs": 1024,
+            "exp_name": "ant_repro",
+            "episode_length": 1000,
+            "unroll_length": 50,
+            "action_repeat": 1,
+            "min_replay_size": 1000,
+            "normalize_observations": True,
+        }
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")
     # Update only changed args
