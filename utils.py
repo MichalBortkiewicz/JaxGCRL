@@ -9,31 +9,42 @@ from envs.ant import Ant
 from envs.debug_env import Debug
 from envs.reacher import Reacher
 
+
 Config = namedtuple(
     "Config",
     "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim",
 )
 
+
 def create_parser():
-    parser = argparse.ArgumentParser(description='Training script arguments')
-    parser.add_argument('--exp_name', type=str, default="test", help='Name of the experiment')
-    parser.add_argument('--num_timesteps', type=int, default=1000000, help='Number of training timesteps')
-    parser.add_argument('--max_replay_size', type=int, default=50000, help='Maximum size of replay buffer')
-    parser.add_argument('--min_replay_size', type=int, default=8192, help='Minimum size of replay buffer')
-    parser.add_argument('--num_evals', type=int, default=50, help='Number of evaluations')
-    parser.add_argument('--episode_length', type=int, default=50, help='Maximum length of each episode')
-    parser.add_argument('--action_repeat', type=int, default=2, help='Number of times to repeat each action')
-    parser.add_argument('--discounting', type=float, default=0.997, help='Discounting factor for rewards')
-    parser.add_argument('--learning_rate', type=float, default=6e-4, help='Learning rate for the optimizer')
-    parser.add_argument('--num_envs', type=int, default=2048, help='Number of environments')
-    parser.add_argument('--batch_size', type=int, default=512, help='Batch size for training')
-    parser.add_argument('--seed', type=int, default=0, help='Seed for reproducibility')
-    parser.add_argument('--unroll_length', type=int, default=50, help='Length of the env unroll')
-    parser.add_argument('--multiplier_num_sgd_steps', type=int, default=1, help='Multiplier of total number of gradient steps resulting from other args.')
-    parser.add_argument('--env_name', type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument('--normalize_observations', default=False, action="store_true", help='Whether to normalize observations')
-    parser.add_argument('--use_tested_args', default=False, action="store_true", help='Whether to use tested arguments')
-    parser.add_argument('--log_wandb', default=False, action="store_true", help='Whether to log to wandb')
+    parser = argparse.ArgumentParser(description="Training script arguments")
+    parser.add_argument("--exp_name", type=str, default="test", help="Name of the experiment")
+    parser.add_argument("--num_timesteps", type=int, default=1000000, help="Number of training timesteps")
+    parser.add_argument("--max_replay_size", type=int, default=50000, help="Maximum size of replay buffer")
+    parser.add_argument("--min_replay_size", type=int, default=8192, help="Minimum size of replay buffer")
+    parser.add_argument("--num_evals", type=int, default=50, help="Number of evaluations")
+    parser.add_argument("--episode_length", type=int, default=50, help="Maximum length of each episode")
+    parser.add_argument("--action_repeat", type=int, default=2, help="Number of times to repeat each action")
+    parser.add_argument("--discounting", type=float, default=0.997, help="Discounting factor for rewards")
+    parser.add_argument("--num_envs", type=int, default=2048, help="Number of environments")
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for training")
+    parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
+    parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
+    parser.add_argument(
+        "--multiplier_num_sgd_steps",
+        type=int,
+        default=1,
+        help="Multiplier of total number of gradient steps resulting from other args.",
+    )
+    parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
+    parser.add_argument(
+        "--normalize_observations", default=False, action="store_true", help="Whether to normalize observations"
+    )
+    parser.add_argument("--use_tested_args", default=False, action="store_true", help="Whether to use tested arguments")
+    parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
+    parser.add_argument('--policy_lr', type=float, default=6e-4)
+    parser.add_argument('--alpha_lr', type=float, default=3e-4)
+    parser.add_argument('--critic_lr', type=float, default=3e-4)
     return parser
 
 
@@ -186,9 +197,7 @@ class MetricsRecorder:
 
     def print_progress(self):
         for idx, (key, y_values) in enumerate(self.y_data.items()):
-            print(
-                f"step: {self.x_data[-1]}, {key}: {y_values[-1]:.3f} +/- {self.y_data_err[key][-1]:.3f}"
-            )
+            print(f"step: {self.x_data[-1]}, {key}: {y_values[-1]:.3f} +/- {self.y_data_err[key][-1]:.3f}")
 
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")

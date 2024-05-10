@@ -226,7 +226,9 @@ def train(
     action_repeat: int = 1,
     num_envs: int = 1,
     num_eval_envs: int = 128,
-    learning_rate: float = 1e-4,
+    policy_lr: float = 1e-4,
+    alpha_lr: float = 1e-4,
+    critic_lr: float = 1e-4,
     discounting: float = 0.9,
     seed: int = 0,
     batch_size: int = 256,
@@ -323,10 +325,10 @@ def train(
     )
     make_policy = crl_networks.make_inference_fn(crl_network)
 
-    alpha_optimizer = optax.adam(learning_rate=3e-4)
+    alpha_optimizer = optax.adam(learning_rate=alpha_lr)
 
-    policy_optimizer = optax.adam(learning_rate=learning_rate)
-    crl_critics_optimizer = optax.adam(learning_rate=3e-4)
+    policy_optimizer = optax.adam(learning_rate=policy_lr)
+    crl_critics_optimizer = optax.adam(learning_rate=critic_lr)
 
     dummy_obs = jnp.zeros((obs_size,))
     dummy_action = jnp.zeros((action_size,))
