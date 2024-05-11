@@ -9,12 +9,14 @@ from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
 
+
 Transition = types.Transition
 
 
 def make_losses(
     config: NamedTuple,
     contrastive_loss_fn: str,
+    logsumexp_penalty: float,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
 ):
@@ -35,12 +37,8 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
         """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
-        dist_params = policy_network.apply(
-            normalizer_params, policy_params, transitions.observation
-        )
-        action = parametric_action_distribution.sample_no_postprocessing(
-            dist_params, key
-        )
+        dist_params = policy_network.apply(normalizer_params, policy_params, transitions.observation)
+        action = parametric_action_distribution.sample_no_postprocessing(dist_params, key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         alpha = jnp.exp(log_alpha)
         alpha_loss = alpha * jax.lax.stop_gradient(-log_prob - target_entropy)
@@ -59,13 +57,9 @@ def make_losses(
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
-            jnp.concatenate(
-                [transitions.observation[:, :obs_dim], transitions.action], axis=-1
-            ),
+            jnp.concatenate([transitions.observation[:, :obs_dim], transitions.action], axis=-1),
         )
-        g_repr = g_encoder.apply(
-            normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
-        )
+        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:])
         logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
 
         if contrastive_loss_fn == "binary":
@@ -73,10 +67,23 @@ def make_losses(
                 sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
             )  # shape[0] - is a batch size
         elif contrastive_loss_fn == "symmetric_infonce":
-            d = logits.shape[0]
-            logits1 = jax.nn.log_softmax(logits, axis=1) / jnp.sqrt(d)
-            logits2 = jax.nn.log_softmax(logits, axis=0) / jnp.sqrt(d)
+            logits1 = jax.nn.log_softmax(logits, axis=1)
+            logits2 = jax.nn.log_softmax(logits, axis=0)
             loss = -jnp.mean(jnp.diag(logits1) + jnp.diag(logits2))
+        elif contrastive_loss_fn == "infonce":
+            logits1 = jax.nn.log_softmax(logits, axis=1)
+            I = jnp.eye(logits1.shape[0])
+            loss = -jnp.mean(jnp.diag(logits1))
+        elif contrastive_loss_fn == "infonce_backward":
+            logits2 = jax.nn.log_softmax(logits, axis=0)
+            I = jnp.eye(logits2.shape[0])
+            loss = -jnp.mean(jnp.diag(logits2))
+        else:
+            raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
+
+        if logsumexp_penalty > 0:
+            logsumexp = jax.nn.logsumexp(logits, axis=1)
+            loss += logsumexp_penalty * jnp.mean(logsumexp**2)
 
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
@@ -96,7 +103,6 @@ def make_losses(
 
         return loss, metrics
 
-
     def actor_loss(
         policy_params: Params,
         normalizer_params: Any,
@@ -109,12 +115,8 @@ def make_losses(
         state, goal = transitions.observation[:, :obs_dim], transitions.observation[:, obs_dim:]
         observation = jnp.concatenate((state, goal), axis=1)
 
-        dist_params = policy_network.apply(
-            normalizer_params, policy_params, observation
-        )
-        action = parametric_action_distribution.sample_no_postprocessing(
-            dist_params, key
-        )
+        dist_params = policy_network.apply(normalizer_params, policy_params, observation)
+        action = parametric_action_distribution.sample_no_postprocessing(dist_params, key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         action = parametric_action_distribution.postprocess(action)
 
@@ -127,9 +129,7 @@ def make_losses(
             sa_encoder_params,
             jnp.concatenate([state, action], axis=-1),
         )
-        g_repr = g_encoder.apply(
-            normalizer_params, g_encoder_params, goal
-        )
+        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
         min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
 
         actor_loss = alpha * log_prob - min_q

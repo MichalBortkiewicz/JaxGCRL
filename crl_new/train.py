@@ -221,6 +221,7 @@ def train(
     seed: int = 0,
     batch_size: int = 256,
     contrastive_loss_fn: str = "binary",
+    logsumexp_penalty: float = 0.0,
     num_evals: int = 1,
     normalize_observations: bool = False,
     max_devices_per_host: Optional[int] = None,
@@ -339,6 +340,7 @@ def train(
     alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
         contrastive_loss_fn=contrastive_loss_fn,
+        logsumexp_penalty=logsumexp_penalty,
         crl_network=crl_network,
         action_size=action_size,
     )
