@@ -13,7 +13,8 @@ Transition = types.Transition
 
 
 def make_losses(
-    config:NamedTuple,
+    config: NamedTuple,
+    contrastive_loss_fn: str,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
 ):
@@ -50,6 +51,7 @@ def make_losses(
         normalizer_params: Any,
         transitions: Transition,
     ):
+
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
@@ -65,9 +67,16 @@ def make_losses(
             normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:]
         )
         logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
-        loss = jnp.mean(
-            sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
-        )  # shape[0] - is a batch size
+
+        if contrastive_loss_fn == "binary":
+            loss = jnp.mean(
+                sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
+            )  # shape[0] - is a batch size
+        elif contrastive_loss_fn == "symmetric_infonce":
+            d = logits.shape[0]
+            logits1 = jax.nn.log_softmax(logits, axis=1) / jnp.sqrt(d)
+            logits2 = jax.nn.log_softmax(logits, axis=0) / jnp.sqrt(d)
+            loss = -jnp.mean(jnp.diag(logits1) + jnp.diag(logits2))
 
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)

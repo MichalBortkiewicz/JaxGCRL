@@ -33,6 +33,7 @@ Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
+
 class Transition(NamedTuple):
     """Container for a transition."""
 
@@ -73,9 +74,7 @@ _PMAP_AXIS_NAME = "i"
 class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     """Implements an uniform sampling limited-size replay queue BUT WITH TRAJECTORIES."""
 
-    def sample_internal(
-        self, buffer_state: ReplayBufferState
-    ) -> Tuple[ReplayBufferState, Sample]:
+    def sample_internal(self, buffer_state: ReplayBufferState) -> Tuple[ReplayBufferState, Sample]:
         if buffer_state.data.shape != self._data_shape:
             raise ValueError(
                 f"Data shape expected by the replay buffer ({self._data_shape}) does "
@@ -116,24 +115,22 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
     @staticmethod
     @functools.partial(jax.jit, static_argnames="config")
-    def flatten_crl_fn(config, transition: Transition, sample_key:PRNGKey) -> Transition:
+    def flatten_crl_fn(config, transition: Transition, sample_key: PRNGKey) -> Transition:
         goal_key, transition_key = jax.random.split(sample_key)
 
         # Because it's vmaped transition obs.shape is of shape (transitions,obs_dim)
         seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
-        is_future_mask = jnp.array(
-            arrangement[:, None] < arrangement[None], dtype=jnp.float32
-        )
-        discount = config.discount ** jnp.array(
-            arrangement[None] - arrangement[:, None], dtype=jnp.float32
-        )
+        is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
+        discount = config.discount ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
         probs = is_future_mask * discount
-        single_trajectories = jnp.concatenate([transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0)
+        single_trajectories = jnp.concatenate(
+            [transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0
+        )
         probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
 
         goal_index = random.categorical(goal_key, jnp.log(probs))
-        goal = transition.observation[:, config.goal_start_idx: config.goal_end_idx]
+        goal = transition.observation[:, config.goal_start_idx : config.goal_end_idx]
         goal = jnp.take(goal, goal_index[:-1], axis=0)
         state = transition.observation[:-1, : config.obs_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
@@ -141,11 +138,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         extras = {
             "next_action": jnp.squeeze(transition.action[1:]),
             "policy_extras": {},
-            "state_extras": {
-                "truncation": jnp.squeeze(
-                    transition.extras["state_extras"]["truncation"][:-1]
-                )
-            },
+            "state_extras": {"truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1])},
         }
         transition = Transition(
             observation=jnp.squeeze(new_obs),
@@ -171,6 +164,7 @@ class TrainingState:
     crl_critic_params: Params
     crl_critic_optimizer_state: optax.OptState
 
+
 def _unpmap(v):
     return jax.tree_util.tree_map(lambda x: x[0], v)
 
@@ -185,23 +179,19 @@ def _init_training_state(
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q, key_sa_enc, key_g_enc= jax.random.split(key, 4)
+    key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
     policy_params = crl_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
 
-    normalizer_params = running_statistics.init_state(
-        specs.Array((obs_size,), jnp.dtype("float32"))
-    )
+    normalizer_params = running_statistics.init_state(specs.Array((obs_size,), jnp.dtype("float32")))
 
     sa_encoder_params = crl_network.sa_encoder.init(key_sa_enc)
     g_encoder_params = crl_network.g_encoder.init(key_g_enc)
     crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
-    crl_critic_state = crl_critics_optimizer.init(
-        crl_critic_params
-    )
+    crl_critic_state = crl_critics_optimizer.init(crl_critic_params)
 
     training_state = TrainingState(
         policy_optimizer_state=policy_optimizer_state,
@@ -214,9 +204,7 @@ def _init_training_state(
         crl_critic_optimizer_state=crl_critic_state,
         crl_critic_params=crl_critic_params,
     )
-    return jax.device_put_replicated(
-        training_state, jax.local_devices()[:local_devices_to_use]
-    )
+    return jax.device_put_replicated(training_state, jax.local_devices()[:local_devices_to_use])
 
 
 def train(
@@ -232,24 +220,21 @@ def train(
     discounting: float = 0.9,
     seed: int = 0,
     batch_size: int = 256,
+    contrastive_loss_fn: str = "binary",
     num_evals: int = 1,
     normalize_observations: bool = False,
     max_devices_per_host: Optional[int] = None,
     min_replay_size: int = 0,
     max_replay_size: Optional[int] = None,
     deterministic_eval: bool = False,
-    network_factory: types.NetworkFactory[
-        crl_networks.CRLNetworks
-    ] = crl_networks.make_crl_networks,
+    network_factory: types.NetworkFactory[crl_networks.CRLNetworks] = crl_networks.make_crl_networks,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
-    randomization_fn: Optional[
-        Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
-    ] = None,
+    randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
     unroll_length: int = 50,
     multiplier_num_sgd_steps: int = 1,
-    config:NamedTuple=None
+    config: NamedTuple = None,
 ):
     """CRL training."""
     process_id = jax.process_index()
@@ -264,15 +249,13 @@ def train(
     )
 
     if min_replay_size >= num_timesteps:
-        raise ValueError(
-            "No training will happen because min_replay_size >= num_timesteps"
-        )
+        raise ValueError("No training will happen because min_replay_size >= num_timesteps")
 
     if max_replay_size is None:
         max_replay_size = num_timesteps
 
     # The number of environment steps executed for every `actor_step()` call.
-    env_steps_per_actor_step = action_repeat * num_envs * unroll_length 
+    env_steps_per_actor_step = action_repeat * num_envs * unroll_length
     num_prefill_actor_steps = min_replay_size // unroll_length + 1
     print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
@@ -283,8 +266,7 @@ def train(
     # ceil(num_timesteps - num_prefill_env_steps /
     #      (num_evals_after_init * env_steps_per_actor_step))
     num_training_steps_per_epoch = -(
-        -(num_timesteps - num_prefill_env_steps)
-        // (num_evals_after_init * env_steps_per_actor_step)
+        -(num_timesteps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
     )
 
     assert num_envs % device_count == 0
@@ -300,9 +282,7 @@ def train(
     if randomization_fn is not None:
         v_randomization_fn = functools.partial(
             randomization_fn,
-            rng=jax.random.split(
-                key, num_envs // jax.process_count() // local_devices_to_use
-            ),
+            rng=jax.random.split(key, num_envs // jax.process_count() // local_devices_to_use),
         )
     env = wrap_for_training(
         env,
@@ -358,23 +338,18 @@ def train(
 
     alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
+        contrastive_loss_fn=contrastive_loss_fn,
         crl_network=crl_network,
         action_size=action_size,
     )
-    alpha_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
+    alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
-    actor_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
+    actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
-    crl_critic_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
-        )
+    crl_critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
     )
 
     def sgd_step(
@@ -451,12 +426,11 @@ def train(
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
             env_state, transition = actor_step(
-                env, env_state, policy, current_key, extra_fields=("truncation", "seed", "steps")
+                env, env_state, policy, current_key, extra_fields=("truncation", "steps")
             )
             return (env_state, next_key), transition
 
-        (env_state, _), data = jax.lax.scan(
-            f, (env_state, key), (), length=unroll_length)
+        (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=unroll_length)
 
         normalizer_params = running_statistics.update(
             normalizer_params,
@@ -473,9 +447,7 @@ def train(
         env_state: envs.State,
         buffer_state: ReplayBufferState,
         key: PRNGKey,
-    ) -> Tuple[
-        TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics
-    ]:
+    ) -> Tuple[TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics]:
         experience_key, training_key = jax.random.split(key)
         normalizer_params, env_state, buffer_state = get_experience(
             training_state.normalizer_params,
@@ -528,24 +500,20 @@ def train(
         training_state: TrainingState,
         buffer_state: ReplayBufferState,
         key: PRNGKey,
-    )->Tuple[
-        TrainingState, ReplayBufferState, Metrics
-    ]:
-        experience_key, training_key, sampling_key = jax.random.split(key,3)
+    ) -> Tuple[TrainingState, ReplayBufferState, Metrics]:
+        experience_key, training_key, sampling_key = jax.random.split(key, 3)
         buffer_state, transitions = replay_buffer.sample(buffer_state)
 
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
-        transitions = jax.vmap(
-            TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0)
-        )(config, transitions, batch_keys)
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
+            config, transitions, batch_keys
+        )
 
         transitions = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[2:], order="F"),
             transitions,
         )
-        (training_state, _), metrics = jax.lax.scan(
-            sgd_step, (training_state, training_key), transitions
-        )
+        (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
     def scan_additional_sgds(n, ts, bs, a_sgd_key, metrics):
@@ -554,6 +522,7 @@ def train(
             new_key, a_sgd_key = jax.random.split(a_sgd_key)
             ts, bs, metrics = additional_sgds(ts, bs, a_sgd_key)
             return ts, bs, new_key, metrics
+
         return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key, metrics))
 
     def training_epoch(
@@ -598,9 +567,7 @@ def train(
 
         epoch_training_time = time.time() - t
         training_walltime += epoch_training_time
-        sps = (
-            env_steps_per_actor_step * num_training_steps_per_epoch
-        ) / epoch_training_time
+        sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
         metrics = {
             "training/sps": sps,
             "training/walltime": training_walltime,
@@ -636,16 +603,12 @@ def train(
     env_state = jax.pmap(env.reset)(env_keys)
 
     # Replay buffer init
-    buffer_state = jax.pmap(replay_buffer.init)(
-        jax.random.split(rb_key, local_devices_to_use)
-    )
+    buffer_state = jax.pmap(replay_buffer.init)(jax.random.split(rb_key, local_devices_to_use))
 
     if not eval_env:
         eval_env = environment
     if randomization_fn is not None:
-        v_randomization_fn = functools.partial(
-            randomization_fn, rng=jax.random.split(eval_key, num_eval_envs)
-        )
+        v_randomization_fn = functools.partial(randomization_fn, rng=jax.random.split(eval_key, num_eval_envs))
     eval_env = wrap_for_training(
         eval_env,
         episode_length=episode_length,
@@ -680,9 +643,7 @@ def train(
         training_state, env_state, buffer_state, prefill_keys
     )
 
-    replay_size = (
-        jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
-    )
+    replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
     logging.info("replay size after prefill %s", replay_size)
     assert replay_size >= min_replay_size
     training_walltime = time.time() - t
@@ -699,26 +660,20 @@ def train(
             env_state,
             buffer_state,
             training_metrics,
-        ) = training_epoch_with_timing(
-            training_state, env_state, buffer_state, epoch_keys
-        )
+        ) = training_epoch_with_timing(training_state, env_state, buffer_state, epoch_keys)
         current_step = int(_unpmap(training_state.env_steps))
 
         # Eval and logging
         if process_id == 0:
             if checkpoint_logdir:
                 # Save current policy.
-                params = _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
-                )
+                params = _unpmap((training_state.normalizer_params, training_state.policy_params))
                 path = f"{checkpoint_logdir}_{current_step}.pkl"
                 model.save_params(path, params)
 
             # Run evals.
             metrics = evaluator.run_evaluation(
-                _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
-                ),
+                _unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics,
             )
             logging.info(metrics)

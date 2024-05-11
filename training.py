@@ -54,6 +54,7 @@ def main(args):
         policy_lr=args.policy_lr,
         critic_lr=args.critic_lr,
         alpha_lr=args.alpha_lr,
+        contrastive_loss_fn=args.contrastive_loss_fn,
         num_envs=args.num_envs,
         batch_size=args.batch_size,
         seed=args.seed,

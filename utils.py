@@ -45,6 +45,7 @@ def create_parser():
     parser.add_argument('--policy_lr', type=float, default=6e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)
+    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
     return parser
 
 
