@@ -1,0 +1,53 @@
+program: training.py
+method: bayes
+metric:
+  goal: maximize
+  name: eval/episode_reward
+parameters:
+  policy_lr:
+    min: 1e-5
+    max: 1e-3
+    distribution: log_uniform_values
+  alpha_lr:
+    min: 1e-5
+    max: 1e-3
+    distribution: log_uniform_values
+  critic_lr:
+    max: 1e-3
+    min: 1e-5
+    distribution: log_uniform_values
+  discounting:
+    min: 0.95
+    max: 0.99
+    distribution: uniform
+  batch_size:
+    min: 128
+    max: 1024
+    distribution: int_uniform
+  contrastive_loss_fn:
+    values:
+      - "symmetric_infonce"
+      - "binary"
+      - "infonce"
+      - "infonce_backward"
+    distribution: categorical
+  logsumexp_penalty:
+    values:
+      - 0.0
+      - 0.01
+    distribution: categorical
+  seed:
+    min: 0
+    max: 100
+    distribution: int_uniform
+  env_name:
+    value: "ant"
+    distribution: constant
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --log_wandb
+  - --use_tested_args
+  - ${args_no_boolean_flags}
+
