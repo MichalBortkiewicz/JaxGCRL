@@ -72,11 +72,9 @@ def make_losses(
             loss = -jnp.mean(jnp.diag(logits1) + jnp.diag(logits2))
         elif contrastive_loss_fn == "infonce":
             logits1 = jax.nn.log_softmax(logits, axis=1)
-            I = jnp.eye(logits1.shape[0])
             loss = -jnp.mean(jnp.diag(logits1))
         elif contrastive_loss_fn == "infonce_backward":
             logits2 = jax.nn.log_softmax(logits, axis=0)
-            I = jnp.eye(logits2.shape[0])
             loss = -jnp.mean(jnp.diag(logits2))
         else:
             raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
