@@ -52,7 +52,7 @@ def create_parser():
 
 def create_env(env_name: str):
     if env_name == "reacher":
-        env = Reacher(backend="spring")
+        env = Reacher(backend="generalized")
     elif env_name == "ant":
         env = Ant(
             backend="spring",
@@ -71,9 +71,9 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=True,
             discount=args.discounting,
-            obs_dim=2,
-            goal_start_idx=0,
-            goal_end_idx=2,
+            obs_dim=3,
+            goal_start_idx=1,
+            goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
@@ -84,7 +84,7 @@ def get_env_config(args: argparse.Namespace):
             discount=args.discounting,
             obs_dim=10,
             goal_start_idx=4,
-            goal_end_idx=10,
+            goal_end_idx=7,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
@@ -109,16 +109,16 @@ def get_tested_args(args):  # Parse arguments
     if args.env_name == "reacher":
         # NOTE: it was tested on old RB, which was flat and used grad_updates_per_step
         parameters = {
-            "num_evals": 10,
+            "num_evals": 25,
             "seed": 1,
-            "num_timesteps": 500000,
-            "batch_size": 128,
-            "num_envs": 128,
+            "num_timesteps": 5000000,
+            "batch_size": 256,
+            "num_envs": 1024,
             "exp_name": "crl_proper_500",
             "episode_length": 1000,
             "unroll_length": 50,
-            "action_repeat": 4,
-            "min_replay_size": 0,
+            "action_repeat": 1,
+            "min_replay_size": 1000,
             "normalize_observations": True,
         }
     elif args.env_name == "ant":

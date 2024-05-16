@@ -45,10 +45,10 @@ class Debug(PipelineEnv):
 
         pipeline_state = self.pipeline_init(q, qd)
 
-        obs = self._get_obs(pipeline_state)
         seed=0
-        info = {"seed": seed}
-        obs += obs + jp.array([seed,0,seed,0], dtype=jp.float32)
+        env=rng3[0]%1000
+        info = {"seed": seed, "env": jp.array(env, dtype=jp.float32)}
+        obs = jp.array([env, seed, 0, seed, 0], dtype=jp.float32)
 
         reward, done, zero = jp.zeros(3)
         metrics = {
@@ -61,18 +61,6 @@ class Debug(PipelineEnv):
 
     def step(self, state: State, action: jax.Array) -> State:
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
-        obs = self._get_obs(pipeline_state)
-        obs += state.obs + jp.array([0,1,0,1])
-
-        # vector from tip to target is last 3 entries of obs vector
-        reward_dist = -math.safe_norm(obs[-3:])
-        reward_ctrl = -jp.square(action).sum()
-        reward = reward_dist + reward_ctrl
-
-        state.metrics.update(
-            reward_dist=reward_dist,
-            reward_ctrl=reward_ctrl,
-        )
 
         env_reseted = jp.where(state.info["steps"], 0, 1)
         seed = state.info["seed"] + env_reseted
@@ -81,13 +69,18 @@ class Debug(PipelineEnv):
         state.info.update(info)
 
         step_now = state.info["steps"]
-        obs = jp.array([seed, step_now, seed, step_now], dtype=jp.float32)
-        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
+        obs = jp.array([state.info["env"] ,seed, step_now, seed, step_now], dtype=jp.float32)
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=0.0)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Returns egocentric observation of target and arm body."""
         return jp.concatenate(
             [
+                jp.array(
+                    [
+                        0,
+                    ]
+                ),
                 jp.array(
                     [
                         0,

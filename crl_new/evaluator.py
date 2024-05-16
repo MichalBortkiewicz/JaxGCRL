@@ -42,9 +42,10 @@ class CrlEvaluator(acting.Evaluator):
             )
 
         # We check in how many env there was at least one step where there was success
-        metrics["eval/episode_success_any"] = np.mean(
-            eval_metrics.episode_metrics["success"] > 0.0
-        )
+        if "success" in eval_metrics.episode_metrics:
+            metrics["eval/episode_success_any"] = np.mean(
+                eval_metrics.episode_metrics["success"] > 0.0
+            )
 
         metrics["eval/avg_episode_length"] = np.mean(eval_metrics.episode_steps)
         metrics["eval/epoch_eval_time"] = epoch_eval_time

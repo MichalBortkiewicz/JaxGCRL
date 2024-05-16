@@ -107,11 +107,7 @@ class Ant(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        min_z, max_z = self._healthy_z_range
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
-        # info = {"is_healthy": is_healthy, "seed": rng[0]}
-        info = {"is_healthy": is_healthy, "seed": 0}
+        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
         state.info.update(info)
         return state
@@ -126,6 +122,7 @@ class Ant(PipelineEnv):
             seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
+        info = {"seed": seed}
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -147,7 +144,6 @@ class Ant(PipelineEnv):
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
-        info = {"is_healthy": is_healthy, "seed": seed}
 
         state.metrics.update(
             reward_forward=forward_reward,

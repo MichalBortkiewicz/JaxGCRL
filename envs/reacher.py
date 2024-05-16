@@ -49,12 +49,23 @@ class Reacher(PipelineEnv):
         metrics = {
             "reward_dist": zero,
             "reward_ctrl": zero,
+            "success": zero,
+            "dist": zero
         }
-        return State(pipeline_state, obs, reward, done, metrics)
+        info = {"seed": 0}
+        state = State(pipeline_state, obs, reward, done, metrics)
+        state.info.update(info)
+        return state
 
     def step(self, state: State, action: jax.Array) -> State:
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
+        if "steps" in state.info.keys():
+            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
+        else:
+            seed = state.info["seed"]
+        info = {"seed": seed}
+
 
         target_pos = pipeline_state.x.pos[2]
         tip_pos = (
@@ -63,13 +74,16 @@ class Reacher(PipelineEnv):
             .pos
         )
         tip_to_target = target_pos - tip_pos
+        dist = jp.linalg.norm(tip_to_target)
         reward_dist = -math.safe_norm(tip_to_target)
         reward = reward_dist
 
         state.metrics.update(
             reward_dist=reward_dist,
+            success=jp.array(dist < 0.05, dtype=float),
+            dist=dist
         )
-
+        state.info.update(info)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
@@ -95,7 +109,6 @@ class Reacher(PipelineEnv):
                 tip_vel,
                 # target/goal
                 target_pos,
-                jp.zeros(3),
             ]
         )
 

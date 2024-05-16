@@ -136,18 +136,19 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
-            "next_action": jnp.squeeze(transition.action[1:]),
             "policy_extras": {},
-            "state_extras": {"truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1])},
+            "state_extras": {"truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
+                "seed": jnp.squeeze(
+                    transition.extras["state_extras"]["seed"][:-1]
+                )},
         }
-        transition = Transition(
+        return transition._replace(
             observation=jnp.squeeze(new_obs),
             action=jnp.squeeze(transition.action[:-1]),
             reward=jnp.squeeze(transition.reward[:-1]),
             discount=jnp.squeeze(transition.discount[:-1]),
             extras=extras,
         )
-        return transition
 
 
 @flax.struct.dataclass
@@ -322,7 +323,6 @@ def train(
             "state_extras": {
                 "truncation": 0.0,
                 "seed": 0.0,
-                "steps": 0.0,
             },
             "policy_extras": {},
         },
@@ -428,7 +428,14 @@ def train(
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
             env_state, transition = actor_step(
-                env, env_state, policy, current_key, extra_fields=("truncation", "steps")
+                env,
+                env_state,
+                policy,
+                current_key,
+                extra_fields=(
+                    "truncation",
+                    "seed",
+                ),
             )
             return (env_state, next_key), transition
 
@@ -511,10 +518,18 @@ def train(
             config, transitions, batch_keys
         )
 
+        # Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[2:], order="F"),
+            lambda x: jnp.reshape(x, (-1, ) + x.shape[2:], order="F"),
             transitions,
         )
+        permutation = jax.random.permutation(experience_key, len(transitions.observation))
+        transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[1:]),
+            transitions,
+        )
+
         (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
