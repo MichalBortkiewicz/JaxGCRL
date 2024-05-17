@@ -5,17 +5,25 @@ metric:
   name: eval/episode_reward
 parameters:
   policy_lr:
-    min: 1e-5
-    max: 1e-3
-    distribution: log_uniform_values
+    values:
+      - 1e-4
+      - 1e-3
+      - 1e-2
+    distribution: categorical
   alpha_lr:
-    min: 1e-5
-    max: 1e-3
-    distribution: log_uniform_values
+    values:
+      - 1e-5
+      - 1e-4
+      - 1e-3
+      - 1e-2
+    distribution: categorical
   critic_lr:
-    max: 1e-3
-    min: 1e-5
-    distribution: log_uniform_values
+    values:
+      - 1e-5
+      - 1e-4
+      - 1e-3
+      - 1e-2
+    distribution: categorical
   discounting:
     min: 0.95
     max: 0.99
