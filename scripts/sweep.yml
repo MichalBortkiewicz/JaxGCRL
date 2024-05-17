@@ -2,7 +2,7 @@ program: training.py
 method: bayes
 metric:
   goal: maximize
-  name: eval/episode_reward
+  name: eval/episode_success
 parameters:
   policy_lr:
     values:
@@ -28,10 +28,6 @@ parameters:
     min: 0.95
     max: 0.99
     distribution: uniform
-  batch_size:
-    min: 128
-    max: 1024
-    distribution: int_uniform
   contrastive_loss_fn:
     values:
       - "symmetric_infonce"
@@ -55,7 +51,23 @@ command:
   - ${env}
   - python
   - ${program}
+  - "--episode_length"
+  - "1000"
+  - "--num_envs"
+  - "2048"
+  - "--num_timesteps"
+  - "20000000"
+  - "--num_evals"
+  - "100"
+  - "--min_replay_size"
+  - "1000"
+  - "--max_replay_size"
+  - "10000"
+  - "--action_repeat"
+  - "1"
+  - "--batch_size"
+  - "256"
+  - --normalize_observations
   - --log_wandb
-  - --use_tested_args
   - ${args_no_boolean_flags}
 
