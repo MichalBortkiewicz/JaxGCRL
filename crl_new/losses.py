@@ -110,18 +110,34 @@ def make_losses(
         transitions: Transition,
         key: PRNGKey,
     ) -> jnp.ndarray:
-        state, goal = transitions.observation[:, :obs_dim], transitions.observation[:, obs_dim:]
-        observation = jnp.concatenate((state, goal), axis=1)
+
+        sample_key, entropy_key = jax.random.split(key, 2)
+
+        if config.use_old_trans:
+            obs = transitions.extras["old_trans"].observation
+        else:
+            obs = transitions.observation
+
+
+        state = obs[:, :obs_dim]
+        goal = obs[:, obs_dim:]
+        if config.random_goals:
+            goal = jnp.roll(goal, 1, axis=0)
+
+        observation = jnp.concatenate([state, goal], axis=1)
 
         dist_params = policy_network.apply(normalizer_params, policy_params, observation)
-        action = parametric_action_distribution.sample_no_postprocessing(dist_params, key)
+        action = parametric_action_distribution.sample_no_postprocessing(dist_params, sample_key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
+        entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
         action = parametric_action_distribution.postprocess(action)
+
 
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
         )
+
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
@@ -131,6 +147,10 @@ def make_losses(
         min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
 
         actor_loss = alpha * log_prob - min_q
-        return jnp.mean(actor_loss)
+
+        metrics = {
+            "entropy": entropy.mean(),
+        }
+        return jnp.mean(actor_loss), metrics
 
     return alpha_loss, actor_loss, crl_critic_loss

@@ -8,11 +8,11 @@ import wandb
 from envs.ant import Ant
 from envs.debug_env import Debug
 from envs.reacher import Reacher
-
+from envs.pusher import Pusher, PusherReacher
 
 Config = namedtuple(
     "Config",
-    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim",
+    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals use_old_trans",
 )
 
 
@@ -47,6 +47,8 @@ def create_parser():
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='binary')
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
+    parser.add_argument('--random_goals', default=False, action="store_true", help="Whether to use randomized goals in actor loss")
+    parser.add_argument('--use_old_trans', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
     return parser
 
 
@@ -61,6 +63,12 @@ def create_env(env_name: str):
         )
     elif env_name == "debug":
         env = Debug(backend="spring")
+    elif env_name == "pusher_easy":
+        env=Pusher(backend="generalized", kind="easy")
+    elif env_name == "pusher_hard":
+        env=Pusher(backend="generalized", kind="hard")
+    elif env_name == "pusher_reacher":
+        env=PusherReacher(backend="generalized")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -77,6 +85,8 @@ def get_env_config(args: argparse.Namespace):
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans=args.use_old_trans,
         )
     elif args.env_name == "reacher":
         config = Config(
@@ -88,6 +98,34 @@ def get_env_config(args: argparse.Namespace):
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans=args.use_old_trans,
+        )
+    elif args.env_name == "pusher_easy" or args.env_name == "pusher_hard":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=20,
+            goal_start_idx=10,
+            goal_end_idx=13,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans=args.use_old_trans,
+        )
+    elif args.env_name == "pusher_reacher":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=17,
+            goal_start_idx=14,
+            goal_end_idx=17,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans=args.use_old_trans,
         )
     elif args.env_name == "ant":
         config = Config(
@@ -99,6 +137,8 @@ def get_env_config(args: argparse.Namespace):
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans=args.use_old_trans,
         )
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")

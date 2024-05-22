@@ -141,6 +141,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
                 "seed": jnp.squeeze(
                     transition.extras["state_extras"]["seed"][:-1]
                 )},
+            "old_trans": transition,
         }
         return transition._replace(
             observation=jnp.squeeze(new_obs),
@@ -347,8 +348,10 @@ def train(
     alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
-    actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+    actor_update = (
+        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+            actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
+        )
     )
     crl_critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
@@ -377,8 +380,7 @@ def train(
             optimizer_state=training_state.crl_critic_optimizer_state,
         )
 
-        # TODO: shouldn't we use the same transitions for actor and critic?
-        actor_loss, policy_params, policy_optimizer_state = actor_update(
+        (actor_loss, actor_metrics), policy_params, policy_optimizer_state = actor_update(
             training_state.policy_params,
             training_state.normalizer_params,
             training_state.crl_critic_params,
@@ -396,6 +398,7 @@ def train(
             "crl_critic_loss": crl_critic_loss,
         }
         metrics.update(metrics_crl)
+        metrics.update(actor_metrics)
 
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,

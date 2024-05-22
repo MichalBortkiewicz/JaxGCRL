@@ -72,6 +72,15 @@ def main(args):
 
     metrics_to_collect = [
         "eval/episode_reward",
+        "eval/episode_success",
+        "eval/episode_success_any",
+        "eval/episode_success_hard",
+        "eval/episode_success_easy",
+        "eval/episode_reward_dist",
+        "eval/episode_reward_near",
+        "eval/episode_reward_ctrl",
+        "eval/episode_dist",
+        "eval/episode_reward_survive",
         "training/crl_critic_loss",
         "training/critic_loss",
         "training/crl_actor_loss",
@@ -82,11 +91,7 @@ def main(args):
         "training/logits_neg",
         "training/logsumexp",
         "training/sps",
-        'eval/episode_dist',
-        'eval/episode_success',
-        'eval/episode_success_easy',
-        'eval/episode_reward_survive',
-        "eval/episode_success_any",
+        "training/entropy",
         "training/alpha",
         "training/alpha_loss",
     ]
