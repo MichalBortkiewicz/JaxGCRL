@@ -96,6 +96,8 @@ def make_losses(
             "categorical_accuracy": jnp.mean(correct),
             "logits_pos": logits_pos,
             "logits_neg": logits_neg,
+            "sa_repr": sa_repr,
+            "g_repr": g_repr,
             "logsumexp": logsumexp.mean(),
         }
 
