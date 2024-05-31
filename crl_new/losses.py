@@ -113,7 +113,7 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
 
-        sample_key, entropy_key = jax.random.split(key, 2)
+        sample_key, entropy_key, goal_key = jax.random.split(key, 3)
 
         if config.use_old_trans:
             obs = transitions.extras["old_trans"].observation
@@ -123,8 +123,10 @@ def make_losses(
 
         state = obs[:, :obs_dim]
         goal = obs[:, obs_dim:]
-        if config.random_goals:
-            goal = jnp.roll(goal, 1, axis=0)
+
+        random_goal_mask = jax.random.bernoulli(goal_key, config.random_goals, shape=(goal.shape[0], 1))
+        goal_rolled = jnp.roll(goal, 1, axis=0)
+        goal = jnp.where(random_goal_mask, goal_rolled, goal)
 
         observation = jnp.concatenate([state, goal], axis=1)
 

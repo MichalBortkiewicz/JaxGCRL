@@ -47,7 +47,7 @@ def create_parser():
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='binary')
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
-    parser.add_argument('--random_goals', default=False, action="store_true", help="Whether to use randomized goals in actor loss")
+    parser.add_argument('--random_goals', default=0.0, action="store_true", help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--use_old_trans', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
     return parser
 
