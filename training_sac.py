@@ -6,12 +6,11 @@ import jax
 import wandb
 from brax.io import model
 from brax.io import html
+from brax.training.agents.sac.train import train
 from pyinstrument import Profiler
 
 
-from crl_new.train import train
-from utils import MetricsRecorder, get_env_config, create_env, get_tested_args, create_parser
-from envs.wrappers import traj_index_wrapper_factory
+from utils import MetricsRecorder, create_env, get_tested_args, create_parser
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name):
@@ -40,32 +39,24 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
 def main(args):
 
     env = create_env(args)
-    config = get_env_config(args)
-
-    if args.use_traj_idx_wrapper:
-        env, config = traj_index_wrapper_factory(env, config)
 
     train_fn = functools.partial(
         train,
-        num_timesteps=args.num_timesteps,
-        max_replay_size=args.max_replay_size,
-        min_replay_size=args.min_replay_size,
-        num_evals=args.num_evals,
-        episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
-        action_repeat=args.action_repeat,
-        discounting=args.discounting,
-        policy_lr=args.policy_lr,
-        critic_lr=args.critic_lr,
-        alpha_lr=args.alpha_lr,
-        contrastive_loss_fn=args.contrastive_loss_fn,
-        logsumexp_penalty=args.logsumexp_penalty,
-        num_envs=args.num_envs,
-        batch_size=args.batch_size,
+        num_timesteps=6_553_600,
+        num_evals=50,
+        reward_scaling=30,
+        episode_length=1000,
+        normalize_observations=True,
+        action_repeat=1,
+        discounting=0.997,
+        learning_rate=6e-4,
+        num_envs=128,
+        batch_size=512,
+        grad_updates_per_step=64,
+        max_devices_per_host=1,
+        max_replay_size=1048576,
+        min_replay_size=8192,
         seed=args.seed,
-        unroll_length=args.unroll_length,
-        multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
-        config=config
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
@@ -87,6 +78,7 @@ def main(args):
         "eval/episode_reward_survive",
         "training/crl_critic_loss",
         "training/actor_loss",
+        "training/critic_loss",
         "training/binary_accuracy",
         "training/categorical_accuracy",
         "training/logits_pos",
@@ -97,8 +89,6 @@ def main(args):
         "training/alpha",
         "training/alpha_loss",
         "training/entropy",
-        "training/sa_repr",
-        "training/g_repr",
     ]
 
     def progress(num_steps, metrics):

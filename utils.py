@@ -7,12 +7,13 @@ import wandb
 
 from envs.ant import Ant
 from envs.debug_env import Debug
+from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
 
 Config = namedtuple(
     "Config",
-    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals use_old_trans",
+    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals use_old_trans_actor use_old_trans_alpha disable_entropy_actor use_traj_idx_wrapper",
 )
 
 
@@ -47,12 +48,16 @@ def create_parser():
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='binary')
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
-    parser.add_argument('--random_goals', default=0.0, action="store_true", help="Propotion of random goals to use in the actor loss")
-    parser.add_argument('--use_old_trans', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
+    parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
+    parser.add_argument('--use_old_trans_actor', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
+    parser.add_argument('--use_old_trans_alpha', default=False, action="store_true", help="Whether to train alpha with old style transitions (unflattened)")
+    parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
+    parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
     return parser
 
 
-def create_env(env_name: str):
+def create_env(args):
+    env_name = args.env_name
     if env_name == "reacher":
         env = Reacher(backend="generalized")
     elif env_name == "ant":
@@ -60,6 +65,11 @@ def create_env(env_name: str):
             backend="spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
+        )
+    elif env_name == "cheetah":
+        env = Halfcheetah(
+            backend="mjx",
+            exclude_current_positions_from_observation=False,
         )
     elif env_name == "debug":
         env = Debug(backend="spring")
@@ -86,7 +96,10 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans=args.use_old_trans,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     elif args.env_name == "reacher":
         config = Config(
@@ -99,7 +112,26 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans=args.use_old_trans,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
+        )
+    elif args.env_name == "cheetah":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=18,
+            goal_start_idx=0,
+            goal_end_idx=1,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     elif args.env_name == "pusher_easy" or args.env_name == "pusher_hard":
         config = Config(
@@ -112,7 +144,10 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans=args.use_old_trans,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     elif args.env_name == "pusher_reacher":
         config = Config(
@@ -125,7 +160,10 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans=args.use_old_trans,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     elif args.env_name == "ant":
         config = Config(
@@ -138,7 +176,10 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans=args.use_old_trans,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")

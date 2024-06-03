@@ -8,6 +8,7 @@ from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
+from envs.wrappers import extract_info_from_obs
 
 
 Transition = types.Transition
@@ -37,7 +38,12 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
         """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
-        dist_params = policy_network.apply(normalizer_params, policy_params, transitions.observation)
+        if config.use_old_trans_alpha:
+            obs = transitions.extras["old_trans"].observation
+        else:
+            obs = transitions.observation
+
+        dist_params = policy_network.apply(normalizer_params, policy_params, obs)
         action = parametric_action_distribution.sample_no_postprocessing(dist_params, key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         alpha = jnp.exp(log_alpha)
@@ -49,6 +55,10 @@ def make_losses(
         normalizer_params: Any,
         transitions: Transition,
     ):
+        # This is for debug purposes only
+        if config.use_traj_idx_wrapper:
+            old_obs, info_1, info_2 = extract_info_from_obs(transitions.observation, config)
+            jax.debug.print("OBS: \n{obs},\n\n info_1 \n{i_1},\n\n info_2 \n{i_2}\n\n", obs=old_obs, i_1=info_1, i_2=info_2)
 
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
@@ -106,7 +116,6 @@ def make_losses(
     def actor_loss(
         policy_params: Params,
         normalizer_params: Any,
-        # q_params: Params,
         crl_critic_params: Params,
         alpha: jnp.ndarray,
         transitions: Transition,
@@ -115,7 +124,7 @@ def make_losses(
 
         sample_key, entropy_key, goal_key = jax.random.split(key, 3)
 
-        if config.use_old_trans:
+        if config.use_old_trans_actor:
             obs = transitions.extras["old_trans"].observation
         else:
             obs = transitions.observation
@@ -150,7 +159,10 @@ def make_losses(
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
         min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
 
-        actor_loss = alpha * log_prob - min_q
+        if config.disable_entropy_actor:
+            actor_loss = - min_q
+        else:
+            actor_loss = alpha * log_prob - min_q
 
         metrics = {
             "entropy": entropy.mean(),
