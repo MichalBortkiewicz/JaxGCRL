@@ -315,3 +315,4 @@ __pycache__
 wandb/
 params/
 renders/
+runs/
