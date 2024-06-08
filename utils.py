@@ -47,6 +47,8 @@ def create_parser():
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='binary')
+    parser.add_argument('--energy_fun', type=str, default='l2')
+    parser.add_argument('--backend', type=str, default=None)
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--use_old_trans_actor', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
@@ -56,13 +58,13 @@ def create_parser():
     return parser
 
 
-def create_env(args):
+def create_env(args: argparse.Namespace) -> object:
     env_name = args.env_name
     if env_name == "reacher":
-        env = Reacher(backend="generalized")
+        env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
         env = Ant(
-            backend="spring",
+            backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
         )
@@ -72,13 +74,13 @@ def create_env(args):
             exclude_current_positions_from_observation=False,
         )
     elif env_name == "debug":
-        env = Debug(backend="spring")
+        env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":
-        env=Pusher(backend="generalized", kind="easy")
+        env=Pusher(backend=args.backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
-        env=Pusher(backend="generalized", kind="hard")
+        env=Pusher(backend=args.backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
-        env=PusherReacher(backend="generalized")
+        env=PusherReacher(backend=args.backend or "generalized")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env

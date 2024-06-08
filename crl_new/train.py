@@ -141,8 +141,11 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
                 "seed": jnp.squeeze(
                     transition.extras["state_extras"]["seed"][:-1]
                 )},
-            "old_trans": transition,
         }
+
+        if config.use_old_trans_actor or config.use_old_trans_alpha:
+            extras["old_trans"] = transition
+
         return transition._replace(
             observation=jnp.squeeze(new_obs),
             action=jnp.squeeze(transition.action[:-1]),
@@ -223,6 +226,7 @@ def train(
     seed: int = 0,
     batch_size: int = 256,
     contrastive_loss_fn: str = "binary",
+    energy_fun: str ="l2",
     logsumexp_penalty: float = 0.0,
     num_evals: int = 1,
     normalize_observations: bool = False,
@@ -341,6 +345,7 @@ def train(
     alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
         contrastive_loss_fn=contrastive_loss_fn,
+        energy_fun=energy_fun,
         logsumexp_penalty=logsumexp_penalty,
         crl_network=crl_network,
         action_size=action_size,
