@@ -114,6 +114,7 @@ def main(args):
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 
     os.makedirs("./params", exist_ok=True)
+    os.makedirs("./renders", exist_ok=True)
     model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
     render(make_inference_fn, params, env, "./renders", args.exp_name)
 

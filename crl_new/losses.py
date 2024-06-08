@@ -17,6 +17,7 @@ Transition = types.Transition
 def make_losses(
     config: NamedTuple,
     contrastive_loss_fn: str,
+    energy_fun:str,
     logsumexp_penalty: float,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
@@ -70,7 +71,12 @@ def make_losses(
             jnp.concatenate([transitions.observation[:, :obs_dim], transitions.action], axis=-1),
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:])
-        logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
+        if energy_fun == "l2":
+            logits = - jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))
+        elif energy_fun == "dot":
+            logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
+        else:
+            raise ValueError(f"Unknown energy function: {energy_fun}")
 
         if contrastive_loss_fn == "binary":
             loss = jnp.mean(
@@ -106,11 +112,10 @@ def make_losses(
             "categorical_accuracy": jnp.mean(correct),
             "logits_pos": logits_pos,
             "logits_neg": logits_neg,
-            "sa_repr": sa_repr,
-            "g_repr": g_repr,
+            "sa_repr":  jnp.mean(jnp.sum(sa_repr, axis=-1)),
+            "g_repr":  jnp.mean(jnp.sum(g_repr, axis=-1)),
             "logsumexp": logsumexp.mean(),
         }
-
         return loss, metrics
 
     def actor_loss(
@@ -129,7 +134,6 @@ def make_losses(
         else:
             obs = transitions.observation
 
-
         state = obs[:, :obs_dim]
         goal = obs[:, obs_dim:]
 
@@ -145,7 +149,6 @@ def make_losses(
         entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
         action = parametric_action_distribution.postprocess(action)
 
-
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
@@ -157,7 +160,13 @@ def make_losses(
             jnp.concatenate([state, action], axis=-1),
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
-        min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
+
+        if energy_fun == "l2":
+            min_q = - jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
+        elif energy_fun == "dot":
+            min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
+        else:
+            raise ValueError(f"Unknown energy function: {energy_fun}")
 
         if config.disable_entropy_actor:
             actor_loss = - min_q
