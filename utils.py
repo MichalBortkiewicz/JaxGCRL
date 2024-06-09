@@ -10,6 +10,7 @@ from envs.debug_env import Debug
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
+from envs.hard_ant import HardAnt
 
 Config = namedtuple(
     "Config",
@@ -64,6 +65,12 @@ def create_env(args: argparse.Namespace) -> object:
         env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
         env = Ant(
+            backend=args.backend or "spring",
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+        )
+    elif env_name == "hard_ant":
+        env = HardAnt(
             backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
@@ -174,6 +181,22 @@ def get_env_config(args: argparse.Namespace):
             obs_dim=29,
             goal_start_idx=0,
             goal_end_idx=2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
+        )
+    elif args.env_name == "hard_ant":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=32,
+            goal_start_idx=-5,
+            goal_end_idx=-3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
