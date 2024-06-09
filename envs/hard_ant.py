@@ -85,11 +85,12 @@ class HardAnt(PipelineEnv):
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
         # set the target q, qd
-        _, target = self._random_target(rng)
-        _, obj = self._random_target(rng3)
-        q = q.at[-2:].set(target)
-        q = q.at[-5:-3].set(obj)
-        qd = qd.at[-2:].set(0)
+        _, target, obj = self._random_target(rng)
+        # jax.debug.print("PIPELINE: {q}\n", q=q)
+        obj = obj
+        q = q.at[-4:].set(jp.concatenate([obj, target]))
+        # jax.debug.print("PIPELINE AFTER: {q}\n", q=q)
+        qd = qd.at[-4:].set(0)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
@@ -144,7 +145,8 @@ class HardAnt(PipelineEnv):
         reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
-        dist = jp.linalg.norm(obs[:2] - obs[-5:-3])
+        # jax.debug.print("o: {o1}, {o2}", o1=obs[-2:], o2=obs[-4:-2])
+        dist = jp.linalg.norm(obs[-2:] - obs[-4:-2])
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
@@ -171,23 +173,32 @@ class HardAnt(PipelineEnv):
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
         # remove target q, qd
-        qpos = pipeline_state.q[:-5]
-        qvel = pipeline_state.qd[:-5]
+        qpos = pipeline_state.q[:-4]
+        qvel = pipeline_state.qd[:-4]
 
         target_pos = pipeline_state.x.pos[-1][:2]
 
         if self._exclude_current_positions_from_observation:
             qpos = qpos[2:]
 
-        object_position = pipeline_state.x.pos[self._object_idx]
+        object_position = pipeline_state.x.pos[self._object_idx][:2]
 
         return jp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target location in a random circle slightly above xy plane."""
+        """Returns a target and object location in a random circle slightly above xy plane."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
-        dist = 5
-        ang = jp.pi * 2.0 * jax.random.uniform(rng2)
+        dist = 10
+        ang = jp.pi * 2.0 * jax.random.uniform(rng1)
         target_x = dist * jp.cos(ang)
         target_y = dist * jp.sin(ang)
-        return rng, jp.array([target_x, target_y])
+
+        ang_obj = jp.pi * 2.0 * jax.random.uniform(rng2)
+        obj_x_offset = jp.cos(ang_obj)
+        obj_y_offset = jp.sin(ang)
+
+        target_pos = jp.array([target_x, target_y])
+        obj_pos = target_pos * 0.5 + jp.array([obj_x_offset, obj_y_offset])
+
+        # jax.debug.print("sampled: {t}, {o}", t=target_pos, o=obj_pos)
+        return rng, target_pos, obj_pos
