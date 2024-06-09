@@ -194,9 +194,9 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=32,
-            goal_start_idx=-5,
-            goal_end_idx=-3,
+            obs_dim=31,
+            goal_start_idx=-4,
+            goal_end_idx=-2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
