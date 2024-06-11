@@ -48,7 +48,7 @@ def make_inference_fn(crl_networks: CRLNetworks):
         def policy(
             observations: types.Observation, key_sample: PRNGKey
         ) -> Tuple[types.Action, types.Extra]:
-            logits = crl_networks.policy_network.apply(*params, observations)
+            logits = crl_networks.policy_network.apply(*params[:2], observations)
             if deterministic:
                 return crl_networks.parametric_action_distribution.mode(logits), {}
             return (
