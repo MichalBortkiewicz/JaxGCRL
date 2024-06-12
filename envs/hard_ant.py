@@ -86,10 +86,10 @@ class HardAnt(PipelineEnv):
 
         # set the target q, qd
         _, target, obj = self._random_target(rng)
-        # jax.debug.print("PIPELINE: {q}\n", q=q)
+
         obj = obj
         q = q.at[-4:].set(jp.concatenate([obj, target]))
-        # jax.debug.print("PIPELINE AFTER: {q}\n", q=q)
+
         qd = qd.at[-4:].set(0)
 
         pipeline_state = self.pipeline_init(q, qd)
@@ -142,16 +142,16 @@ class HardAnt(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
-        reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
-        done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
-
-        # jax.debug.print("o: {o1}, {o2}", o1=obs[-2:], o2=obs[-4:-2])
+        # Distance between goal and object
         dist = jp.linalg.norm(obs[-2:] - obs[-4:-2])
+
+        reward = -dist + healthy_reward - ctrl_cost - contact_cost
+        done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+        
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
         state.metrics.update(
-            reward_forward=forward_reward,
             reward_survive=healthy_reward,
             reward_ctrl=-ctrl_cost,
             reward_contact=-contact_cost,
@@ -186,7 +186,8 @@ class HardAnt(PipelineEnv):
         return jp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target and object location in a random circle slightly above xy plane."""
+        """Returns a target and object location. Target is in a random position on a circle around ant. 
+            Object is in the middle between ant and target with small deviation."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
         dist = 10
         ang = jp.pi * 2.0 * jax.random.uniform(rng1)
@@ -199,6 +200,4 @@ class HardAnt(PipelineEnv):
 
         target_pos = jp.array([target_x, target_y])
         obj_pos = target_pos * 0.5 + jp.array([obj_x_offset, obj_y_offset])
-
-        # jax.debug.print("sampled: {t}, {o}", t=target_pos, o=obj_pos)
         return rng, target_pos, obj_pos
