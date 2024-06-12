@@ -11,7 +11,7 @@ from pyinstrument import Profiler
 
 
 from crl_new.train import train
-from utils import MetricsRecorder, get_env_config, create_env, get_tested_args, create_parser
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, get_tested_args, create_parser
 from envs.wrappers import traj_index_wrapper_factory
 
 
@@ -41,6 +41,7 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
 def main(args):
 
     env = create_env(args)
+    eval_env = create_eval_env(args)
     config = get_env_config(args)
 
     os.makedirs('./runs', exist_ok=True)
@@ -76,6 +77,7 @@ def main(args):
         multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
         config=config,
         checkpoint_logdir=ckpt_dir,
+        eval_env=eval_env,
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)

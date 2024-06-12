@@ -57,6 +57,7 @@ def create_parser():
     parser.add_argument('--use_old_trans_alpha', default=False, action="store_true", help="Whether to train alpha with old style transitions (unflattened)")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
+    parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
     return parser
 
 
@@ -101,6 +102,14 @@ def create_env(args: argparse.Namespace) -> object:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
 
+
+def create_eval_env(args: argparse.Namespace) -> object:
+    if not args.eval_env:
+        return None
+    
+    eval_arg = argparse.Namespace(**vars(args))
+    eval_arg.env_name = args.eval_env
+    return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
     if args.env_name == "debug":

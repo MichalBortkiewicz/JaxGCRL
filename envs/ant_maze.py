@@ -24,6 +24,14 @@ U_MAZE = [[1, 1, 1, 1, 1],
           [1, G, G, G, 1],
           [1, 1, 1, 1, 1]]
 
+U_MAZE_EVAL = [[1, 1, 1, 1, 1],
+               [1, R, 0, 0, 1],
+               [1, 1, 1, 0, 1],
+               [1, G, G, G, 1],
+               [1, 1, 1, 1, 1]]
+
+
+
 BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
             [1, R, G, 1, 1, G, G, 1],
             [1, G, G, 1, G, G, G, 1],
@@ -32,6 +40,15 @@ BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
             [1, G, 1, G, G, 1, G, 1],
             [1, G, G, G, 1, G, G, 1],
             [1, 1, 1, 1, 1, 1, 1, 1]]
+
+BIG_MAZE_EVAL = [[1, 1, 1, 1, 1, 1, 1, 1],
+                 [1, R, 0, 1, 1, G, G, 1],
+                 [1, 0, 0, 1, 0, G, G, 1],
+                 [1, 1, 0, 0, 0, 1, 1, 1],
+                 [1, 0, 0, 1, 0, 0, 0, 1],
+                 [1, 0, 1, G, 0, 1, G, 1],
+                 [1, 0, G, G, 1, G, G, 1],
+                 [1, 1, 1, 1, 1, 1, 1, 1]]
 
 HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 [1, R, G, G, G, 1, G, G, G, G, G, 1],
@@ -42,6 +59,8 @@ HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 [1, 1, G, 1, G, 1, G, 1, G, 1, 1, 1],
                 [1, G, G, 1, G, G, G, 1, G, G, G, 1],
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
+
+
 
 
 MAZE_HEIGHT = 0.5
@@ -66,8 +85,12 @@ def find_goals(structure, size_scaling):
 def make_maze(maze_layout_name, maze_size_scaling):
     if maze_layout_name == "u_maze":
         maze_layout = U_MAZE
+    elif maze_layout_name == "u_maze_eval":
+        maze_layout = U_MAZE_EVAL
     elif maze_layout_name == "big_maze":
         maze_layout = BIG_MAZE
+    elif maze_layout_name == "big_maze_eval":
+        maze_layout = BIG_MAZE_EVAL
     elif maze_layout_name == "hardest_maze":
         maze_layout = HARDEST_MAZE
     else:
