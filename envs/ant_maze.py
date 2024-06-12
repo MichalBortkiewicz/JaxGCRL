@@ -106,7 +106,6 @@ def make_maze(maze_layout_name, maze_size_scaling):
     data = torso.get("data")
     torso.set("data", f"{robot_x} {robot_y} " + data) 
 
-    tree.write("./envs/assets/test.xml")
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
     
@@ -139,7 +138,7 @@ class AntMaze(PipelineEnv):
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.tree_replace({'opt.timestep': 0.005})
+            sys = sys.replace(dt=0.005)
             n_frames = 10
 
         if backend == "mjx":

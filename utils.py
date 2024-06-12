@@ -78,9 +78,8 @@ def create_env(args: argparse.Namespace) -> object:
         )
     elif "maze" in env_name:
         # env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-        assert args.backend == "positional"
         env = AntMaze(
-            backend="positional",
+            backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
             maze_layout_name=env_name[4:]
