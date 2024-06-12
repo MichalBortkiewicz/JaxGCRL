@@ -11,6 +11,7 @@ from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
 from envs.hard_ant import HardAnt
+from envs.ant_maze import AntMaze
 
 Config = namedtuple(
     "Config",
@@ -74,6 +75,15 @@ def create_env(args: argparse.Namespace) -> object:
             backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
+        )
+    elif "maze" in env_name:
+        # env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
+        assert args.backend == "positional"
+        env = AntMaze(
+            backend="positional",
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+            maze_layout_name=env_name[4:]
         )
     elif env_name == "cheetah":
         env = Halfcheetah(
@@ -174,7 +184,7 @@ def get_env_config(args: argparse.Namespace):
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
-    elif args.env_name == "ant":
+    elif args.env_name == "ant" or 'maze' in args.env_name:
         config = Config(
             debug=False,
             discount=args.discounting,
