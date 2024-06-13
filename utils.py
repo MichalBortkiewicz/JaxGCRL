@@ -10,7 +10,7 @@ from envs.debug_env import Debug
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
-from envs.hard_ant import HardAnt
+from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
 
 Config = namedtuple(
@@ -71,8 +71,8 @@ def create_env(args: argparse.Namespace) -> object:
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
         )
-    elif env_name == "hard_ant":
-        env = HardAnt(
+    elif env_name == "ant_ball":
+        env = AntBall(
             backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
@@ -208,7 +208,7 @@ def get_env_config(args: argparse.Namespace):
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
-    elif args.env_name == "hard_ant":
+    elif args.env_name == "ant_ball":
         config = Config(
             debug=False,
             discount=args.discounting,

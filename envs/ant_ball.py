@@ -11,7 +11,7 @@ from jax import numpy as jp
 import mujoco
 
 
-class HardAnt(PipelineEnv):
+class AntBall(PipelineEnv):
     def __init__(
         self,
         ctrl_cost_weight=0.5,
@@ -26,7 +26,7 @@ class HardAnt(PipelineEnv):
         backend="generalized",
         **kwargs,
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "hard_ant.xml")
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_ball.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -87,7 +87,6 @@ class HardAnt(PipelineEnv):
         # set the target q, qd
         _, target, obj = self._random_target(rng)
 
-        obj = obj
         q = q.at[-4:].set(jp.concatenate([obj, target]))
 
         qd = qd.at[-4:].set(0)
@@ -172,7 +171,7 @@ class HardAnt(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
-        # remove target q, qd
+        # remove target and object q, qd
         qpos = pipeline_state.q[:-4]
         qvel = pipeline_state.qd[:-4]
 
@@ -189,7 +188,7 @@ class HardAnt(PipelineEnv):
         """Returns a target and object location. Target is in a random position on a circle around ant. 
             Object is in the middle between ant and target with small deviation."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
-        dist = 10
+        dist = 5
         ang = jp.pi * 2.0 * jax.random.uniform(rng1)
         target_x = dist * jp.cos(ang)
         target_y = dist * jp.sin(ang)
@@ -199,5 +198,5 @@ class HardAnt(PipelineEnv):
         obj_y_offset = jp.sin(ang)
 
         target_pos = jp.array([target_x, target_y])
-        obj_pos = target_pos * 0.5 + jp.array([obj_x_offset, obj_y_offset])
+        obj_pos = target_pos * 0.2 + jp.array([obj_x_offset, obj_y_offset])
         return rng, target_pos, obj_pos
