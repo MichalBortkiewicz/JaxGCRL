@@ -150,7 +150,7 @@ class AntMaze(PipelineEnv):
         exclude_current_positions_from_observation=True,
         backend="generalized",
         maze_layout_name="u_maze",
-        maze_size_scaling=2.0,
+        maze_size_scaling=4.0,
         **kwargs,
     ):
         xml_string, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
