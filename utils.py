@@ -10,6 +10,8 @@ from envs.debug_env import Debug
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
+from envs.ant_ball import AntBall
+from envs.ant_maze import AntMaze
 
 Config = namedtuple(
     "Config",
@@ -55,6 +57,7 @@ def create_parser():
     parser.add_argument('--use_old_trans_alpha', default=False, action="store_true", help="Whether to train alpha with old style transitions (unflattened)")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
+    parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
     return parser
 
 
@@ -67,6 +70,20 @@ def create_env(args: argparse.Namespace) -> object:
             backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
+        )
+    elif env_name == "ant_ball":
+        env = AntBall(
+            backend=args.backend or "spring",
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+        )
+    elif "maze" in env_name:
+        # env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
+        env = AntMaze(
+            backend=args.backend or "spring",
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+            maze_layout_name=env_name[4:]
         )
     elif env_name == "cheetah":
         env = Halfcheetah(
@@ -85,6 +102,14 @@ def create_env(args: argparse.Namespace) -> object:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
 
+
+def create_eval_env(args: argparse.Namespace) -> object:
+    if not args.eval_env:
+        return None
+    
+    eval_arg = argparse.Namespace(**vars(args))
+    eval_arg.env_name = args.eval_env
+    return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
     if args.env_name == "debug":
@@ -167,13 +192,29 @@ def get_env_config(args: argparse.Namespace):
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
-    elif args.env_name == "ant":
+    elif args.env_name == "ant" or 'maze' in args.env_name:
         config = Config(
             debug=False,
             discount=args.discounting,
             obs_dim=29,
             goal_start_idx=0,
             goal_end_idx=2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
+        )
+    elif args.env_name == "ant_ball":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=31,
+            goal_start_idx=-4,
+            goal_end_idx=-2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
