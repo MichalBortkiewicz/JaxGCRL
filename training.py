@@ -2,6 +2,7 @@ import functools
 import json
 import os
 import pickle
+import pickle
 
 import jax
 import wandb
@@ -43,6 +44,14 @@ def main(args):
     env = create_env(args)
     eval_env = create_eval_env(args)
     config = get_env_config(args)
+
+    os.makedirs('./runs', exist_ok=True)
+    run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
+    ckpt_dir = run_dir + '/ckpt'
+    os.makedirs(run_dir, exist_ok=True)
+    os.makedirs(ckpt_dir, exist_ok=True)
+    with open(run_dir + '/args.pkl', 'wb') as f:
+        pickle.dump(args, f)
 
     os.makedirs('./runs', exist_ok=True)
     run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
@@ -125,6 +134,8 @@ def main(args):
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 
+    model.save_params(ckpt_dir + '/final', params)
+    render(make_inference_fn, params, env, run_dir, args.exp_name)
     model.save_params(ckpt_dir + '/final', params)
     render(make_inference_fn, params, env, run_dir, args.exp_name)
 
