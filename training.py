@@ -72,6 +72,7 @@ def main(args):
         alpha_lr=args.alpha_lr,
         contrastive_loss_fn=args.contrastive_loss_fn,
         logsumexp_penalty=args.logsumexp_penalty,
+        resubs=not args.no_resubs,
         num_envs=args.num_envs,
         batch_size=args.batch_size,
         seed=args.seed,
@@ -80,6 +81,8 @@ def main(args):
         config=config,
         checkpoint_logdir=ckpt_dir,
         eval_env=eval_env,
+        use_c_target=args.use_c_target,
+        exploration_coef=args.exploration_coef,
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
@@ -111,8 +114,13 @@ def main(args):
         "training/alpha",
         "training/alpha_loss",
         "training/entropy",
-        "training/sa_repr",
-        "training/g_repr",
+        "training/sa_repr_mean",
+        "training/g_repr_mean",
+        "training/sa_repr_std",
+        "training/g_repr_std",
+        "training/c_target",
+        "training/l_align",
+        "training/l_unif",
     ]
 
     def progress(num_steps, metrics):

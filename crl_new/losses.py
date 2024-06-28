@@ -19,8 +19,11 @@ def make_losses(
     contrastive_loss_fn: str,
     energy_fun:str,
     logsumexp_penalty: float,
+    resubs: bool,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
+    use_c_target: bool = False,
+    exploration_coef: float = 0.0,
 ):
     """Creates the CRL losses."""
 
@@ -61,9 +64,10 @@ def make_losses(
             old_obs, info_1, info_2 = extract_info_from_obs(transitions.observation, config)
             jax.debug.print("OBS: \n{obs},\n\n info_1 \n{i_1},\n\n info_2 \n{i_2}\n\n", obs=old_obs, i_1=info_1, i_2=info_2)
 
-        sa_encoder_params, g_encoder_params = (
+        sa_encoder_params, g_encoder_params, c_target = (
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
+            crl_critic_params["c"]
         )
         sa_repr = sa_encoder.apply(
             normalizer_params,
@@ -78,25 +82,47 @@ def make_losses(
         else:
             raise ValueError(f"Unknown energy function: {energy_fun}")
 
+        def log_softmax(logits, axis, resubs):
+            if resubs:
+                return logits - jax.nn.logsumexp(logits, axis=axis, keepdims=True)
+            else:
+                I = jnp.eye(logits.shape[0])
+                big = 100
+                return logits - jax.nn.logsumexp(logits - big * I, axis=axis, keepdims=True)
+
+
         if contrastive_loss_fn == "binary":
             loss = jnp.mean(
                 sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
             )  # shape[0] - is a batch size
         elif contrastive_loss_fn == "symmetric_infonce":
-            logits1 = jax.nn.log_softmax(logits, axis=1)
-            logits2 = jax.nn.log_softmax(logits, axis=0)
+            logits1 = log_softmax(logits, axis=1, resubs=resubs)
+            logits2 = log_softmax(logits, axis=0, resubs=resubs)
             loss = -jnp.mean(jnp.diag(logits1) + jnp.diag(logits2))
         elif contrastive_loss_fn == "infonce":
-            logits1 = jax.nn.log_softmax(logits, axis=1)
+            logits1 = log_softmax(logits, axis=1, resubs=resubs)
             loss = -jnp.mean(jnp.diag(logits1))
         elif contrastive_loss_fn == "infonce_backward":
-            logits2 = jax.nn.log_softmax(logits, axis=0)
+            logits2 = log_softmax(logits, axis=0, resubs=resubs)
             loss = -jnp.mean(jnp.diag(logits2))
         else:
             raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
 
         if logsumexp_penalty > 0:
-            logsumexp = jax.nn.logsumexp(logits, axis=1)
+            # For backward we can check jax.nn.logsumexp(logits, axis=0)
+            # VM: we could also try removing the diagonal here when using logsumexp penalty + resubs=False
+            logits_ = logits
+            big = 100
+            I = jnp.eye(logits.shape[0])
+
+            if resubs:
+                logits_ = logits - big * I
+
+            if use_c_target:
+                logits_ = logits_ + c_target
+
+            logsumexp = jax.nn.logsumexp(logits_, axis=1)
+
             loss += logsumexp_penalty * jnp.mean(logsumexp**2)
 
         I = jnp.eye(logits.shape[0])
@@ -107,14 +133,26 @@ def make_losses(
             logsumexp = jax.nn.logsumexp(logits[:, :, 0], axis=1) ** 2
         else:
             logsumexp = jax.nn.logsumexp(logits, axis=1) ** 2
+
+        sa_repr_l2 = jnp.sqrt(jnp.sum(sa_repr ** 2, axis=-1))
+        g_repr_l2 = jnp.sqrt(jnp.sum(g_repr ** 2, axis=-1))
+
+        pdist = jnp.mean((sa_repr[:, None] - g_repr[None]) ** 2, axis=-1)
+        l_unif = (jax.nn.logsumexp(-(pdist * (1 - I)), axis=1) + jax.nn.logsumexp(-(pdist.T * (1 - I)), axis=1)) / 2.0
+
         metrics = {
             "binary_accuracy": jnp.mean((logits > 0) == I),
             "categorical_accuracy": jnp.mean(correct),
             "logits_pos": logits_pos,
             "logits_neg": logits_neg,
-            "sa_repr":  jnp.mean(jnp.sum(sa_repr, axis=-1)),
-            "g_repr":  jnp.mean(jnp.sum(g_repr, axis=-1)),
+            "sa_repr_mean":  jnp.mean(sa_repr_l2),
+            "g_repr_mean":  jnp.mean(g_repr_l2),
+            "sa_repr_std": jnp.std(sa_repr_l2),
+            "g_repr_std": jnp.std(g_repr_l2),
             "logsumexp": logsumexp.mean(),
+            "c_target": c_target,
+            "l_align": jnp.sum((sa_repr - g_repr) ** 2, axis=1).mean(),
+            "l_unif": l_unif.mean(),
         }
         return loss, metrics
 
@@ -172,6 +210,12 @@ def make_losses(
             actor_loss = - min_q
         else:
             actor_loss = alpha * log_prob - min_q
+
+        if exploration_coef > 0:
+            if energy_fun == "l2":
+                actor_loss -= jnp.sqrt(jnp.sum(sa_repr ** 2, axis=-1))
+            else:
+                actor_loss += jnp.sqrt(jnp.sum(sa_repr ** 2, axis=-1))
 
         metrics = {
             "entropy": entropy.mean(),

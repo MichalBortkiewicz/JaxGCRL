@@ -188,6 +188,8 @@ def _init_training_state(
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
+    c = jnp.asarray(0.0, dtype=jnp.float32)
+
     policy_params = crl_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
 
@@ -195,7 +197,7 @@ def _init_training_state(
 
     sa_encoder_params = crl_network.sa_encoder.init(key_sa_enc)
     g_encoder_params = crl_network.g_encoder.init(key_g_enc)
-    crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
+    crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params, "c": c}
     crl_critic_state = crl_critics_optimizer.init(crl_critic_params)
 
     training_state = TrainingState(
@@ -228,6 +230,8 @@ def train(
     contrastive_loss_fn: str = "binary",
     energy_fun: str ="l2",
     logsumexp_penalty: float = 0.0,
+    exploration_coef: float = 0.0,
+    resubs: bool = True,
     num_evals: int = 1,
     normalize_observations: bool = False,
     max_devices_per_host: Optional[int] = None,
@@ -241,6 +245,7 @@ def train(
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
     unroll_length: int = 50,
     multiplier_num_sgd_steps: int = 1,
+    use_c_target:bool = False,
     config: NamedTuple = None,
 ):
     """CRL training."""
@@ -313,7 +318,6 @@ def train(
     make_policy = crl_networks.make_inference_fn(crl_network)
 
     alpha_optimizer = optax.adam(learning_rate=alpha_lr)
-
     policy_optimizer = optax.adam(learning_rate=policy_lr)
     crl_critics_optimizer = optax.adam(learning_rate=critic_lr)
 
@@ -347,8 +351,11 @@ def train(
         contrastive_loss_fn=contrastive_loss_fn,
         energy_fun=energy_fun,
         logsumexp_penalty=logsumexp_penalty,
+        exploration_coef=exploration_coef,
+        resubs=resubs,
         crl_network=crl_network,
         action_size=action_size,
+        use_c_target=use_c_target
     )
     alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
