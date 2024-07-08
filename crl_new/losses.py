@@ -88,7 +88,8 @@ def make_losses(
             else:
                 I = jnp.eye(logits.shape[0])
                 big = 100
-                return logits - jax.nn.logsumexp(logits - big * I, axis=axis, keepdims=True)
+                eps = 1e-6
+                return logits - jax.nn.logsumexp(logits - big * I + eps, axis=axis, keepdims=True)
 
 
         if contrastive_loss_fn == "binary":
