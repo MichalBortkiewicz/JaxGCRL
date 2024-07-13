@@ -106,6 +106,13 @@ def make_losses(
         elif contrastive_loss_fn == "infonce_backward":
             logits2 = log_softmax(logits, axis=0, resubs=resubs)
             loss = -jnp.mean(jnp.diag(logits2))
+        elif contrastive_loss_fn == "fb":
+            # This is a Monte Carlo version of the loss from "Does Zero-Shot Reinforcement Learning Exist?"
+            batch_size = logits.shape[0]
+            I = jnp.eye(batch_size)
+            l_align = -jnp.diag(logits)  # shape = (batch_size,)
+            l_unif = 0.5 * jnp.sum(logits**2 * (1 - I) / (batch_size - 1), axis=-1)  # shape = (batch_size,)
+            loss = (l_align + l_unif).mean()  # shape = ()
         else:
             raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
 
