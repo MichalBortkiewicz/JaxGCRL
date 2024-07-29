@@ -1,5 +1,6 @@
-from typing import Sequence, Tuple, Callable, NamedTuple
+from typing import Sequence, Tuple, Callable, NamedTuple, Any
 
+import jax
 from brax.training import distribution
 from brax.training import networks
 from brax.training import types
@@ -7,6 +8,9 @@ from brax.training.types import PRNGKey
 import flax
 from flax import linen
 import jax.numpy as jnp
+
+ActivationFn = Callable[[jnp.ndarray], jnp.ndarray]
+Initializer = Callable[..., Any]
 
 @flax.struct.dataclass
 class CRLNetworks:
@@ -16,6 +20,32 @@ class CRLNetworks:
     sa_encoder: networks.FeedForwardNetwork
     g_encoder: networks.FeedForwardNetwork
 
+class MLP(linen.Module):
+    """MLP module."""
+
+    layer_sizes: Sequence[int]
+    activation: ActivationFn = linen.relu
+    kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
+    activate_final: bool = False
+    bias: bool = True
+    use_layer_norm: bool = False
+    @linen.compact
+    def __call__(self, data: jnp.ndarray):
+        hidden = data
+        for i, hidden_size in enumerate(self.layer_sizes):
+            hidden = linen.Dense(
+                hidden_size,
+                name=f"hidden_{i}",
+                kernel_init=self.kernel_init,
+                use_bias=self.bias,
+            )(hidden)
+            if i != len(self.layer_sizes) - 1 or self.activate_final:
+                if self.use_layer_norm:
+                    hidden = linen.LayerNorm()(hidden)
+                hidden = self.activation(hidden)
+        return hidden
+
+
 
 
 def make_embedder(
@@ -23,11 +53,12 @@ def make_embedder(
     obs_size: int,
     activation: Callable[[jnp.ndarray], jnp.ndarray] = linen.swish,
     preprocess_observations_fn: types.PreprocessObservationFn = types,
+    use_ln: bool = False
 ) -> networks.FeedForwardNetwork:
 
     """Creates a model."""
     dummy_obs = jnp.zeros((1, obs_size))
-    module = networks.MLP(layer_sizes=layer_sizes, activation=activation)
+    module = MLP(layer_sizes=layer_sizes, activation=activation, use_layer_norm=use_ln)
 
     # TODO: should we have a function to preprocess the observations?
     def apply(processor_params, policy_params, obs):
@@ -68,6 +99,7 @@ def make_crl_networks(
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     hidden_layer_sizes: Sequence[int] = (256, 256),
     activation: networks.ActivationFn = linen.relu,
+    use_ln: bool= False
 ) -> CRLNetworks:
     """Make CRL networks."""
     parametric_action_distribution = distribution.NormalTanhDistribution(
@@ -93,12 +125,14 @@ def make_crl_networks(
         obs_size=config.obs_dim + action_size,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
+        use_ln=use_ln
     )
     g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
         obs_size=config.goal_end_idx - config.goal_start_idx,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
+        use_ln=use_ln
     )
 
     return CRLNetworks(

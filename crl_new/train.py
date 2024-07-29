@@ -20,7 +20,6 @@ from brax.training.replay_buffers_test import jit_wrap
 from brax.training.types import PRNGKey
 from brax.training.types import Params, Policy
 from brax.v1 import envs as envs_v1
-from jax import random, lax
 
 from crl_new import losses as crl_losses
 from crl_new import networks as crl_networks
@@ -89,8 +88,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
         @functools.partial(jax.jit, static_argnames=("rows", "cols"))
         def create_matrix(rows, cols, min_val, max_val, rng_key):
-            rng_key, subkey = random.split(rng_key)
-            start_values = random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
+            rng_key, subkey = jax.random.split(rng_key)
+            start_values = jax.random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
             row_indices = jnp.arange(cols)
             matrix = start_values[:, jnp.newaxis] + row_indices
             return matrix
@@ -129,7 +128,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         )
         probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
 
-        goal_index = random.categorical(goal_key, jnp.log(probs))
+        goal_index = jax.random.categorical(goal_key, jnp.log(probs))
         goal = transition.observation[:, config.goal_start_idx : config.goal_end_idx]
         goal = jnp.take(goal, goal_index[:-1], axis=0)
         state = transition.observation[:-1, : config.obs_dim]
@@ -224,7 +223,6 @@ def train(
     policy_lr: float = 1e-4,
     alpha_lr: float = 1e-4,
     critic_lr: float = 1e-4,
-    discounting: float = 0.9,
     seed: int = 0,
     batch_size: int = 256,
     contrastive_loss_fn: str = "binary",
@@ -247,6 +245,9 @@ def train(
     multiplier_num_sgd_steps: int = 1,
     use_c_target:bool = False,
     config: NamedTuple = None,
+    use_ln: bool = False,
+    h_dim: int = 256,
+    n_hidden: int = 2,
 ):
     """CRL training."""
     process_id = jax.process_index()
@@ -314,6 +315,8 @@ def train(
         observation_size=obs_size,
         action_size=action_size,
         preprocess_observations_fn=normalize_fn,
+        hidden_layer_sizes=[h_dim] * n_hidden,
+        use_ln=use_ln,
     )
     make_policy = crl_networks.make_inference_fn(crl_network)
 
@@ -548,14 +551,15 @@ def train(
         (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
-    def scan_additional_sgds(n, ts, bs, a_sgd_key, metrics):
-        def body(i, carry):
-            ts, bs, a_sgd_key, metrics = carry
+    def scan_additional_sgds(n, ts, bs, a_sgd_key):
+
+        def body(carry, unsued_t):
+            ts, bs, a_sgd_key = carry
             new_key, a_sgd_key = jax.random.split(a_sgd_key)
             ts, bs, metrics = additional_sgds(ts, bs, a_sgd_key)
-            return ts, bs, new_key, metrics
+            return (ts, bs, new_key), metrics
 
-        return lax.fori_loop(0, n, body, (ts, bs, a_sgd_key, metrics))
+        return jax.lax.scan(body, (ts, bs, a_sgd_key), (), length=n)
 
     def training_epoch(
         training_state: TrainingState,
@@ -567,7 +571,7 @@ def train(
             ts, es, bs, k = carry
             k, new_key, a_sgd_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            ts, bs, a_sgd_key, metrics = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key, metrics)
+            (ts, bs, a_sgd_key), _ = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
