@@ -70,7 +70,7 @@ def main(args):
         critic_lr=args.critic_lr,
         alpha_lr=args.alpha_lr,
         contrastive_loss_fn=args.contrastive_loss_fn,
-        energy_fun=args.energy_fun,
+        energy_fn=args.energy_fn,
         logsumexp_penalty=args.logsumexp_penalty,
         resubs=not args.no_resubs,
         num_envs=args.num_envs,

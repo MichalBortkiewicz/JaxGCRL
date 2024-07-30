@@ -9,6 +9,7 @@ from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
 from envs.wrappers import extract_info_from_obs
+from crl_new import utils
 
 
 Transition = types.Transition
@@ -58,6 +59,7 @@ def make_losses(
         crl_critic_params: Params,
         normalizer_params: Any,
         transitions: Transition,
+        key: PRNGKey,
     ):
         # This is for debug purposes only
         if config.use_traj_idx_wrapper:
@@ -71,10 +73,19 @@ def make_losses(
             crl_critic_params["g_encoder"],
             crl_critic_params["c"],
         )
+
+        key1, key2 = jax.random.split(key, 2)
+        obs = transitions.observation[:, :obs_dim]
+        action = transitions.action
+        action_shuf = jax.random.permutation(key1, transitions.action)
+        goal = transitions.observation[:, obs_dim:]
+        obs_shuf = jax.random.permutation(key2, obs)
+        goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
+
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
-            jnp.concatenate([transitions.observation[:, :obs_dim], transitions.action], axis=-1),
+            jnp.concatenate([obs, action], axis=-1),
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:])
         if energy_fn == "l2":
@@ -91,6 +102,15 @@ def make_losses(
             sa_normalized = sa_repr / sa_norm
             g_normalized = g_repr / g_norm
             logits = jnp.einsum("ik,jk->ij", sa_normalized, g_normalized)
+        elif energy_fn == "cmd1_mrn":
+            ga_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+            )
+            g_potential = jnp.mean(g_repr, axis=-1)
+            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            logits = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")
 
@@ -110,28 +130,32 @@ def make_losses(
             loss = jnp.mean(
                 sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
             )  # shape[0] - is a batch size
-            l_align, l_unify = log_softmax(logits, axis=1, resubs=resubs)
+            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
         elif contrastive_loss_fn == "symmetric_infonce":
             l_align1, l_unify1 = log_softmax(logits, axis=1, resubs=resubs)
             l_align2, l_unify2 = log_softmax(logits, axis=0, resubs=resubs)
             l_align = l_align1 + l_align2
-            l_unify = l_unify1 + l_unify2
+            l_unif = l_unify1 + l_unify2
             loss = -jnp.mean(jnp.diag(l_align1 + l_unify1) + jnp.diag(l_align2 + l_unify2))
         elif contrastive_loss_fn == "infonce":
-            l_align, l_unify = log_softmax(logits, axis=1, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unify))
+            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "infonce_backward":
-            l_align, l_unify = log_softmax(logits, axis=0, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unify))
+            l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "flatnce":
             # from https://arxiv.org/pdf/2107.01152
             logits_flat = logits - jnp.diag(logits)[:, None]
             clogits = jax.nn.logsumexp(logits_flat, axis=1)
+            l_align = clogits
+            l_unif = jnp.sum(logits_flat, axis=-1)
             loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
         elif contrastive_loss_fn == "flatnce_backward":
             # same as flatnce but with axis=0 like for infonce_backward
             logits_flat = logits - jnp.diag(logits)
             clogits = jax.nn.logsumexp(logits_flat, axis=0)
+            l_align = clogits
+            l_unif = jnp.sum(logits_flat, axis=-1)
             loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
         elif contrastive_loss_fn == "fb":
             # This is a Monte Carlo version of the loss from "Does Zero-Shot Reinforcement Learning Exist?"
@@ -181,7 +205,7 @@ def make_losses(
             "logsumexp": logsumexp.mean(),
             "c_target": c_target,
             "l_align": -jnp.mean(jnp.diag(l_align)),
-            "l_unif": -jnp.mean(l_unify),
+            "l_unif": -jnp.mean(l_unif),
         }
         return loss, metrics
 
@@ -194,7 +218,7 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
 
-        sample_key, entropy_key, goal_key = jax.random.split(key, 3)
+        sample_key, entropy_key, goal_key, extra_key = jax.random.split(key, 4)
 
         if config.use_old_trans_actor:
             obs = transitions.extras["old_trans"].observation
@@ -228,6 +252,10 @@ def make_losses(
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
 
+        extra_key, key = jax.random.split(extra_key, 2)
+        obs_shuf = jax.random.permutation(key, state)
+        goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
+
         if energy_fn == "l2":
             min_q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
         elif energy_fn == "l2_no_sqrt":
@@ -242,6 +270,16 @@ def make_losses(
             sa_normalized = sa_repr / sa_norm
             g_normalized = g_repr / g_norm
             min_q = jnp.einsum("ik,ik->i", sa_normalized, g_normalized)
+        elif energy_fn == "cmd1_mrn":
+            action_shuf = jax.random.permutation(extra_key, action)
+            ga_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+            )
+            g_potential = jnp.mean(g_repr, axis=-1)
+            dist = utils.mrn_distance(sa_repr, ga_repr)
+            min_q = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")
 

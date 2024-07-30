@@ -392,6 +392,7 @@ def train(
             training_state.crl_critic_params,
             training_state.normalizer_params,
             transitions,
+            key_critic,
             optimizer_state=training_state.crl_critic_optimizer_state,
         )
 
