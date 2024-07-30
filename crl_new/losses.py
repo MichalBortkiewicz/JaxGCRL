@@ -123,6 +123,16 @@ def make_losses(
         elif contrastive_loss_fn == "infonce_backward":
             l_align, l_unify = log_softmax(logits, axis=0, resubs=resubs)
             loss = -jnp.mean(jnp.diag(l_align + l_unify))
+        elif contrastive_loss_fn == "flatnce":
+            # from https://arxiv.org/pdf/2107.01152
+            logits_flat = logits - jnp.diag(logits)[:, None]
+            clogits = jax.nn.logsumexp(logits_flat, axis=1)
+            loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
+        elif contrastive_loss_fn == "flatnce_backward":
+            # same as flatnce but with axis=0 like for infonce_backward
+            logits_flat = logits - jnp.diag(logits)
+            clogits = jax.nn.logsumexp(logits_flat, axis=0)
+            loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
         elif contrastive_loss_fn == "fb":
             # This is a Monte Carlo version of the loss from "Does Zero-Shot Reinforcement Learning Exist?"
             batch_size = logits.shape[0]
