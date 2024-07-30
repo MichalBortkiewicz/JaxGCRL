@@ -21,7 +21,9 @@ Config = namedtuple(
 
 def create_parser():
     parser = argparse.ArgumentParser(description="Training script arguments")
-    parser.add_argument("--exp_name", type=str, default="test", help="Name of the experiment")
+    parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
+    parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
+    parser.add_argument("--project_name", type=str, default="crl", help="Name of the wandb project of experiment")
     parser.add_argument("--num_timesteps", type=int, default=1000000, help="Number of training timesteps")
     parser.add_argument("--max_replay_size", type=int, default=50000, help="Maximum size of replay buffer")
     parser.add_argument("--min_replay_size", type=int, default=8192, help="Minimum size of replay buffer")
@@ -33,16 +35,9 @@ def create_parser():
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size for training")
     parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
-    parser.add_argument(
-        "--multiplier_num_sgd_steps",
-        type=int,
-        default=1,
-        help="Multiplier of total number of gradient steps resulting from other args.",
-    )
+    parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument(
-        "--normalize_observations", default=False, action="store_true", help="Whether to normalize observations"
-    )
+    parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--use_tested_args", default=False, action="store_true", help="Whether to use tested arguments")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
     parser.add_argument('--policy_lr', type=float, default=6e-4)
@@ -51,7 +46,8 @@ def create_parser():
     parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
     parser.add_argument('--energy_fn', type=str, default='l2')
     parser.add_argument('--backend', type=str, default=None)
-    parser.add_argument('--no-resubs', default=False, action='store_true', help="Not use resubstitution (diagonal) for logsumexp in contrastive cross entropy")
+    parser.add_argument('--no_resubs', default=False, action='store_true', help="Not use resubstitution (diagonal) for logsumexp in contrastive cross entropy")
+    parser.add_argument('--use_ln', default=False, action='store_true', help="Whether to use layer normalization for preactivations in hidden layers")
     parser.add_argument('--use_c_target', default=False, action='store_true', help="Use learnable c_target param in contrastive loss")
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
     parser.add_argument('--exploration_coef', type=float, default=0.0)
@@ -61,6 +57,8 @@ def create_parser():
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
+    parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
+    parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
     return parser
 
 
@@ -81,7 +79,7 @@ def create_env(args: argparse.Namespace) -> object:
             terminate_when_unhealthy=True,
         )
     elif "maze" in env_name:
-        # env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
+        # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
         env = AntMaze(
             backend=args.backend or "spring",
             exclude_current_positions_from_observation=False,

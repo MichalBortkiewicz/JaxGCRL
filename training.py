@@ -2,9 +2,9 @@ import functools
 import json
 import os
 import pickle
-import pickle
 
 import jax
+import math
 import wandb
 from brax.io import model
 from brax.io import html
@@ -66,11 +66,11 @@ def main(args):
         episode_length=args.episode_length,
         normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
-        discounting=args.discounting,
         policy_lr=args.policy_lr,
         critic_lr=args.critic_lr,
         alpha_lr=args.alpha_lr,
         contrastive_loss_fn=args.contrastive_loss_fn,
+        energy_fun=args.energy_fun,
         logsumexp_penalty=args.logsumexp_penalty,
         resubs=not args.no_resubs,
         num_envs=args.num_envs,
@@ -83,6 +83,9 @@ def main(args):
         eval_env=eval_env,
         use_c_target=args.use_c_target,
         exploration_coef=args.exploration_coef,
+        use_ln=args.use_ln,
+        h_dim=args.h_dim,
+        n_hidden=args.n_hidden,
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
@@ -90,16 +93,15 @@ def main(args):
     def ensure_metric(metrics, key):
         if key not in metrics:
             metrics[key] = 0
+        else:
+            if math.isnan(metrics[key]):
+                raise Exception(f"Metric: {key} is Nan")
 
     metrics_to_collect = [
-        "eval/episode_reward",
         "eval/episode_success",
         "eval/episode_success_any",
         "eval/episode_success_hard",
         "eval/episode_success_easy",
-        "eval/episode_reward_dist",
-        "eval/episode_reward_near",
-        "eval/episode_reward_ctrl",
         "eval/episode_dist",
         "eval/episode_reward_survive",
         "training/crl_critic_loss",
@@ -160,7 +162,8 @@ if __name__ == "__main__":
     args.sgd_to_env = sgd_to_env
 
     wandb.init(
-        project="crl",
+        project=args.project_name,
+        group=args.group_name,
         name=args.exp_name,
         config=vars(args),
         mode="online" if args.log_wandb else "disabled",
