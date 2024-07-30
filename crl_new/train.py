@@ -228,7 +228,7 @@ def train(
     seed: int = 0,
     batch_size: int = 256,
     contrastive_loss_fn: str = "binary",
-    energy_fun: str ="l2",
+    energy_fn: str ="l2",
     logsumexp_penalty: float = 0.0,
     exploration_coef: float = 0.0,
     resubs: bool = True,
@@ -349,7 +349,7 @@ def train(
     alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
         contrastive_loss_fn=contrastive_loss_fn,
-        energy_fun=energy_fun,
+        energy_fn=energy_fn,
         logsumexp_penalty=logsumexp_penalty,
         exploration_coef=exploration_coef,
         resubs=resubs,

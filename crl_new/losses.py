@@ -17,7 +17,7 @@ Transition = types.Transition
 def make_losses(
     config: NamedTuple,
     contrastive_loss_fn: str,
-    energy_fun:str,
+    energy_fn:str,
     logsumexp_penalty: float,
     resubs: bool,
     crl_network: crl_networks.CRLNetworks,
@@ -75,12 +75,12 @@ def make_losses(
             jnp.concatenate([transitions.observation[:, :obs_dim], transitions.action], axis=-1),
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:])
-        if energy_fun == "l2":
+        if energy_fn == "l2":
             logits = - jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))
-        elif energy_fun == "dot":
+        elif energy_fn == "dot":
             logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
         else:
-            raise ValueError(f"Unknown energy function: {energy_fun}")
+            raise ValueError(f"Unknown energy function: {energy_fn}")
 
         def log_softmax(logits, axis, resubs):
             if resubs:
@@ -207,12 +207,12 @@ def make_losses(
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
 
-        if energy_fun == "l2":
+        if energy_fn == "l2":
             min_q = - jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
-        elif energy_fun == "dot":
+        elif energy_fn == "dot":
             min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
         else:
-            raise ValueError(f"Unknown energy function: {energy_fun}")
+            raise ValueError(f"Unknown energy function: {energy_fn}")
 
         if config.disable_entropy_actor:
             actor_loss = - min_q
@@ -220,7 +220,7 @@ def make_losses(
             actor_loss = alpha * log_prob - min_q
 
         if exploration_coef > 0:
-            if energy_fun == "l2":
+            if energy_fn == "l2":
                 actor_loss -= jnp.sqrt(jnp.sum(sa_repr ** 2, axis=-1))
             else:
                 actor_loss += jnp.sqrt(jnp.sum(sa_repr ** 2, axis=-1))
