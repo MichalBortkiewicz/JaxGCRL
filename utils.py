@@ -25,13 +25,13 @@ def create_parser():
     parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
     parser.add_argument("--project_name", type=str, default="crl", help="Name of the wandb project of experiment")
     parser.add_argument("--num_timesteps", type=int, default=1000000, help="Number of training timesteps")
-    parser.add_argument("--max_replay_size", type=int, default=50000, help="Maximum size of replay buffer")
+    parser.add_argument("--max_replay_size", type=int, default=10000, help="Maximum size of replay buffer")
     parser.add_argument("--min_replay_size", type=int, default=8192, help="Minimum size of replay buffer")
     parser.add_argument("--num_evals", type=int, default=50, help="Number of evaluations")
     parser.add_argument("--episode_length", type=int, default=50, help="Maximum length of each episode")
     parser.add_argument("--action_repeat", type=int, default=2, help="Number of times to repeat each action")
     parser.add_argument("--discounting", type=float, default=0.997, help="Discounting factor for rewards")
-    parser.add_argument("--num_envs", type=int, default=2048, help="Number of environments")
+    parser.add_argument("--num_envs", type=int, default=256, help="Number of environments")
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size for training")
     parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
@@ -253,7 +253,7 @@ def get_tested_args(args):  # Parse arguments
             "seed": 1,
             "num_timesteps": 50000000,
             "batch_size": 256,
-            "num_envs": 1024,
+            "num_envs": 256,
             "exp_name": "ant_repro",
             "episode_length": 1000,
             "unroll_length": 50,
