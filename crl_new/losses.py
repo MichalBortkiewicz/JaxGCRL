@@ -110,7 +110,7 @@ def make_losses(
             )
             dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
-        elif energy_fn == "cmd1_mrn":
+        elif energy_fn == "mrn":
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
@@ -287,7 +287,7 @@ def make_losses(
             )
             dist = utils.mrn_distance(sa_repr, ga_repr)
             min_q = -dist
-        elif energy_fn == "cmd1_mrn":
+        elif energy_fn == "mrn":
             action_shuf = jax.random.permutation(extra_key, action)
             ga_repr = sa_encoder.apply(
                 normalizer_params,
