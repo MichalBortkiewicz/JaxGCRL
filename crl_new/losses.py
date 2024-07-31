@@ -278,6 +278,15 @@ def make_losses(
             sa_normalized = sa_repr / sa_norm
             g_normalized = g_repr / g_norm
             min_q = jnp.einsum("ik,ik->i", sa_normalized, g_normalized)
+        elif energy_fn == "cmd1_nopot":
+            action_shuf = jax.random.permutation(extra_key, action)
+            ga_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+            )
+            dist = utils.mrn_distance(sa_repr, ga_repr)
+            min_q = -dist
         elif energy_fn == "cmd1_mrn":
             action_shuf = jax.random.permutation(extra_key, action)
             ga_repr = sa_encoder.apply(
