@@ -77,8 +77,8 @@ def make_losses(
         # key1, key2 = jax.random.split(key, 2)
         obs = transitions.observation[:, :obs_dim]
         action = transitions.action
-        action_shuf = jax.random.permutation(key, action)
         future_action = transitions.extras["future_action"]
+        future_action_shuf = jax.random.permutation(key, future_action)
         # goal = transitions.observation[:, obs_dim:]
         # obs_shuf = jax.random.permutation(key2, obs)
         # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
@@ -112,11 +112,19 @@ def make_losses(
             )
             dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
-        elif energy_fn == "mrn_potential":
+        elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, future_action], axis=-1),
+                jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
+            )
+            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            logits = -dist
+        elif energy_fn == "mrn_pot_shuf":
+            ga_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
             dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
@@ -254,8 +262,8 @@ def make_losses(
         entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
         action = parametric_action_distribution.postprocess(action)
 
-        # action_shuf = jax.random.permutation(extra_key, action)
-        # action_shuf = jax.lax.stop_gradient(action_shuf)
+        extra_key, key = jax.random.split(extra_key, 2)
+        future_action_shuf = jax.random.permutation(extra_key, future_action)
 
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
@@ -295,11 +303,19 @@ def make_losses(
             )
             dist = utils.mrn_distance(sa_repr, ga_repr)
             min_q = -dist
-        elif energy_fn == "mrn_potential":
+        elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, future_action], axis=-1),
+                jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
+            )
+            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            logits = -dist
+        elif energy_fn == "mrn_pot_shuf":
+            ga_repr = sa_encoder.apply(
+                normalizer_params,
+                sa_encoder_params,
+                jnp.concatenate([goal_pad, future_action_shuf], axis=-2),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
             dist = utils.mrn_distance(sa_repr, ga_repr)
