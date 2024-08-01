@@ -129,17 +129,22 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
 
         goal_index = jax.random.categorical(goal_key, jnp.log(probs))
-        goal = transition.observation[:, config.goal_start_idx : config.goal_end_idx]
-        goal = jnp.take(goal, goal_index[:-1], axis=0)
+        future_state = jnp.take(transition.observation, goal_index[:-1], axis=0)
+        future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
+        goal = future_state[:, config.goal_start_idx : config.goal_end_idx]
+        future_state = future_state[:, : config.obs_dim]
         state = transition.observation[:-1, : config.obs_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
             "policy_extras": {},
-            "state_extras": {"truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
-                "seed": jnp.squeeze(
-                    transition.extras["state_extras"]["seed"][:-1]
-                )},
+            "state_extras": {
+                "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
+                "seed": jnp.squeeze(transition.extras["state_extras"]["seed"][:-1]),
+            },
+            "state": state,
+            "future_state": future_state,
+            "future_action": future_action,
         }
 
         if config.use_old_trans_actor or config.use_old_trans_alpha:
@@ -226,7 +231,7 @@ def train(
     seed: int = 0,
     batch_size: int = 256,
     contrastive_loss_fn: str = "binary",
-    energy_fn: str ="l2",
+    energy_fn: str = "l2",
     logsumexp_penalty: float = 0.0,
     exploration_coef: float = 0.0,
     resubs: bool = True,
@@ -243,7 +248,7 @@ def train(
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
     unroll_length: int = 50,
     multiplier_num_sgd_steps: int = 1,
-    use_c_target:bool = False,
+    use_c_target: bool = False,
     config: NamedTuple = None,
     use_ln: bool = False,
     h_dim: int = 256,
@@ -358,15 +363,13 @@ def train(
         resubs=resubs,
         crl_network=crl_network,
         action_size=action_size,
-        use_c_target=use_c_target
+        use_c_target=use_c_target,
     )
     alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
-    actor_update = (
-        gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
-        )
+    actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
     )
     crl_critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         crl_critic_loss, crl_critics_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
@@ -539,7 +542,7 @@ def train(
 
         # Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1, ) + x.shape[2:], order="F"),
+            lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),
             transitions,
         )
         permutation = jax.random.permutation(experience_key, len(transitions.observation))
@@ -704,7 +707,9 @@ def train(
         if process_id == 0:
             if checkpoint_logdir:
                 # Save current policy and critic params.
-                params = _unpmap((training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params))
+                params = _unpmap(
+                    (training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params)
+                )
                 path = f"{checkpoint_logdir}/step_{current_step}.pkl"
                 model.save_params(path, params)
 
