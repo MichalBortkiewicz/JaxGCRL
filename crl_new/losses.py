@@ -74,13 +74,15 @@ def make_losses(
             crl_critic_params["c"],
         )
 
-        key1, key2 = jax.random.split(key, 2)
+        # key1, key2 = jax.random.split(key, 2)
         obs = transitions.observation[:, :obs_dim]
         action = transitions.action
-        action_shuf = jax.random.permutation(key1, transitions.action)
-        goal = transitions.observation[:, obs_dim:]
-        obs_shuf = jax.random.permutation(key2, obs)
-        goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
+        action_shuf = jax.random.permutation(key, action)
+        future_action = transitions.extras["future_action"]
+        # goal = transitions.observation[:, obs_dim:]
+        # obs_shuf = jax.random.permutation(key2, obs)
+        # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
+        goal_pad = transitions.extras["future_state"]
 
         sa_repr = sa_encoder.apply(
             normalizer_params,
@@ -106,7 +108,7 @@ def make_losses(
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+                jnp.concatenate([goal_pad, future_action], axis=-1),
             )
             dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
@@ -114,7 +116,7 @@ def make_losses(
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+                jnp.concatenate([goal_pad, future_action], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
             dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
@@ -226,19 +228,23 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
 
-        sample_key, entropy_key, goal_key, extra_key = jax.random.split(key, 4)
+        sample_key, entropy_key, goal_key = jax.random.split(key, 3)
 
         if config.use_old_trans_actor:
             obs = transitions.extras["old_trans"].observation
         else:
             obs = transitions.observation
 
-        state = obs[:, :obs_dim]
-        goal = obs[:, obs_dim:]
+        future_state = transitions.extras["future_state"]
 
-        random_goal_mask = jax.random.bernoulli(goal_key, config.random_goals, shape=(goal.shape[0], 1))
-        goal_rolled = jnp.roll(goal, 1, axis=0)
-        goal = jnp.where(random_goal_mask, goal_rolled, goal)
+        state = obs[:, :obs_dim]
+
+        random_goal_mask = jax.random.bernoulli(goal_key, config.random_goals, shape=(future_state.shape[0], 1))
+        future_rolled = jnp.roll(future_state, 1, axis=0)
+        future_state = jnp.where(random_goal_mask, future_rolled, future_state)
+        future_action = transitions.extras["future_action"]
+
+        goal = future_state[:, config.goal_start_idx : config.goal_end_idx]
 
         observation = jnp.concatenate([state, goal], axis=1)
 
@@ -247,6 +253,9 @@ def make_losses(
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
         action = parametric_action_distribution.postprocess(action)
+
+        # action_shuf = jax.random.permutation(extra_key, action)
+        # action_shuf = jax.lax.stop_gradient(action_shuf)
 
         sa_encoder_params, g_encoder_params = (
             crl_critic_params["sa_encoder"],
@@ -260,9 +269,9 @@ def make_losses(
         )
         g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
 
-        extra_key, key = jax.random.split(extra_key, 2)
-        obs_shuf = jax.random.permutation(key, state)
-        goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
+        # extra_key, key = jax.random.split(extra_key, 2)
+        # obs_shuf = jax.random.permutation(key, state)
+        goal_pad = future_state
 
         if energy_fn == "l2":
             min_q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
@@ -279,20 +288,18 @@ def make_losses(
             g_normalized = g_repr / g_norm
             min_q = jnp.einsum("ik,ik->i", sa_normalized, g_normalized)
         elif energy_fn == "mrn":
-            action_shuf = jax.random.permutation(extra_key, action)
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+                jnp.concatenate([goal_pad, future_action], axis=-1),
             )
             dist = utils.mrn_distance(sa_repr, ga_repr)
             min_q = -dist
         elif energy_fn == "mrn_potential":
-            action_shuf = jax.random.permutation(extra_key, action)
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, action_shuf], axis=-1),
+                jnp.concatenate([goal_pad, future_action], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
             dist = utils.mrn_distance(sa_repr, ga_repr)
