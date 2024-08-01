@@ -262,7 +262,7 @@ def make_losses(
         entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
         action = parametric_action_distribution.postprocess(action)
 
-        extra_key, key = jax.random.split(extra_key, 2)
+        extra_key, key = jax.random.split(key, 2)
         future_action_shuf = jax.random.permutation(extra_key, future_action)
 
         sa_encoder_params, g_encoder_params = (
@@ -315,7 +315,7 @@ def make_losses(
             ga_repr = sa_encoder.apply(
                 normalizer_params,
                 sa_encoder_params,
-                jnp.concatenate([goal_pad, future_action_shuf], axis=-2),
+                jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
             dist = utils.mrn_distance(sa_repr, ga_repr)
