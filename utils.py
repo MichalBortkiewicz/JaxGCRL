@@ -12,6 +12,8 @@ from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
 from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
+from envs.humanoid import Humanoid
+from envs.ant_push import AntPush
 
 Config = namedtuple(
     "Config",
@@ -78,6 +80,14 @@ def create_env(args: argparse.Namespace) -> object:
             exclude_current_positions_from_observation=False,
             terminate_when_unhealthy=True,
         )
+    elif env_name == "ant_push":
+        # This is stable only in mjx backend
+        assert args.backend == "mjx"
+        env = AntPush(
+            backend=args.backend,
+            exclude_current_positions_from_observation=False,
+            terminate_when_unhealthy=True,
+        )
     elif "maze" in env_name:
         # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
         env = AntMaze(
@@ -99,6 +109,8 @@ def create_env(args: argparse.Namespace) -> object:
         env=Pusher(backend=args.backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
         env=PusherReacher(backend=args.backend or "generalized")
+    elif env_name == "humanoid":
+        env=Humanoid(backend=args.backend)
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -209,6 +221,22 @@ def get_env_config(args: argparse.Namespace):
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
+    elif args.env_name == "ant_push":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=31,
+            goal_start_idx=0,
+            goal_end_idx=2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
+        )
     elif args.env_name == "ant_ball":
         config = Config(
             debug=False,
@@ -216,6 +244,22 @@ def get_env_config(args: argparse.Namespace):
             obs_dim=31,
             goal_start_idx=-4,
             goal_end_idx=-2,
+            unroll_length=args.unroll_length,
+            episode_length=args.episode_length,
+            repr_dim=64,
+            random_goals=args.random_goals,
+            use_old_trans_actor=args.use_old_trans_actor,
+            use_old_trans_alpha=args.use_old_trans_alpha,
+            disable_entropy_actor=args.disable_entropy_actor,
+            use_traj_idx_wrapper=args.use_traj_idx_wrapper
+        )
+    elif args.env_name == "humanoid":
+        config = Config(
+            debug=False,
+            discount=args.discounting,
+            obs_dim=268,
+            goal_start_idx=0,
+            goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=64,
