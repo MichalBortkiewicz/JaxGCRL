@@ -182,6 +182,31 @@ def make_losses(
             l_align = -jnp.diag(logits)  # shape = (batch_size,)
             l_unif = 0.5 * jnp.sum(logits**2 * (1 - I) / (batch_size - 1), axis=-1)  # shape = (batch_size,)
             loss = (l_align + l_unif).mean()  # shape = ()
+        elif contrastive_loss_fn == "dpo":
+            # This is based on DPO loss
+            # It aims to drive positive and negative logits further away from each other
+            positive = jnp.diag(logits)
+            diffs = positive[:, None] - logits
+            loss = -jnp.mean(jax.nn.log_sigmoid(diffs))
+        elif contrastive_loss_fn == "ipo":
+            # This is based on IPO loss
+            # It aims to have difference between positive and negative logits == 1
+            positive = jnp.diag(logits)
+            diffs = positive[:, None] - logits
+            loss = jnp.mean((diffs - 1) ** 2)
+        elif contrastive_loss_fn == "sppo":
+            # This is based on SPPO loss
+            # It aims to have positive logits == 1 and negative == -1
+            batch_size = logits.shape[0]
+            target = -jnp.ones(batch_size) + 2* jnp.eye(batch_size)
+
+            diff = (logits - target) ** 2
+            
+            # We scale positive logits by batch size to have symmetry w.r.t. negative logits
+            scale = jnp.ones((batch_size, batch_size))
+            scale = jnp.fill_diagonal(scale, batch_size, inplace=False)
+
+            loss = jnp.mean(diff * scale)
         else:
             raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
 
