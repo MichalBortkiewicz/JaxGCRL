@@ -11,8 +11,8 @@ from brax.io import html
 from pyinstrument import Profiler
 
 
-from crl_new.train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, get_tested_args, create_parser
+from src.train import train
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
 from envs.wrappers import traj_index_wrapper_factory
 
 
@@ -144,8 +144,6 @@ def main(args):
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
-    if args.use_tested_args:
-        args = get_tested_args(args)
 
     print("Arguments:")
     print(

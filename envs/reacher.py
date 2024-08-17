@@ -1,5 +1,4 @@
 from typing import Tuple
-
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
@@ -8,6 +7,8 @@ from etils import epath
 import jax
 from jax import numpy as jp
 
+# This is based on original Reacher environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/reacher.py
 
 class Reacher(PipelineEnv):
     def __init__(self, backend="generalized", **kwargs):

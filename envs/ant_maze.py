@@ -5,14 +5,14 @@ from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from etils import epath
 import jax
 from jax import numpy as jp
 import mujoco
 import xml.etree.ElementTree as ET
 
-
-# Adapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
+# This is based on original Ant environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/ant.py
+# Maze creation dapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
 
 RESET = R = 'r'
 GOAL = G = 'g'
@@ -267,7 +267,7 @@ class AntMaze(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
-        reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
+        reward = -dist + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jp.linalg.norm(obs[:2] - obs[-2:])

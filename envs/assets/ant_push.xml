@@ -82,7 +82,7 @@
 			</body>
 		</body>
 
-		<!-- Blocks are manually fused to reduce number of contact pairs:
+		<!-- Blocks are manually fused in the following way to reduce number of contact pairs:
             AABCC
             AA_CC
             D_M_E

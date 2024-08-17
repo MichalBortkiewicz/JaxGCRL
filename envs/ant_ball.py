@@ -1,14 +1,15 @@
 import os
 from typing import Tuple
-
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from etils import epath
 import jax
 from jax import numpy as jp
 import mujoco
+
+# This is based on original Ant environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/ant.py
 
 
 class AntBall(PipelineEnv):
@@ -115,7 +116,6 @@ class AntBall(PipelineEnv):
         state.info.update(info)
         return state
 
-    # Todo rename seed to traj_id
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
@@ -141,6 +141,7 @@ class AntBall(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
+
         # Distance between goal and object
         dist = jp.linalg.norm(obs[-2:] - obs[-4:-2])
 

@@ -5,11 +5,13 @@ from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from etils import epath
 import jax
 from jax import numpy as jp
 import mujoco
 
+# This is based on original Ant environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/ant.py
+# The original idea for environment comes from https://arxiv.org/pdf/1805.08296
 
 class AntPush(PipelineEnv):
     def __init__(
@@ -158,6 +160,7 @@ class AntPush(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
+
         # remove target and object q, qd
         qpos = pipeline_state.q[:-5]
         qvel = pipeline_state.qd[:-5]

@@ -1,51 +1,98 @@
-# [Contrastive Learning as Goal-Conditioned Reinforcement Learning](https://arxiv.org/pdf/2206.07568.pdf)
-
-## Repo installation
-
-1. Create an Anaconda environment: `conda create -n contrastive_rl python=3.10 -y`
-2. Activate the environment: `conda activate contrastive_rl`
-3. Install conda dependencies: `conda install -c conda-forge cudatoolkit cudatoolkit-dev cudnn nvidia/label/cuda-12.4.0::libcublas cuda-nvcc cuda-python`
-4. Install jax `pip install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html`
-5. Install other the dependencies: `pip install -r requirements.txt`
+# Accelerating Goal-Conditioned RL Algorithms and Research 
 
 
-## Old stuff
-<p align="center"><img src="imgs/contrastive_rl.png" width=60%></p>
+<p align="center"><img src="imgs/grid.png" width=80%></p>
 
-<p align="center"> Benjamin Eysenbach, &nbsp; Tianjun Zhang, &nbsp; Ruslan Salakhutdinov &nbsp; Sergey Levine</p>
 <p align="center">
-   Paper: <a href="https://arxiv.org/pdf/2206.07568.pdf">https://arxiv.org/pdf/2206.07568.pdf</a>
+Michał Bortkiewicz,  Władek Pałucki,  Vivek Myers,
 </p>
 
-*Abstract*: In reinforcement learning (RL), it is easier to solve a task if given a good representation. While _deep_ RL should automatically acquire such good representations, prior work often finds that learning representations in an end-to-end fashion is unstable and instead equip RL algorithms with additional representation learning parts (e.g., auxiliary losses, data augmentation). How can we design RL algorithms that directly acquire good representations? In this paper, instead of adding representation learning parts to an existing RL algorithm, we show (contrastive) representation learning methods can be cast as RL algorithms in their own right. To do this, we build upon prior work and apply contrastive representation learning to action-labeled trajectories, in such a way that the (inner product of) learned representations exactly corresponds to a goal-conditioned value function. We use this idea to reinterpret a prior RL method as performing contrastive learning, and then use the idea to propose a much simpler method that achieves similar performance. Across a range of goal-conditioned RL tasks, we demonstrate that contrastive RL methods achieve higher success rates than prior non-contrastive methods. We also show that contrastive RL outperforms prior methods on image-based tasks, without using data augmentation or auxiliary objectives.
+<p align="center">
+Tadeusz Dziarmaga,  Tomasz Arczewski,
+</p>
 
-This repository contains the new algorithms, some of the baselines, and the associated environments used in this paper. If you use this repository, please consider adding the following citation:
+<p align="center">
+Łukasz Kuciński,  Benjamin Eysenbach
+</p>
+
+
+<p style="text-align: center;">
+Paper: TODO
+</p>
+
+**Abstract:** Self-supervised learning on large-scale internet data has enabled rapid break-
+throughs in language modeling. In theory, goal-conditioned reinforcement learning
+(GCRL) algorithms can similarly self-supervise, learning from the goals achieved
+during unstructured interaction with the environment. However, these methods
+have failed to see similar success, both due to computational constraints as well
+as a lack of stable algorithms. In this paper, we present a new, high-performance
+codebase and benchmark for self-supervised GCRL, enabling researchers to train
+agents for millions of environment steps in minutes on a single GPU. The key to
+this performance is a combination of GPU-accelerated environments, and a stable,
+batched version of contrastive reinforcement learning algorithm based on an in-
+foNCE objective that is able to use this increased data throughput effectively. With
+this approach, we aim to provide a foundation for future research in self-supervised
+GCRL, enabling researchers to quickly iterate on new ideas and evaluate them on a
+diverse set of challenging environments.
 
 ```
-@article{eysenbach2020contrastive,
-  title={Contrastive Learning as Goal-Conditioned Reinforcement Learning},
-  author={Eysenbach, Benjamin and Zhang, Tianjun and Salakhutdinov, Ruslan and Levine, Sergey},
-  journal={arXiv preprint arXiv:2206.07568},
-  year={2022}
+@article{
+    TODO
+  year={2024}
 }
 ```
 
-### Installation
 
-1. Clone the `contrastive_rl` repository: `svn export https://github.com/google-research/google-research/trunk/contrastive_rl; cd contrastive rl`
-2. Create an Anaconda environment: `conda create -n contrastive_rl python=3.9 -y`
-3. Activate the environment: `conda activate contrastive_rl`
-4. Install the dependencies: `pip install -r requirements.txt --no-deps`
-5. Check that the installation worked: `chmod +x run.sh; ./run.sh`
+## Installation
+The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
+```bash
+conda env create -f environment.yml
+```
 
-### Running the experiments
+To check whether installation worked, run a test experiment using `./scripts/train.sh` file:
 
-To check that the installation has completed, run `./run.sh` to perform training for just a handful of steps. To replicate the results from the paper, please run:
-```python lp_contrastive.py```
+```bash
+chmod +x ./scripts/train.sh; ./scripts/train.sh
+```
+> [!NOTE]  
+> If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
-Check out the `lp_contrastive.py` file for more information on how to select different algorithms and environments. For example, to try the offline RL experiments, set `env_name = 'offline_ant_umaze'`. One important note is that the image-based experiments should be run using multiprocessing, to avoid OpenGL context errors:
-```python lp_contrastive.py --lp_launch_type=local_mp```
+## New CRL implementation and Benchmark
+<p align="center">
+  <img src="imgs/ant_8_1.jpg" width=40% />
+  <img src="imgs/ant_16_1.jpg" width=40%  /> 
+</p>
+
+<p align="center">
+Training CRL on Ant environment for 10M steps lasts ~10 minutes on Nvidia V100. 
+</p>
+
+We provide 8 blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) and jitted framework for 
+quick experimentation with goal-conditioned self-supervised reinforcement learning.  
 
 
-### Questions?
-If you have any questions, comments, or suggestions, please reach out to Benjamin Eysenbach (eysenbach@google.com).
+## Wandb support
+All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
+
+1. Run exemplary [`sweep`](https://docs.wandb.ai/guides/sweeps):
+```bash
+wandb sweep --project exemplary_sweep ./scripts/sweep.yml
+```
+2. Then run wandb agent with :
+```
+wandb agent <previous_command_output>
+```
+
+
+Besides logging the metrics, we also render final policy to `wandb` artifacts. 
+
+<p align="center">
+  <img src="imgs/wandb.png" width=55% />
+  <img src="imgs/push.gif" width=40%  /> 
+</p>
+
+In addition, you can find exemplary plotting utils for data downloaded by `wandb` api in notebooks.
+
+ 
+## Questions?
+If you have any questions, comments, or suggestions, please reach out to Michał Bortkiewicz ([michalbortkiewicz8@gmail.com](michalbortkiewicz8@gmail.com))

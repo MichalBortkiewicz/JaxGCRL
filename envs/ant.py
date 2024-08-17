@@ -5,11 +5,12 @@ from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from etils import epath
 import jax
 from jax import numpy as jp
 import mujoco
 
+# This is based on original Ant environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/ant.py
 
 class Ant(PipelineEnv):
     def __init__(

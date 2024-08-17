@@ -1,20 +1,23 @@
 #!/bin/bash
 
-# Number of copies to run simultaneously
-NUM_COPIES=4
+# WARNING: Set GPU_NUM to available GPU on the server in CUDA_VISIBLE_DEVICES=<GPU_NUM>
+# or remove this flag entirely if only one GPU is present on the device.
+
+# NOTE: If you run into OOM issues, try reducing --num_envs
 
 eval "$(conda shell.bash hook)"
-conda activate c_r_l
+conda activate contrastive_rl
 
-# Loop through the desired number of copies
-for bs in 512 1024 2048; do
-  for ((i=1; i<=$NUM_COPIES; i++)); do
-      # Run the Python program with a different seed for each copy
-      MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=3 python training.py --num_evals 50 --seed 1 --num_timesteps 500000 --batch_size ${bs} --exp_name "r_bs_${bs}"
+env=ant
+
+for seed in 1 2 3 4 5 ; do
+  XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python training.py \
+    --project_name test --group_name first_run --exp_name test --num_evals 50 \
+    --seed ${seed} --num_timesteps 10000000 --batch_size 256 --num_envs 1024 \
+    --discounting 0.99 --action_repeat 1 --env_name ${env} \
+    --episode_length 1000 --unroll_length 62  --min_replay_size 1000 --max_replay_size 10000 \
+    --contrastive_loss_fn infonce_backward --energy_fn l2 \
+    --multiplier_num_sgd_steps 1 --log_wandb
   done
-done
 
-# Wait for all background processes to finish
-#wait
-
-echo "All processes have finished."
+echo "All runs have finished."

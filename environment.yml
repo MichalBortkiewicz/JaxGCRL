@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
-  - jax=0.4.26
+  - jax=0.4.25
   - scipy==1.12.0
   - mujoco==3.1.2
   - scikit-image==0.22.0
@@ -20,7 +20,8 @@ dependencies:
   - cudnn
   - pip
   - pip:
+    - nvidia-cudnn-cu12==8.9.7.29
     - mujoco-mjx==3.1.2
     - stack-data==0.6.3
-    - jaxlib==0.4.20+cuda11.cudnn86
+    - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

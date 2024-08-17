@@ -1,5 +1,3 @@
-"""Trains a robot arm to push a ball to a target."""
-
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
@@ -7,6 +5,9 @@ from brax.io import mjcf
 from etils import epath
 import jax
 from jax import numpy as jp
+
+# This is based on original Pusher environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/pusher.py
 
 
 class Pusher(PipelineEnv):
