@@ -222,7 +222,6 @@ def make_losses(
             logsumexp = jax.nn.logsumexp(logits_ + eps, axis=1)
             loss += logsumexp_penalty * jnp.mean(logsumexp**2)
 
-        l2_loss = 0
         if l2_penalty > 0:
             l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
             loss += l2_loss
