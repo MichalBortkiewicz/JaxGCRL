@@ -242,6 +242,14 @@ def make_losses(
         sa_repr_l2 = jnp.sqrt(jnp.sum(sa_repr**2, axis=-1))
         g_repr_l2 = jnp.sqrt(jnp.sum(g_repr**2, axis=-1))
 
+        if contrastive_loss_fn == "sppo" or contrastive_loss_fn == "ipo" or contrastive_loss_fn == "dpo":
+            l_align_log = 0
+            l_unif_log = 0
+        else:
+            l_align_log = -jnp.mean(jnp.diag(l_align))
+            l_unif_log = -jnp.mean(l_unif)
+
+
         metrics = {
             "binary_accuracy": jnp.mean((logits > 0) == I),
             "categorical_accuracy": jnp.mean(correct),
@@ -254,8 +262,8 @@ def make_losses(
             "logsumexp": logsumexp.mean(),
             "l2_penalty": l2_loss,
             "c_target": c_target,
-            "l_align": -jnp.mean(jnp.diag(l_align)),
-            "l_unif": -jnp.mean(l_unif),
+            "l_align": l_align_log,
+            "l_unif": l_unif_log,
         }
         return loss, metrics
 

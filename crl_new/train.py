@@ -188,7 +188,7 @@ def _init_training_state(
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_q, key_sa_enc, key_g_enc = jax.random.split(key, 4)
+    key_policy, key_sa_enc, key_g_enc = jax.random.split(key, 3)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 

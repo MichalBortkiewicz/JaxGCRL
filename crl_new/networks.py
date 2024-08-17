@@ -15,7 +15,6 @@ Initializer = Callable[..., Any]
 @flax.struct.dataclass
 class CRLNetworks:
     policy_network: networks.FeedForwardNetwork
-    q_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
     sa_encoder: networks.FeedForwardNetwork
     g_encoder: networks.FeedForwardNetwork
@@ -44,8 +43,6 @@ class MLP(linen.Module):
                     hidden = linen.LayerNorm()(hidden)
                 hidden = self.activation(hidden)
         return hidden
-
-
 
 
 def make_embedder(
@@ -112,14 +109,6 @@ def make_crl_networks(
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
     )
-    q_network = networks.make_q_network(
-        observation_size,
-        action_size,
-        preprocess_observations_fn=preprocess_observations_fn,
-        hidden_layer_sizes=hidden_layer_sizes,
-        activation=activation,
-    )
-
     sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
         obs_size=config.obs_dim + action_size,
@@ -137,7 +126,6 @@ def make_crl_networks(
 
     return CRLNetworks(
         policy_network=policy_network,
-        q_network=q_network,
         parametric_action_distribution=parametric_action_distribution,
         sa_encoder=sa_encoder,
         g_encoder=g_encoder,
