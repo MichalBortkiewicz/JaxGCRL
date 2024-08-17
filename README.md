@@ -3,15 +3,15 @@
 
 <p align="center"><img src="imgs/grid.png" width=80%></p>
 
-<p style="text-align: center;">
+<p align="center">
 Michał Bortkiewicz,  Władek Pałucki,  Vivek Myers,
 </p>
 
-<p style="text-align: center;">
+<p align="center">
 Tadeusz Dziarmaga,  Tomasz Arczewski,
 </p>
 
-<p style="text-align: center;">
+<p align="center">
 Łukasz Kuciński,  Benjamin Eysenbach
 </p>
 
@@ -62,6 +62,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
   <img src="imgs/ant_8_1.jpg" width=40% />
   <img src="imgs/ant_16_1.jpg" width=40%  /> 
 </p>
+
 <p style="text-align: center;">
 Training CRL on Ant environment for 10M steps lasts ~10 minutes on Nvidia V100. 
 </p>
@@ -90,7 +91,7 @@ Besides logging the metrics, we also render final policy to `wandb` artifacts.
   <img src="imgs/push.gif" width=40%  /> 
 </p>
 
-In addition, you can find exemplary plotting utils for data downloaded by `wadbb` api in notebooks.
+In addition, you can find exemplary plotting utils for data downloaded by `wandb` api in notebooks.
 
  
 ## Questions?
