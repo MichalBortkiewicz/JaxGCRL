@@ -52,6 +52,7 @@ def create_parser():
     parser.add_argument('--use_ln', default=False, action='store_true', help="Whether to use layer normalization for preactivations in hidden layers")
     parser.add_argument('--use_c_target', default=False, action='store_true', help="Use learnable c_target param in contrastive loss")
     parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
+    parser.add_argument('--l2_penalty', type=float, default=0.0)
     parser.add_argument('--exploration_coef', type=float, default=0.0)
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--use_old_trans_actor', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")

@@ -20,6 +20,7 @@ def make_losses(
     contrastive_loss_fn: str,
     energy_fn: str,
     logsumexp_penalty: float,
+    l2_penalty: float,
     resubs: bool,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
@@ -224,6 +225,11 @@ def make_losses(
             logsumexp = jax.nn.logsumexp(logits_ + eps, axis=1)
             loss += logsumexp_penalty * jnp.mean(logsumexp**2)
 
+        if l2_penalty > 0:
+            l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
+            loss += l2_loss
+
+
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
         logits_pos = jnp.sum(logits * I) / jnp.sum(I)
@@ -246,6 +252,7 @@ def make_losses(
             "sa_repr_std": jnp.std(sa_repr_l2),
             "g_repr_std": jnp.std(g_repr_l2),
             "logsumexp": logsumexp.mean(),
+            "l2_penalty": l2_loss,
             "c_target": c_target,
             "l_align": -jnp.mean(jnp.diag(l_align)),
             "l_unif": -jnp.mean(l_unif),

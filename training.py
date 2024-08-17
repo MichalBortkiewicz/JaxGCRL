@@ -72,6 +72,7 @@ def main(args):
         contrastive_loss_fn=args.contrastive_loss_fn,
         energy_fn=args.energy_fn,
         logsumexp_penalty=args.logsumexp_penalty,
+        l2_penalty=args.l2_penalty,
         resubs=not args.no_resubs,
         num_envs=args.num_envs,
         batch_size=args.batch_size,
