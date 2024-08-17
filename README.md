@@ -5,9 +5,12 @@
 
 <p style="text-align: center;">
 Michał Bortkiewicz,  Władek Pałucki,  Vivek Myers,
+</p>
+
 <p style="text-align: center;">
 Tadeusz Dziarmaga,  Tomasz Arczewski,
 </p>
+
 <p style="text-align: center;">
 Łukasz Kuciński,  Benjamin Eysenbach
 </p>
