@@ -228,6 +228,8 @@ def make_losses(
         if l2_penalty > 0:
             l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
             loss += l2_loss
+        else:
+            l2_loss = 0
 
 
         I = jnp.eye(logits.shape[0])
