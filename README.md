@@ -63,7 +63,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
   <img src="imgs/ant_16_1.jpg" width=40%  /> 
 </p>
 
-<p style="text-align: center;">
+<p align="center">
 Training CRL on Ant environment for 10M steps lasts ~10 minutes on Nvidia V100. 
 </p>
 
