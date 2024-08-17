@@ -4,41 +4,14 @@ metric:
   goal: maximize
   name: eval/episode_success
 parameters:
-  policy_lr:
-    values:
-      - 1e-4
-      - 1e-3
-      - 1e-2
-    distribution: categorical
-  alpha_lr:
-    values:
-      - 1e-5
-      - 1e-4
-      - 1e-3
-      - 1e-2
-    distribution: categorical
-  critic_lr:
-    values:
-      - 1e-5
-      - 1e-4
-      - 1e-3
-      - 1e-2
-    distribution: categorical
   discounting:
-    min: 0.95
+    min: 0.96
     max: 0.99
     distribution: uniform
   contrastive_loss_fn:
     values:
       - "symmetric_infonce"
-      - "binary"
-      - "infonce"
       - "infonce_backward"
-    distribution: categorical
-  logsumexp_penalty:
-    values:
-      - 0.0
-      - 0.01
     distribution: categorical
   seed:
     min: 0
@@ -54,11 +27,11 @@ command:
   - "--episode_length"
   - "1000"
   - "--num_envs"
-  - "2048"
+  - "1024"
   - "--num_timesteps"
-  - "20000000"
+  - "50000000"
   - "--num_evals"
-  - "100"
+  - "500"
   - "--min_replay_size"
   - "1000"
   - "--max_replay_size"
@@ -67,7 +40,10 @@ command:
   - "1"
   - "--batch_size"
   - "256"
-  - --normalize_observations
+  - "--unroll_length"
+  - "62"
+  - "--multiplier_num_sgd_steps"
+  - "1"
   - --log_wandb
   - ${args_no_boolean_flags}
 

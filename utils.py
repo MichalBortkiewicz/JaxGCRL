@@ -17,7 +17,7 @@ from envs.ant_push import AntPush
 
 Config = namedtuple(
     "Config",
-    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals use_old_trans_actor use_old_trans_alpha disable_entropy_actor use_traj_idx_wrapper",
+    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals disable_entropy_actor use_traj_idx_wrapper",
 )
 
 
@@ -40,7 +40,6 @@ def create_parser():
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
-    parser.add_argument("--use_tested_args", default=False, action="store_true", help="Whether to use tested arguments")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
     parser.add_argument('--policy_lr', type=float, default=6e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
@@ -55,8 +54,6 @@ def create_parser():
     parser.add_argument('--l2_penalty', type=float, default=0.0)
     parser.add_argument('--exploration_coef', type=float, default=0.0)
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
-    parser.add_argument('--use_old_trans_actor', default=False, action="store_true", help="Whether to train actor with old style transitions (unflattened)")
-    parser.add_argument('--use_old_trans_alpha', default=False, action="store_true", help="Whether to train alpha with old style transitions (unflattened)")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
@@ -137,8 +134,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -153,8 +148,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -169,8 +162,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -185,8 +176,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -201,8 +190,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -217,8 +204,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -233,8 +218,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -249,8 +232,6 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
@@ -265,52 +246,12 @@ def get_env_config(args: argparse.Namespace):
             episode_length=args.episode_length,
             repr_dim=64,
             random_goals=args.random_goals,
-            use_old_trans_actor=args.use_old_trans_actor,
-            use_old_trans_alpha=args.use_old_trans_alpha,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
         )
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")
     return config
-
-
-def get_tested_args(args):  # Parse arguments
-    if args.env_name == "reacher":
-        # NOTE: it was tested on old RB, which was flat and used grad_updates_per_step
-        parameters = {
-            "num_evals": 25,
-            "seed": 1,
-            "num_timesteps": 5000000,
-            "batch_size": 256,
-            "num_envs": 1024,
-            "episode_length": 1000,
-            "unroll_length": 50,
-            "action_repeat": 1,
-            "min_replay_size": 1000,
-            "normalize_observations": True,
-        }
-    elif args.env_name == "ant":
-        # Best works with bigger networks - 4x1024
-        parameters = {
-            "num_evals": 50,
-            "seed": 1,
-            "num_timesteps": 50000000,
-            "batch_size": 256,
-            "num_envs": 256,
-            "episode_length": 1000,
-            "unroll_length": 50,
-            "action_repeat": 1,
-            "min_replay_size": 1000,
-            "normalize_observations": True,
-        }
-    else:
-        raise ValueError(f"Unknown environment: {args.env_name}")
-    # Update only changed args
-    for key, value in vars(args).items():
-        if key in parameters:
-            setattr(args, key, parameters[key])
-    return args
 
 
 class MetricsRecorder:

@@ -1,12 +1,13 @@
 import os
 from typing import Tuple
-
 from brax import base
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 import jax
 from jax import numpy as jp
 
+# This is based on original Half Cheetah environment from Brax
+# https://github.com/google/brax/blob/main/brax/envs/half_cheetah.py
 
 class Halfcheetah(PipelineEnv):
 
