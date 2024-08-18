@@ -267,7 +267,7 @@ class AntMaze(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
+        reward = -forward_reward + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
