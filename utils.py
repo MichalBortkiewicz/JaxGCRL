@@ -59,6 +59,7 @@ def create_parser():
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
+    parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     return parser
 
 
@@ -132,7 +133,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -146,7 +147,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=7,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -160,7 +161,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=1,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -174,7 +175,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=13,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -188,7 +189,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=17,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -202,7 +203,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -216,7 +217,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -230,7 +231,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=-2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
@@ -244,7 +245,7 @@ def get_env_config(args: argparse.Namespace):
             goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
-            repr_dim=64,
+            repr_dim=args.repr_dim,
             random_goals=args.random_goals,
             disable_entropy_actor=args.disable_entropy_actor,
             use_traj_idx_wrapper=args.use_traj_idx_wrapper
