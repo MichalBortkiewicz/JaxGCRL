@@ -20,20 +20,20 @@ Tadeusz Dziarmaga,  Tomasz Arczewski,
 Paper: TODO
 </p>
 
-**Abstract:** Self-supervised learning on large-scale internet data has enabled rapid break-
-throughs in language modeling. In theory, goal-conditioned reinforcement learning
-(GCRL) algorithms can similarly self-supervise, learning from the goals achieved
-during unstructured interaction with the environment. However, these methods
-have failed to see similar success, both due to computational constraints as well
-as a lack of stable algorithms. In this paper, we present a new, high-performance
-codebase and benchmark for self-supervised GCRL, enabling researchers to train
-agents for millions of environment steps in minutes on a single GPU. The key to
-this performance is a combination of GPU-accelerated environments, and a stable,
-batched version of contrastive reinforcement learning algorithm based on an in-
-foNCE objective that is able to use this increased data throughput effectively. With
-this approach, we aim to provide a foundation for future research in self-supervised
-GCRL, enabling researchers to quickly iterate on new ideas and evaluate them on a
-diverse set of challenging environments.
+**Abstract:** Self-supervision has the potential to transform reinforcement learning (RL),
+paralleling the breakthroughs it has enabled in other areas of machine learning. 
+While self-supervised learning in other domains aims to find patterns in a fixed dataset, 
+self-supervised goal-conditioned reinforcement learning (GCRL) agents discover new behaviors 
+by learning from the goals achieved during unstructured interaction with the environment. 
+However, these methods have failed to see similar success, both due to a lack of data from 
+slow environments as well as a lack of stable algorithms. We take a step toward addressing
+both of these issues by releasing a high-performance codebase and benchmark JaxGCRL for self-supervised GCRL,
+enabling researchers to train agents for millions of environment steps in minutes on a single GPU.
+The key to this performance is a combination of GPU-accelerated environments and a stable, batched version 
+of the contrastive reinforcement learning algorithm, based on an infoNCE objective, that effectively makes
+use of this increased data throughput. With this approach, we provide a foundation for future research 
+in self-supervised GCRL, enabling researchers to quickly iterate on new ideas and evaluate them in a diverse 
+set of challenging environments
 
 ```
 @article{
