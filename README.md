@@ -59,8 +59,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 
 ## New CRL implementation and Benchmark
 <p align="center">
-  <img src="imgs/ant_8_1.jpg" width=40% />
-  <img src="imgs/ant_16_1.jpg" width=40%  /> 
+  <img src="imgs/teaser.jpg" width=100% /> 
 </p>
 
 <p align="center">
