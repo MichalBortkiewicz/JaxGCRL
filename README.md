@@ -17,8 +17,9 @@ Tadeusz Dziarmaga,  Tomasz Arczewski,
 
 
 <p style="text-align: center;">
-Paper: TODO
+    Paper: <a href="https://arxiv.org/abs/2408.11052" target="_blank">Accelerating Goal-Conditioned RL Algorithms and Research</a>
 </p>
+
 
 **Abstract:** Self-supervision has the potential to transform reinforcement learning (RL),
 paralleling the breakthroughs it has enabled in other areas of machine learning. 
@@ -36,9 +37,11 @@ in self-supervised GCRL, enabling researchers to quickly iterate on new ideas an
 set of challenging environments
 
 ```
-@article{
-    TODO
-  year={2024}
+@article{bortkiewicz2024accelerating,
+  title   = {Accelerating Goal-Conditioned RL Algorithms and Research},
+  author  = {Michał Bortkiewicz and Władek Pałucki and Vivek Myers and Tadeusz Dziarmaga and Tomasz Arczewski and Łukasz Kuciński and Benjamin Eysenbach},
+  year    = {2024},
+  journal = {arXiv preprint arXiv: 2408.11052}
 }
 ```
 
