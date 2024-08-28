@@ -1,70 +1,99 @@
-<meta charset="utf-8" emacsmode="-*- markdown -*-">
-<link href='https://fonts.googleapis.com/css?family=Lato' rel='stylesheet'>
+<meta charset="utf-8" emacsmode="-*- markdown -*-" />
+<link href="https://fonts.googleapis.com/css?family=Lato" rel="stylesheet" />
+<link rel="stylesheet" href="./static/fontawesome.all.min.css" />
+<script defer src="./static/fontawesome.all.min.js"></script>
 <style>
-
-body#md {
-    position: absolute;
-    /* font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; */
-    font-family: 'Lato';
+  body {
+    font-family: "Lato";
     text-align: left;
-    left: 200px;
-    right: 0px;
-    margin: 0;
-    padding: 0;
-    max-width: none;
+    margin: auto;
+    max-width: 95%;
     color: #555;
     font-size: 15px;
     padding-right: 20px;
     overflow-x: hidden;
     text-overflow: ellipses;
-}
+  }
 
-/* no numbering of headings */
-.md h1:before, .md h2:before, .md h3:before, .md h4:before, .md h5:before, .md h6:before { content: none; }
+  /* no numbering of headings */
+  h1:before,
+  h2:before,
+  h3:before,
+  h4:before,
+  h5:before,
+  h6:before {
+    content: none;
+  }
 
-.md .longTOC a {
+  .longTOC a {
     color: #000;
-}
+  }
 
-.md .tocHeader, .md .tocNumber {
+  .tocHeader,
+  .tocNumber {
     display: none;
-}
+  }
 
-.md a,
-.md div.title, contents, .md .tocHeader,
-.md h1, .md h2, .md h3, .md h4, .md h5, .md h6,
-.md .nonumberh1, .md .nonumberh2, .md .nonumberh3, .md .nonumberh4, .md .nonumberh5, .md .nonumberh6,
-.md .shortTOC, .md .mediumTOC, .md .longTOC {
+  a,
+  div.title,
+  contents,
+  .tocHeader,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .nonumberh1,
+  .nonumberh2,
+  .nonumberh3,
+  .nonumberh4,
+  .nonumberh5,
+  .nonumberh6,
+  .shortTOC,
+  .mediumTOC,
+  .longTOC {
     font-family: inherit;
-}
+  }
 
-
-.md div.title, .md h1, .md h2, .md h3, .md h4 {
-    font-family: 'Lato';
+  div.title,
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Lato";
     font-weight: 800;
-}
+  }
 
-.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     color: #555;
     border-color: inherit;
-}
+  }
 
-.md h2, .md h3, .md h4 {
+  h2,
+  h3,
+  h4 {
     border: none;
-}
+  }
 
-.md .tocTop {
+  .tocTop {
     display: inline;
-}
+  }
 
-.md div.title, .md div.subtitle {
+  div.title,
+  div.subtitle {
     text-align: left;
-}
+  }
 
-.md div.title {
+  div.title {
     position: absolute;
     top: -14px;
-    left:-200px;
+    left: -200px;
     right: 0px;
     font-weight: 900;
     padding-left: 10px;
@@ -72,44 +101,93 @@ body#md {
     padding-bottom: 20px;
     text-shadow: 0px 0px 3px #00c8c8;
     background-color: #00c8c8;
-    background-image: url('https://casual-effects.com/markdeep/website-banner.png');
+    background-image: url("https://casual-effects.com/markdeep/website-banner.png");
     background-repeat: no-repeat;
     background-position: top right;
     background-size: contain;
     color: #fff;
     font-size: 45px;
     z-index: 10;
-}
+  }
 
-.md div.afterTitles {
+  div.afterTitles {
     height: 90px;
-}
+  }
 
-a:link {
-  color: orange;
-}
+  a {
+    color: #38A;
+    text-decoration: none;
+  }
+
+  .links a {
+    font-size: 20px;
+    margin: 0 8pt;
+  }
+
+  .links a > * {
+    margin: 0 3pt;
+  }
+
+  .abstract {
+    max-width: 80%;
+    margin: 3ex auto;
+  }
+
+  .teaser {
+    margin: 3ex auto;
+    text-align: center;
+  }
 </style>
+<body>
+  <div>
+    <p align="center" style="font-size: 24px; color: #333; padding-top: 20px">
+      Accelerating Goal-Conditioned Reinforcement Learning Algorithms and Research
+    </p>
+  </div>
+  <p align="center">
+    <a href="https://x.com/m_bortkiewicz">Michał Bortkiewicz</a>, <a href="">Władysław Pałucki</a>,
+    <a href="https://x.com/vivek_myers">Vivek Myers</a>, <a href="">Tadeusz Dziarmaga</a>,
+    <a href="">Tomasz Arczewski</a>, <a href="https://x.com/LukeKucinski">Łukasz Kuciński</a>,
+    <a href="https://ben-eysenbach.github.io/">Benjamin Eysenbach</a>
+  </p>
 
+  <p align="center" class="links">
+    <a href="https://github.com/MichalBortkiewicz/JaxGCRL"><i class="fas fa-code"></i>Code</a>
+    <a href="https://arxiv.org/abs/2408.11052"><i class="fas fa-file-alt"></i>Paper</a>
+  </p>
 
-<p align="center" style="font-size:24px; color: #333; padding-top: 20px">
-Accelerating Goal-Conditioned Reinforcement Learning Algorithms and Research
-</p>
-<p align="center">
-<a href="https://x.com/m_bortkiewicz">Michał Bortkiewicz</a>, <a href="">Władysław Pałucki</a>, <a href="https://x.com/vivek_myers">Vivek Mayers</a>, <a href="">Tadeusz Dziarmaga</a>, <a href="">Tomasz Arczewski</a>, <a href="https://x.com/LukeKucinski">Łukasz Kuciński</a>,  <a href="https://ben-eysenbach.github.io/">Benjamin Eysenbach</a>
-</p>
+  <!-- ![Watch the intro video!](https://www.youtube.com/watch?v=woUgWmXsbxE) -->
 
-<p align="center" style="font-size: 20px"><a href="https://github.com/MichalBortkiewicz/JaxGCRL">Code</a> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="https://arxiv.org/abs/2408.11052">Paper</a>
-</p>
+  <div class="teaser">
+    <img src="imgs/teaser.svg" alt="Teaser Image" width="80%" />
+  </div>
 
-<!-- ![Watch the intro video!](https://www.youtube.com/watch?v=woUgWmXsbxE) -->
+  <div class="abstract">
+    <p>
+      <b>Abstract:</b> Self-supervision has the potential to transform reinforcement learning (RL), paralleling the
+      breakthroughs it has enabled in other areas of machine learning. While self-supervised learning in other domains
+      aims to find patterns in a fixed dataset, self-supervised goal-conditioned reinforcement learning (GCRL) agents
+      discover new behaviors by learning from the goals achieved during unstructured interaction with the environment.
+      However, these methods have failed to see similar success, both due to a lack of data from slow environments as
+      well as a lack of stable algorithms. We take a step toward addressing both of these issues by releasing a
+      high-performance codebase and benchmark JaxGCRL for self-supervised GCRL, enabling researchers to train agents for
+      millions of environment steps in minutes on a single GPU. The key to this performance is a combination of
+      GPU-accelerated environments and a stable, batched version of the contrastive reinforcement learning algorithm,
+      based on an infoNCE objective, that effectively makes use of this increased data throughput. With this approach,
+      we provide a foundation for future research in self-supervised GCRL, enabling researchers to quickly iterate on
+      new ideas and evaluate them in a diverse set of challenging environments.
+    </p>
+  </div>
+</body>
 
-<p align="center">
-    <img src="imgs/teaser.jpg" alt="Teaser Image" width="80%" />
-</p>
-
-
-
-
-**Abstract**: Self-supervision has the potential to transform reinforcement learning (RL), paralleling the breakthroughs it has enabled in other areas of machine learning. While self-supervised learning in other domains aims to find patterns in a fixed dataset, self-supervised goal-conditioned reinforcement learning (GCRL) agents discover new behaviors by learning from the goals achieved during unstructured interaction with the environment. However, these methods have failed to see similar success, both due to a lack of data from slow environments as well as a lack of stable algorithms. We take a step toward addressing both of these issues by releasing a high-performance codebase and benchmark JaxGCRL for self-supervised GCRL, enabling researchers to train agents for millions of environment steps in minutes on a single GPU. The key to this performance is a combination of GPU-accelerated environments and a stable, batched version of the contrastive reinforcement learning algorithm, based on an infoNCE objective, that effectively makes use of this increased data throughput. With this approach, we provide a foundation for future research in self-supervised GCRL, enabling researchers to quickly iterate on new ideas and evaluate them in a diverse set of challenging environments.
-
-<!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="markdeep.min.js" charset="utf-8"></script><script src="https://morgan3d.github.io/markdeep/latest/markdeep.min.js" charset="utf-8"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
+<!-- <!-1- Markdeep: -1-><style class="fallback"> -->
+<!--   body { -->
+<!--     visibility: hidden; -->
+<!--     white-space: pre; -->
+<!--     font-family: monospace; -->
+<!--   }</style -->
+<!-- ><script src="markdeep.min.js" charset="utf-8"></script -->
+<!-- ><script src="https://morgan3d.github.io/markdeep/latest/markdeep.min.js" charset="utf-8"></script -->
+<!-- ><script> -->
+<!--   window.alreadyProcessedMarkdeep || (document.body.style.visibility = "visible") -->
+<!-- </script> -->
