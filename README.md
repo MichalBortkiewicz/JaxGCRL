@@ -66,7 +66,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 </p>
 
 <p align="center">
-Training CRL on Ant environment for 10M steps takes onlye ~10 minutes on 1 Nvidia V100. 
+Training CRL on Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
 </p>
 
 We provide 8 blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) and jitted framework for 
