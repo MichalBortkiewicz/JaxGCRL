@@ -9,7 +9,7 @@
     margin: auto;
     max-width: 95%;
     color: #555;
-    font-size: 15px;
+    font-size: 13pt;
     padding-right: 20px;
     overflow-x: hidden;
     text-overflow: ellipses;
@@ -62,7 +62,6 @@
   h3,
   h4 {
     font-family: "Lato";
-    font-weight: 800;
   }
 
   h1,
@@ -73,6 +72,8 @@
   h6 {
     color: #555;
     border-color: inherit;
+    text-align: center;
+    padding-top: 0.5em;
   }
 
   h2,
@@ -115,12 +116,21 @@
   }
 
   a {
-    color: #38A;
+    color: #38a;
     text-decoration: none;
   }
 
+  .authors {
+    text-align: center;
+  }
+
+  .links {
+    text-align: center;
+    margin: 20px 0;
+  }
+
   .links a {
-    font-size: 20px;
+    font-size: 17pt;
     margin: 0 8pt;
   }
 
@@ -129,29 +139,30 @@
   }
 
   .abstract {
-    max-width: 80%;
+    padding-top: 20px;
+    max-width: 60em;
+    width: 80%;
     margin: 3ex auto;
   }
 
   .teaser {
     margin: 3ex auto;
     text-align: center;
+    max-width: 80em;
   }
 </style>
 <body>
   <div>
-    <p align="center" style="font-size: 24px; color: #333; padding-top: 20px">
-      Accelerating Goal-Conditioned Reinforcement Learning Algorithms and Research
-    </p>
+    <h1>Accelerating Goal-Conditioned Reinforcement Learning Algorithms and Research</h1>
   </div>
-  <p align="center">
+  <div class="authors">
     <a href="https://x.com/m_bortkiewicz">Michał Bortkiewicz</a>, <a href="">Władysław Pałucki</a>,
     <a href="https://x.com/vivek_myers">Vivek Myers</a>, <a href="">Tadeusz Dziarmaga</a>,
     <a href="">Tomasz Arczewski</a>, <a href="https://x.com/LukeKucinski">Łukasz Kuciński</a>,
     <a href="https://ben-eysenbach.github.io/">Benjamin Eysenbach</a>
-  </p>
+  </div>
 
-  <p align="center" class="links">
+  <p class="links">
     <a href="https://github.com/MichalBortkiewicz/JaxGCRL"><i class="fas fa-code"></i>Code</a>
     <a href="https://arxiv.org/abs/2408.11052"><i class="fas fa-file-alt"></i>Paper</a>
   </p>
