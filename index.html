@@ -126,7 +126,6 @@
 
   .links {
     text-align: center;
-    margin: 20px 0;
   }
 
   .links a {
@@ -143,12 +142,23 @@
     max-width: 60em;
     width: 80%;
     margin: 3ex auto;
+    padding-bottom: 1cm;
   }
 
   .teaser {
+    padding-top: 20px;
     margin: 3ex auto;
     text-align: center;
     max-width: 80em;
+  }
+
+  .video {
+    text-align: center;
+    margin: 3ex auto;
+  }
+
+  body > div {
+    margin: 1ex auto;
   }
 </style>
 <body>
@@ -167,9 +177,17 @@
     <a href="https://arxiv.org/abs/2408.11052"><i class="fas fa-file-alt"></i>Paper</a>
   </p>
 
-    <div style="text-align: center;">
-        <iframe width="560" height="315" src="https://www.youtube.com/embed/aS7BMqfrPqk?si=-lifHI40LgJ8MpuT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-    </div>
+  <div class="video">
+    <iframe
+      width="560"
+      height="315"
+      src="https://www.youtube.com/embed/aS7BMqfrPqk?si=-lifHI40LgJ8MpuT"
+      title="YouTube video player"
+      frameborder="0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen></iframe>
+  </div>
 
   <div class="teaser">
     <img src="imgs/teaser.svg" alt="Teaser Image" width="80%" />
