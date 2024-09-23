@@ -91,6 +91,7 @@ def make_inference_fn(crl_networks: CRLNetworks):
 
 def make_crl_networks(
     config: NamedTuple,
+    env: object,
     observation_size: int,
     action_size: int,
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
@@ -111,14 +112,14 @@ def make_crl_networks(
     )
     sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=config.obs_dim + action_size,
+        obs_size=env.obs_dim + action_size,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
         use_ln=use_ln
     )
     g_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=config.goal_end_idx - config.goal_start_idx,
+        obs_size=len(env.goal_indices),
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
         use_ln=use_ln
