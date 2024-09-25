@@ -17,6 +17,7 @@ Transition = types.Transition
 
 def make_losses(
     config: NamedTuple,
+    env: object,
     contrastive_loss_fn: str,
     energy_fn: str,
     logsumexp_penalty: float,
@@ -34,7 +35,7 @@ def make_losses(
     parametric_action_distribution = crl_network.parametric_action_distribution
     sa_encoder = crl_network.sa_encoder
     g_encoder = crl_network.g_encoder
-    obs_dim = config.obs_dim
+    obs_dim = env.obs_dim
 
     def alpha_loss(
         log_alpha: jnp.ndarray,
@@ -61,6 +62,8 @@ def make_losses(
     ):
         # This is for debug purposes only
         if config.use_traj_idx_wrapper:
+            raise Exception("traj_index_wrapper_factory does not yet support the new goal indexing scheme.")
+            
             old_obs, info_1, info_2 = extract_info_from_obs(transitions.observation, config)
             jax.debug.print(
                 "OBS: \n{obs},\n\n info_1 \n{i_1},\n\n info_2 \n{i_2}\n\n", obs=old_obs, i_1=info_1, i_2=info_2
@@ -288,7 +291,7 @@ def make_losses(
         future_state = jnp.where(random_goal_mask, future_rolled, future_state)
         future_action = transitions.extras["future_action"]
 
-        goal = future_state[:, config.goal_start_idx : config.goal_end_idx]
+        goal = future_state[:, env.goal_indices]
 
         observation = jnp.concatenate([state, goal], axis=1)
 

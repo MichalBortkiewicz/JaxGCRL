@@ -33,7 +33,7 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
         if i % 1000 == 0:
             state = jit_env_reset(rng=rng)
 
-    url = html.render(env.sys.replace(dt=env.dt), rollout, height=1024)
+    url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
     with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})
@@ -55,6 +55,7 @@ def main(args):
         pickle.dump(args, f)
 
     if args.use_traj_idx_wrapper:
+        raise Exception("traj_index_wrapper_factory does not yet support the new goal indexing scheme.")
         env, config = traj_index_wrapper_factory(env, config)
 
     train_fn = functools.partial(

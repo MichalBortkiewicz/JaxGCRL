@@ -62,6 +62,9 @@ class Humanoid(PipelineEnv):
         exclude_current_positions_from_observation
     )
     self._target_ind = self.sys.link_names.index('target')
+    
+    self.obs_dim = 268
+    self.goal_indices = jp.array([0, 1, 2])
 
   def reset(self, rng: jax.Array) -> State:
     """Resets the environment to an initial state."""

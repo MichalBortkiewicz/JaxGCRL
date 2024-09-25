@@ -17,7 +17,7 @@ from envs.ant_push import AntPush
 
 Config = namedtuple(
     "Config",
-    "debug discount obs_dim goal_start_idx goal_end_idx unroll_length episode_length repr_dim random_goals disable_entropy_actor use_traj_idx_wrapper",
+    "debug discount unroll_length episode_length repr_dim random_goals disable_entropy_actor use_traj_idx_wrapper",
 )
 
 
@@ -68,38 +68,18 @@ def create_env(args: argparse.Namespace) -> object:
     if env_name == "reacher":
         env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
-        env = Ant(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = Ant(backend=args.backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = AntBall(backend=args.backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
         assert args.backend == "mjx"
-        env = AntPush(
-            backend=args.backend,
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = AntPush(backend=args.backend)
     elif "maze" in env_name:
         # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-        env = AntMaze(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-            maze_layout_name=env_name[4:]
-        )
+        env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
     elif env_name == "cheetah":
-        env = Halfcheetah(
-            backend="mjx",
-            exclude_current_positions_from_observation=False,
-        )
+        env = Halfcheetah()
     elif env_name == "debug":
         env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":
@@ -109,7 +89,7 @@ def create_env(args: argparse.Namespace) -> object:
     elif env_name == "pusher_reacher":
         env=PusherReacher(backend=args.backend or "generalized")
     elif env_name == "humanoid":
-        env=Humanoid(backend=args.backend)
+        env=Humanoid(backend=args.backend or "generalized")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -128,9 +108,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=True,
             discount=args.discounting,
-            obs_dim=3,
-            goal_start_idx=1,
-            goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -142,9 +119,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=10,
-            goal_start_idx=4,
-            goal_end_idx=7,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -156,9 +130,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=18,
-            goal_start_idx=0,
-            goal_end_idx=1,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -170,9 +141,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=20,
-            goal_start_idx=10,
-            goal_end_idx=13,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -184,9 +152,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=17,
-            goal_start_idx=14,
-            goal_end_idx=17,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -198,9 +163,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=29,
-            goal_start_idx=0,
-            goal_end_idx=2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -212,9 +174,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=31,
-            goal_start_idx=0,
-            goal_end_idx=2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -226,9 +185,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=31,
-            goal_start_idx=-4,
-            goal_end_idx=-2,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,
@@ -240,9 +196,6 @@ def get_env_config(args: argparse.Namespace):
         config = Config(
             debug=False,
             discount=args.discounting,
-            obs_dim=268,
-            goal_start_idx=0,
-            goal_end_idx=3,
             unroll_length=args.unroll_length,
             episode_length=args.episode_length,
             repr_dim=args.repr_dim,

@@ -147,7 +147,7 @@ class AntMaze(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=True,
+        exclude_current_positions_from_observation=False,
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
@@ -161,7 +161,7 @@ class AntMaze(PipelineEnv):
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.replace(dt=0.005)
+            sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
 
         if backend == "mjx":
@@ -197,6 +197,9 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
+        
+        self.obs_dim = 29
+        self.goal_indices = jp.array([0, 1])
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
