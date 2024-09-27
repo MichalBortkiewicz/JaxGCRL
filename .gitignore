@@ -314,5 +314,4 @@ container.dif
 __pycache__
 wandb/
 params/
-renders/
 runs/
