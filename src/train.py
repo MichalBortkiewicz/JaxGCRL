@@ -113,8 +113,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
-    @functools.partial(jax.jit, static_argnames="config")
-    def flatten_crl_fn(config, transition: Transition, sample_key: PRNGKey) -> Transition:
+    @functools.partial(jax.jit, static_argnames=["config", "env"])
+    def flatten_crl_fn(config, env, transition: Transition, sample_key: PRNGKey) -> Transition:
         goal_key, transition_key = jax.random.split(sample_key)
 
         # Because it's vmaped transition obs.shape is of shape (transitions,obs_dim)
@@ -131,9 +131,9 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         goal_index = jax.random.categorical(goal_key, jnp.log(probs))
         future_state = jnp.take(transition.observation, goal_index[:-1], axis=0)
         future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
-        goal = future_state[:, config.goal_start_idx : config.goal_end_idx]
-        future_state = future_state[:, : config.obs_dim]
-        state = transition.observation[:-1, : config.obs_dim]
+        goal = future_state[:, env.goal_indices]
+        future_state = future_state[:, :env.obs_dim]
+        state = transition.observation[:-1, :env.obs_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
@@ -315,6 +315,7 @@ def train(
         normalize_fn = running_statistics.normalize
     crl_network = network_factory(
         config=config,
+        env=env,
         observation_size=obs_size,
         action_size=action_size,
         preprocess_observations_fn=normalize_fn,
@@ -354,6 +355,7 @@ def train(
 
     alpha_loss, actor_loss, crl_critic_loss = crl_losses.make_losses(
         config=config,
+        env=env,
         contrastive_loss_fn=contrastive_loss_fn,
         energy_fn=energy_fn,
         logsumexp_penalty=logsumexp_penalty,
@@ -535,8 +537,8 @@ def train(
         buffer_state, transitions = replay_buffer.sample(buffer_state)
 
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
-            config, transitions, batch_keys
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, None, 0, 0))(
+            config, env, transitions, batch_keys
         )
 
         # Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)

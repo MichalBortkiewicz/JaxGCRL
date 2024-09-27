@@ -24,7 +24,7 @@ class AntPush(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=True,
+        exclude_current_positions_from_observation=False,
         backend="mjx",
         **kwargs,
     ):
@@ -59,6 +59,9 @@ class AntPush(PipelineEnv):
             exclude_current_positions_from_observation
         )
         self._object_idx = self.sys.link_names.index('movable')
+        
+        self.obs_dim = 31
+        self.goal_indices = jp.array([0, 1])
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")

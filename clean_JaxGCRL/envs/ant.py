@@ -8,135 +8,8 @@ from brax.io import mjcf
 import jax
 from jax import numpy as jp
 import mujoco
-import xml.etree.ElementTree as ET
 
-# This is based on original Ant environment from Brax
-# https://github.com/google/brax/blob/main/brax/envs/ant.py
-# Maze creation dapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
-
-RESET = R = 'r'
-GOAL = G = 'g'
-
-
-U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, G, G, 1],
-          [1, 1, 1, G, 1],
-          [1, G, G, G, 1],
-          [1, 1, 1, 1, 1]]
-
-U_MAZE_EVAL = [[1, 1, 1, 1, 1],
-               [1, R, 0, 0, 1],
-               [1, 1, 1, 0, 1],
-               [1, G, G, G, 1],
-               [1, 1, 1, 1, 1]]
-
-
-
-BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
-            [1, R, G, 1, 1, G, G, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, 1, G, G, G, 1, 1, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, G, 1, G, G, 1, G, 1],
-            [1, G, G, G, 1, G, G, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1]]
-
-BIG_MAZE_EVAL = [[1, 1, 1, 1, 1, 1, 1, 1],
-                 [1, R, 0, 1, 1, G, G, 1],
-                 [1, 0, 0, 1, 0, G, G, 1],
-                 [1, 1, 0, 0, 0, 1, 1, 1],
-                 [1, 0, 0, 1, 0, 0, 0, 1],
-                 [1, 0, 1, G, 0, 1, G, 1],
-                 [1, 0, G, G, 1, G, G, 1],
-                 [1, 1, 1, 1, 1, 1, 1, 1]]
-
-HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, R, G, G, G, 1, G, G, G, G, G, 1],
-                [1, G, 1, 1, G, 1, G, 1, G, 1, G, 1],
-                [1, G, G, G, G, G, G, 1, G, G, G, 1],
-                [1, G, 1, 1, 1, 1, G, 1, 1, 1, G, 1],
-                [1, G, G, 1, G, 1, G, G, G, G, G, 1],
-                [1, 1, G, 1, G, 1, G, 1, G, 1, 1, 1],
-                [1, G, G, 1, G, G, G, 1, G, G, G, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
-
-
-
-
-MAZE_HEIGHT = 0.5
-
-
-def find_robot(structure, size_scaling):
-    for i in range(len(structure)):
-        for j in range(len(structure[0])):
-            if structure[i][j] == RESET:
-                return i * size_scaling, j * size_scaling
-            
-def find_goals(structure, size_scaling):
-    goals = []
-    for i in range(len(structure)):
-        for j in range(len(structure[0])):
-            if structure[i][j] == GOAL:
-                goals.append([i * size_scaling, j * size_scaling])
-
-    return jp.array(goals)
-
-# Create a xml with maze and a list of possible goal positions
-def make_maze(maze_layout_name, maze_size_scaling):
-    if maze_layout_name == "u_maze":
-        maze_layout = U_MAZE
-    elif maze_layout_name == "u_maze_eval":
-        maze_layout = U_MAZE_EVAL
-    elif maze_layout_name == "big_maze":
-        maze_layout = BIG_MAZE
-    elif maze_layout_name == "big_maze_eval":
-        maze_layout = BIG_MAZE_EVAL
-    elif maze_layout_name == "hardest_maze":
-        maze_layout = HARDEST_MAZE
-    else:
-        raise ValueError(f"Unknown maze layout: {maze_layout_name}")
-    
-    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_maze.xml")
-
-    robot_x, robot_y = find_robot(maze_layout, maze_size_scaling)
-    possible_goals = find_goals(maze_layout, maze_size_scaling)
-
-    tree = ET.parse(xml_path)
-    worldbody = tree.find(".//worldbody")
-
-    for i in range(len(maze_layout)):
-        for j in range(len(maze_layout[0])):
-            struct = maze_layout[i][j]
-            if struct == 1:
-                ET.SubElement(
-                    worldbody, "geom",
-                    name="block_%d_%d" % (i, j),
-                    pos="%f %f %f" % (i * maze_size_scaling,
-                                    j * maze_size_scaling,
-                                    MAZE_HEIGHT / 2 * maze_size_scaling),
-                    size="%f %f %f" % (0.5 * maze_size_scaling,
-                                        0.5 * maze_size_scaling,
-                                        MAZE_HEIGHT / 2 * maze_size_scaling),
-                    type="box",
-                    material="",
-                    contype="1",
-                    conaffinity="1",
-                    rgba="0.7 0.5 0.3 1.0",
-                )
-
-    
-    torso = tree.find(".//numeric[@name='init_qpos']")
-    data = torso.get("data")
-    torso.set("data", f"{robot_x} {robot_y} " + data) 
-
-    tree = tree.getroot()
-    xml_string = ET.tostring(tree)
-    
-    return xml_string, possible_goals
-
-
-
-class AntMaze(PipelineEnv):
+class Ant(PipelineEnv):
     def __init__(
         self,
         ctrl_cost_weight=0.5,
@@ -147,21 +20,17 @@ class AntMaze(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=False,
+        exclude_current_positions_from_observation=True,
         backend="generalized",
-        maze_layout_name="u_maze",
-        maze_size_scaling=4.0,
         **kwargs,
     ):
-        xml_string, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
-
-        sys = mjcf.loads(xml_string)
-        self.possible_goals = possible_goals
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant.xml")
+        sys = mjcf.load(path)
 
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.tree_replace({"opt.timestep": 0.005})
+            sys = sys.replace(dt=0.005)
             n_frames = 10
 
         if backend == "mjx":
@@ -197,9 +66,6 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        
-        self.obs_dim = 29
-        self.goal_indices = jp.array([0, 1])
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -270,12 +136,13 @@ class AntMaze(PipelineEnv):
         contact_cost = 0.0
 
         obs = self._get_obs(pipeline_state)
+        reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
+
         state.metrics.update(
             reward_forward=forward_reward,
             reward_survive=healthy_reward,
@@ -286,7 +153,6 @@ class AntMaze(PipelineEnv):
             distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),
             x_velocity=velocity[0],
             y_velocity=velocity[1],
-            forward_reward=forward_reward,
             dist=dist,
             success=success,
             success_easy=success_easy
@@ -298,6 +164,7 @@ class AntMaze(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
+        # remove target q, qd
         qpos = pipeline_state.q[:-2]
         qvel = pipeline_state.qd[:-2]
 
@@ -309,6 +176,10 @@ class AntMaze(PipelineEnv):
         return jp.concatenate([qpos] + [qvel] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a random target location chosen from possibilities specified in the maze layout."""
-        idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
-        return rng, jp.array(self.possible_goals[idx])[0]
+        """Returns a target location in a random circle slightly above xy plane."""
+        rng, rng1, rng2 = jax.random.split(rng, 3)
+        dist = 10
+        ang = jp.pi * 2.0 * jax.random.uniform(rng2)
+        target_x = dist * jp.cos(ang)
+        target_y = dist * jp.sin(ang)
+        return rng, jp.array([target_x, target_y])

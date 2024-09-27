@@ -18,7 +18,7 @@ class Reacher(PipelineEnv):
         n_frames = 2
 
         if backend in ["spring", "positional"]:
-            sys = sys.replace(dt=0.005)
+            sys = sys.tree_replace({"opt.timestep": 0.005})
             sys = sys.replace(
                 actuator=sys.actuator.replace(gear=jp.array([25.0, 25.0]))
             )
@@ -27,6 +27,9 @@ class Reacher(PipelineEnv):
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
+        
+        self.obs_dim = 10
+        self.goal_indices = jp.array([4, 5, 6])
 
     def reset(self, rng: jax.Array) -> State:
         rng, rng1, rng2 = jax.random.split(rng, 3)

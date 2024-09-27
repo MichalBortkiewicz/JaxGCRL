@@ -5,11 +5,9 @@ dependencies:
   - python=3.10
   - jax=0.4.25
   - scipy==1.12.0
-  - mujoco==3.1.2
   - scikit-image==0.22.0
   - flax=0.8.3
   - chex=0.1.86
-  - brax==0.10.0
   - dm-haiku==0.0.11
   - six=1.16.0
   - statsmodels==0.14.1
@@ -21,7 +19,9 @@ dependencies:
   - pip
   - pip:
     - nvidia-cudnn-cu12==8.9.7.29
-    - mujoco-mjx==3.1.2
+    - brax==0.10.5
+    - mujoco==3.2.3
+    - mujoco-mjx==3.2.3
     - stack-data==0.6.3
     - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

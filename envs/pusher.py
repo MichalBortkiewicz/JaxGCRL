@@ -18,7 +18,8 @@ class Pusher(PipelineEnv):
     n_frames = 5
 
     if backend in ['spring', 'positional']:
-      sys = sys.replace(dt=0.001)
+      sys = sys.tree_replace({"opt.timestep": 0.001})
+    
       sys = sys.replace(
           actuator=sys.actuator.replace(gear=jp.array([20.0] * sys.act_size()))
       )
@@ -34,6 +35,9 @@ class Pusher(PipelineEnv):
     self._object_idx = self.sys.link_names.index('object')
     self._goal_idx = self.sys.link_names.index('goal')
     self.kind = kind
+    
+    self.obs_dim = 20
+    self.goal_indices = jp.array([10, 11, 12])
 
   def reset(self, rng: jax.Array) -> State:
     qpos = self.sys.init_q
@@ -148,7 +152,7 @@ class PusherReacher(PipelineEnv):
     n_frames = 5
 
     if backend in ['spring', 'positional']:
-      sys = sys.replace(dt=0.001)
+      sys = sys.tree_replace({"opt.timestep": 0.001})
       sys = sys.replace(
           actuator=sys.actuator.replace(gear=jp.array([20.0] * sys.act_size()))
       )
@@ -163,6 +167,9 @@ class PusherReacher(PipelineEnv):
     self._tips_arm_idx = self.sys.link_names.index('r_wrist_flex_link')
     self._object_idx = self.sys.link_names.index('object')
     self._goal_idx = self.sys.link_names.index('goal')
+    
+    self.obs_dim = 17
+    self.goal_indices = jp.array([14, 15, 16])
 
   def reset(self, rng: jax.Array) -> State:
     qpos = self.sys.init_q
