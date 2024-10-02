@@ -23,7 +23,7 @@ class AntBall(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=True,
+        exclude_current_positions_from_observation=False,
         backend="generalized",
         **kwargs,
     ):
@@ -33,7 +33,7 @@ class AntBall(PipelineEnv):
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.replace(dt=0.005)
+            sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
 
         if backend == "mjx":
@@ -71,6 +71,9 @@ class AntBall(PipelineEnv):
         )
         self._object_idx = self.sys.link_names.index('object')
 
+        self.obs_dim = 31
+        self.goal_indices = jp.array([28, 29])
+        
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
 

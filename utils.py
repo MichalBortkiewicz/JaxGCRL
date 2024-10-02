@@ -73,38 +73,18 @@ def create_env(args: argparse.Namespace) -> object:
     if env_name == "reacher":
         env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
-        env = Ant(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = Ant(backend=args.backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = AntBall(backend=args.backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
         assert args.backend == "mjx"
-        env = AntPush(
-            backend=args.backend,
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
+        env = AntPush(backend=args.backend)
     elif "maze" in env_name:
         # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-        env = AntMaze(
-            backend=args.backend or "spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-            maze_layout_name=env_name[4:]
-        )
+        env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
     elif env_name == "cheetah":
-        env = Halfcheetah(
-            backend="mjx",
-            exclude_current_positions_from_observation=False,
-        )
+        env = Halfcheetah()
     elif env_name == "debug":
         env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":

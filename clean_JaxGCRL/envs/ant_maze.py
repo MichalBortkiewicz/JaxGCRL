@@ -30,8 +30,6 @@ U_MAZE_EVAL = [[1, 1, 1, 1, 1],
                [1, G, G, G, 1],
                [1, 1, 1, 1, 1]]
 
-
-
 BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
             [1, R, G, 1, 1, G, G, 1],
             [1, G, G, 1, G, G, G, 1],
@@ -60,11 +58,7 @@ HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 [1, G, G, 1, G, G, G, 1, G, G, G, 1],
                 [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
 
-
-
-
 MAZE_HEIGHT = 0.5
-
 
 def find_robot(structure, size_scaling):
     for i in range(len(structure)):
@@ -134,8 +128,6 @@ def make_maze(maze_layout_name, maze_size_scaling):
     
     return xml_string, possible_goals
 
-
-
 class AntMaze(PipelineEnv):
     def __init__(
         self,
@@ -147,7 +139,7 @@ class AntMaze(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=False,
+        exclude_current_positions_from_observation=True,
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
@@ -161,7 +153,7 @@ class AntMaze(PipelineEnv):
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.tree_replace({"opt.timestep": 0.005})
+            sys = sys.replace(dt=0.005)
             n_frames = 10
 
         if backend == "mjx":
@@ -197,9 +189,6 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        
-        self.obs_dim = 29
-        self.goal_indices = jp.array([0, 1])
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")

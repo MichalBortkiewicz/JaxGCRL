@@ -16,8 +16,8 @@ class Halfcheetah(PipelineEnv):
         forward_reward_weight=1.0,
         ctrl_cost_weight=0.1,
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=True,
-        backend="generalized",
+        exclude_current_positions_from_observation=False,
+        backend="mjx",
         **kwargs
     ):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "half_cheetah.xml")
@@ -26,7 +26,7 @@ class Halfcheetah(PipelineEnv):
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.replace(dt=0.003125)
+            sys = sys.tree_replace({"opt.timestep": 0.003125})
             n_frames = 16
             gear = jp.array([120, 90, 60, 120, 100, 100])
             sys = sys.replace(actuator=sys.actuator.replace(gear=gear))
@@ -41,6 +41,9 @@ class Halfcheetah(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
+        
+        self.obs_dim = 18
+        self.goal_indices = jp.array([0])
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
