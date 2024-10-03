@@ -14,11 +14,7 @@ from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
 from envs.humanoid import Humanoid
 from envs.ant_push import AntPush
-from envs.arm_reach import ArmReach
-from envs.arm_grasp import ArmGrasp
-from envs.arm_pickplace_easy import ArmPickplaceEasy
-from envs.arm_pickplace_hard import ArmPickplaceHard
-from envs.arm_binpick import ArmBinpick
+from envs.arm_envs import ArmEnvs
 
 Config = namedtuple(
     "Config",
@@ -95,16 +91,8 @@ def create_env(args: argparse.Namespace) -> object:
         env = PusherReacher(backend=args.backend or "generalized")
     elif env_name == "humanoid":
         env = Humanoid(backend=args.backend)
-    elif env_name == "arm_reach":
-        env = ArmReach()
-    elif env_name == "arm_grasp":
-        env = ArmGrasp()
-    elif env_name == "arm_pickplace_easy":
-        env = ArmPickplaceEasy()
-    elif env_name == "arm_pickplace_hard":
-        env = ArmPickplaceHard()
-    elif env_name == "arm_binpick":
-        env = ArmBinpick()
+    elif env_name in {"arm_reach", "arm_grasp", "arm_pickplace_easy", "arm_pickplace_hard", "arm_binpick"}:
+        env = ArmEnvs(backend=args.backend or "mjx", env_name=env_name)
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env

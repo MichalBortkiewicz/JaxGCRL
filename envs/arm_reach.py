@@ -107,7 +107,6 @@ class ArmReach(PipelineEnv):
     # Converts the [-1, 1] actions to the corresponding target angle or strength.
     # We use the exact numbers for radians specified in the XML, even if they might be cleaner in terms of pi.
     def convert_action(self, action: jax.Array) -> jax.Array:
-        # Flip the gripper action values to make -1 open, 1 closed.
         min_value = jnp.array([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973])
         max_value = jnp.array([2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973])
         
