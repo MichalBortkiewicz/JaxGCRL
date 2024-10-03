@@ -41,7 +41,7 @@ class ArmReach(PipelineEnv):
         self.obs_dim = 28
         
         self.arm_noise_scale = 1
-        self.goal_noise_scale = 0.5
+        self.goal_noise_scale = 0.3
         
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
@@ -56,7 +56,7 @@ class ArmReach(PipelineEnv):
 
         # Define goal distribution
         rng, subkey = jax.random.split(rng)
-        goal = jnp.array([0, 1, 0.5]) + self.goal_noise_scale * jax.random.uniform(subkey, [3])
+        goal = jnp.array([0, 0.3, 0.3]) + self.goal_noise_scale * jax.random.uniform(subkey, [3])
                               
         # Get other components for state (obs, reward, etc.)
         obs = self._get_obs(pipeline_state, goal, timestep)

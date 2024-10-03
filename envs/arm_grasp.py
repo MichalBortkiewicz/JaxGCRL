@@ -42,7 +42,7 @@ class ArmGrasp(PipelineEnv):
         self.completion_goal_indices = jnp.array([0, 1, 2, 32, 33, 34, 35, 36, 37, 38]) # For reward/checking completion of goal: identical to goal indices
         self.obs_dim = 39
         
-        self.cube_noise_scale = 0.5
+        self.cube_noise_scale = 0.3
         self.arm_noise_scale = 1
         
     def reset(self, rng: jax.Array) -> State:
