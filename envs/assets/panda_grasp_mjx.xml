@@ -185,9 +185,13 @@
       </body>
     </body>
     
-    <body name="cube" pos="-0.3 0.6 0.07">
+    <body name="cube" pos="0 0.6 0.07">
       <freejoint/>
       <geom name="cube_geom" size="0.03 0.03 0.03" type="box" rgba="0 0.4 0 1" contype="0" conaffinity="0"/>
+    </body>
+      
+    <body name="binA" pos="0 0.6 0">
+      <geom name="binA_floor" pos="0 0 0.005" size="0.3 0.3 0.005" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
     </body>
       
     <body name="tablelink" pos="0 .2 0">
