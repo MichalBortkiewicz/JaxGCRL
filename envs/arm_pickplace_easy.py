@@ -20,7 +20,7 @@ class ArmPickplaceEasy(PipelineEnv):
                 "opt.ls_iterations": 8,
             })
             self.n_frames = 4
-            self.episode_length = 200 # Merely a recommendation + used for postexplore timestep
+            self.episode_length = 200 # Merely a recommendation + used for scaling timestep
         elif backend == "positional":
             sys = mjcf.load("envs/assets/panda_pickplace_easy_positional.xml")
             sys = sys.tree_replace({
@@ -29,7 +29,7 @@ class ArmPickplaceEasy(PipelineEnv):
                 "opt.ls_iterations": 100,
             })
             self.n_frames = 10
-            self.episode_length = 2000 # Merely a recommendation + used for postexplore timestep
+            self.episode_length = 2000 # Merely a recommendation + used for scaling timestep
         else:
             raise Exception("Please use mjx or positional backends for better speed/stability tradeoffs.")
             
@@ -77,7 +77,7 @@ class ArmPickplaceEasy(PipelineEnv):
             "seed": 0, # Seed is required, but fill it with a dummy value
             "goal": goal, 
             "timestep": 0.0, 
-            "postexplore_timestep": self.episode_length * jax.random.uniform(subkey)
+            "postexplore_timestep": jax.random.uniform(subkey) # Assumes timestep is normalized between 0 and 1
         } 
         
         return State(pipeline_state, obs, reward, done, metrics, info)
@@ -86,7 +86,7 @@ class ArmPickplaceEasy(PipelineEnv):
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, self.convert_action(action))
-        timestep = state.info["timestep"] + 1
+        timestep = state.info["timestep"] + 1 / self.episode_length
         
         obs = self._get_obs(pipeline_state, state.info["goal"], timestep)
         done = 0.0
