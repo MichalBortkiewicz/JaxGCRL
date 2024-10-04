@@ -10,6 +10,8 @@ from envs.manipulation.arm_envs import ArmEnvs
 Binpick: Move a cube from a random location in the blue bin to a random location in the red bin. Note that only the cube collides with the bins, not the hand/fingers.
 - Observation space: 46-dim obs + 7-dim goal.
 - Action space:      9-dim, each element in [-1, 1], corresponding to joint target angles and finger closedness.
+
+See _get_obs() and ArmEnvs._convert_action() for details.
 """
 class ArmBinpick(ArmEnvs):
     def _get_xml_path(self):

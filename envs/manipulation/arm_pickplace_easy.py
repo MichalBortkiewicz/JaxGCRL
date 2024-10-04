@@ -10,6 +10,8 @@ from envs.manipulation.arm_envs import ArmEnvs
 Pick-Place Easy: Move a cube from a random location on the blue region to a random goal on the adjacent red region. The regions are very small.
 - Observation space: 46-dim obs + 7-dim goal.
 - Action space:      9-dim, each element in [-1, 1], corresponding to joint target angles and finger closedness.
+
+See _get_obs() and ArmEnvs._convert_action() for details.
 """
 class ArmPickplaceEasy(ArmEnvs):
     def _get_xml_path(self):
