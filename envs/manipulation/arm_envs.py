@@ -40,7 +40,7 @@ class ArmEnvs(PipelineEnv):
         reward, done, zero = jnp.zeros(3)
         metrics = {"success": zero, "success_easy": zero, "success_hard": zero}
         
-        # Define goal distribution and fill info variable
+        # Sample a goal and fill info variable
         rng, subkey1, subkey2 = jax.random.split(rng)
         goal = self._get_initial_goal(subkey1)
         info = {
@@ -57,9 +57,9 @@ class ArmEnvs(PipelineEnv):
         
         # Run mujoco step
         pipeline_state0 = state.pipeline_state
-        pipeline_state = self.pipeline_step(pipeline_state0, self._convert_action(action))
+        pipeline_state = self.pipeline_step(pipeline_state0, self._convert_action_to_actuator_input(action))
         
-        # Compute variables for state update, including goal
+        # Compute variables for state update, including observation and goal/reward
         timestep = state.info["timestep"] + 1 / self.episode_length
         obs = self._get_obs(pipeline_state, state.info["goal"], timestep)
         
@@ -87,7 +87,7 @@ class ArmEnvs(PipelineEnv):
         updated_info = {**state.info, "goal": goal} # Dictionary unpacking to return updated dict
         return state.replace(info=updated_info)
     
-    def _convert_action(self, action: jax.Array) -> jax.Array:
+    def _convert_action_to_actuator_input(self, action: jax.Array) -> jax.Array:
         """
         Converts the [-1, 1] actions to the corresponding target angle or gripper strength.
         We use the exact numbers for radians specified in the XML, even if they might be cleaner in terms of pi.
