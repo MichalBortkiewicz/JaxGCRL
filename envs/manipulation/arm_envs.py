@@ -29,19 +29,14 @@ class ArmEnvs(PipelineEnv):
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
         
-        # Initialize state
+        # Initialize simulator state
         rng, subkey = jax.random.split(rng)
         q, qd = self._get_initial_state(subkey) # Injects noise to avoid overfitting/open loop control
         pipeline_state = self.pipeline_init(q, qd)
         timestep = 0.0
-            
-        # Get other components for state (observation, reward, metrics)
-        obs = self._get_obs(pipeline_state, goal, timestep)
-        reward, done, zero = jnp.zeros(3)
-        metrics = {"success": zero, "success_easy": zero, "success_hard": zero}
         
         # Sample a goal and fill info variable
-        rng, subkey1, subkey2 = jax.random.split(rng)
+        rng, subkey1, subkey2 = jax.random.split(rng, 3)
         goal = self._get_initial_goal(subkey1)
         info = {
             "seed": 0, # Seed is required, but fill it with a dummy value
@@ -49,6 +44,11 @@ class ArmEnvs(PipelineEnv):
             "timestep": 0.0, 
             "postexplore_timestep": jax.random.uniform(subkey2) # Assumes timestep is normalized between 0 and 1
         }
+            
+        # Get other components for state (observation, reward, metrics)
+        obs = self._get_obs(pipeline_state, goal, timestep)
+        reward, done, zero = jnp.zeros(3)
+        metrics = {"success": zero, "success_easy": zero, "success_hard": zero}
         
         return State(pipeline_state, obs, reward, done, metrics, info)
 
