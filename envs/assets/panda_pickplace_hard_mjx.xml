@@ -17,7 +17,7 @@
       <default class="collision">
         <geom type="mesh" group="3"/>
         <default class="finger_collision">
-          <geom type="box" size="0.015 0.005 0.025" pos="0 0.0055 0.035" friction="10 0.005 0.0001"/>
+          <geom type="box" size="0.015 0.005 0.04" pos="0 0.0055 0.035" friction="10 0.005 0.0001"/>
         </default>
       </default>
     </default>
