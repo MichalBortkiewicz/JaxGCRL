@@ -7,10 +7,8 @@ from jax import numpy as jnp
 
 class ArmEnvs(PipelineEnv):
     def __init__(self, backend="mjx", **kwargs):
-        # Configure environment information (e.g. env name, noise scale, observation dimension, goal indices)
+        # Configure environment information (e.g. env name, noise scale, observation dimension, goal indices) and load XML
         self._set_environment_attributes()
-        
-        # Load XML
         xml_path = self._get_xml_path()
         sys = mjcf.load(xml_path)
         
@@ -36,23 +34,20 @@ class ArmEnvs(PipelineEnv):
         q, qd = self._get_initial_state(subkey) # Injects noise to avoid overfitting/open loop control
         pipeline_state = self.pipeline_init(q, qd)
         timestep = 0.0
-        
-        # Define goal distribution
-        rng, subkey = jax.random.split(rng)
-        goal = self._get_initial_goal(subkey)
             
         # Get other components for state (observation, reward, metrics)
         obs = self._get_obs(pipeline_state, goal, timestep)
         reward, done, zero = jnp.zeros(3)
         metrics = {"success": zero, "success_easy": zero, "success_hard": zero}
         
-        # Fill info variable
-        rng, subkey = jax.random.split(rng)
+        # Define goal distribution and fill info variable
+        rng, subkey1, subkey2 = jax.random.split(rng)
+        goal = self._get_initial_goal(subkey1)
         info = {
             "seed": 0, # Seed is required, but fill it with a dummy value
             "goal": goal, 
             "timestep": 0.0, 
-            "postexplore_timestep": jax.random.uniform(subkey) # Assumes timestep is normalized between 0 and 1
+            "postexplore_timestep": jax.random.uniform(subkey2) # Assumes timestep is normalized between 0 and 1
         }
         
         return State(pipeline_state, obs, reward, done, metrics, info)
@@ -60,22 +55,23 @@ class ArmEnvs(PipelineEnv):
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         
-        # Run mujoco step, compute non-goal-completion information
+        # Run mujoco step
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, self._convert_action(action))
         
+        # Compute variables for state update, including goal
         timestep = state.info["timestep"] + 1 / self.episode_length
         obs = self._get_obs(pipeline_state, state.info["goal"], timestep)
-        done = 0.0
         
-        # Compute goal completion and reward
         success, success_easy, success_hard = self._compute_goal_completion(obs, state.info["goal"])
-        reward = success
-        
-        # Fill in state variables
-        info = {**state.info, "timestep": timestep}
         state.metrics.update(success=success, success_easy=success_easy, success_hard=success_hard)
-        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, info=info)
+        
+        reward = success
+        done = 0.0
+        info = {**state.info, "timestep": timestep}
+        
+        new_state = state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, info=info)
+        return new_state
     
     def update_goal(self, state: State, goal: jax.Array) -> State:
         """
