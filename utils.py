@@ -14,6 +14,11 @@ from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
 from envs.humanoid import Humanoid
 from envs.ant_push import AntPush
+from envs.manipulation.arm_reach import ArmReach
+from envs.manipulation.arm_grasp import ArmGrasp
+from envs.manipulation.arm_pickplace_easy import ArmPickplaceEasy
+from envs.manipulation.arm_pickplace_hard import ArmPickplaceHard
+from envs.manipulation.arm_binpick import ArmBinpick
 
 Config = namedtuple(
     "Config",
@@ -83,13 +88,23 @@ def create_env(args: argparse.Namespace) -> object:
     elif env_name == "debug":
         env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":
-        env=Pusher(backend=args.backend or "generalized", kind="easy")
+        env = Pusher(backend=args.backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
-        env=Pusher(backend=args.backend or "generalized", kind="hard")
+        env = Pusher(backend=args.backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
-        env=PusherReacher(backend=args.backend or "generalized")
+        env = PusherReacher(backend=args.backend or "generalized")
     elif env_name == "humanoid":
-        env=Humanoid(backend=args.backend or "generalized")
+        env = Humanoid(backend=args.backend)
+    elif env_name == "arm_reach":
+        env = ArmReach(backend=args.backend or "mjx")
+    elif env_name == "arm_grasp":
+        env = ArmGrasp(backend=args.backend or "mjx")
+    elif env_name == "arm_pickplace_easy":
+        env = ArmPickplaceEasy(backend=args.backend or "mjx")
+    elif env_name == "arm_pickplace_hard":
+        env = ArmPickplaceHard(backend=args.backend or "mjx")
+    elif env_name == "arm_binpick":
+        env = ArmBinpick(backend=args.backend or "mjx")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -104,107 +119,26 @@ def create_eval_env(args: argparse.Namespace) -> object:
     return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
+    legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
+                  "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_pickplace_easy", 
+                  "arm_pickplace_hard", "arm_binpick"]
     if args.env_name == "debug":
-        config = Config(
-            debug=True,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "reacher":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "cheetah":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "pusher_easy" or args.env_name == "pusher_hard":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "pusher_reacher":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "ant" or 'maze' in args.env_name:
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "ant_push":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "ant_ball":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
-    elif args.env_name == "humanoid":
-        config = Config(
-            debug=False,
-            discount=args.discounting,
-            unroll_length=args.unroll_length,
-            episode_length=args.episode_length,
-            repr_dim=args.repr_dim,
-            random_goals=args.random_goals,
-            disable_entropy_actor=args.disable_entropy_actor,
-            use_traj_idx_wrapper=args.use_traj_idx_wrapper
-        )
+        debug = True
+    elif args.env_name in legal_envs or "maze" in args.env_name:
+        debug = False
     else:
         raise ValueError(f"Unknown environment: {args.env_name}")
+    
+    config = Config(
+        debug=debug,
+        discount=args.discounting,
+        unroll_length=args.unroll_length,
+        episode_length=args.episode_length,
+        repr_dim=args.repr_dim,
+        random_goals=args.random_goals,
+        disable_entropy_actor=args.disable_entropy_actor,
+        use_traj_idx_wrapper=args.use_traj_idx_wrapper
+    )
     return config
 
 
