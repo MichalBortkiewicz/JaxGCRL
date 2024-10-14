@@ -54,10 +54,6 @@ def main(args):
     with open(run_dir + '/args.pkl', 'wb') as f:
         pickle.dump(args, f)
 
-    if args.use_traj_idx_wrapper:
-        raise Exception("traj_index_wrapper_factory does not yet support the new goal indexing scheme.")
-        env, config = traj_index_wrapper_factory(env, config)
-
     train_fn = functools.partial(
         train,
         num_timesteps=args.num_timesteps,

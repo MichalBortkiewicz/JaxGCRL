@@ -55,7 +55,6 @@ def create_parser():
     parser.add_argument('--exploration_coef', type=float, default=0.0)
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
-    parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")

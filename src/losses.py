@@ -60,14 +60,6 @@ def make_losses(
         transitions: Transition,
         key: PRNGKey,
     ):
-        # This is for debug purposes only
-        if config.use_traj_idx_wrapper:
-            raise Exception("traj_index_wrapper_factory does not yet support the new goal indexing scheme.")
-            
-            old_obs, info_1, info_2 = extract_info_from_obs(transitions.observation, config)
-            jax.debug.print(
-                "OBS: \n{obs},\n\n info_1 \n{i_1},\n\n info_2 \n{i_2}\n\n", obs=old_obs, i_1=info_1, i_2=info_2
-            )
 
         sa_encoder_params, g_encoder_params, c_target = (
             crl_critic_params["sa_encoder"],
