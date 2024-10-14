@@ -198,7 +198,7 @@ class AntMaze(PipelineEnv):
             exclude_current_positions_from_observation
         )
         
-        self.obs_dim = 29
+        self.state_dim = 29
         self.goal_indices = jp.array([0, 1])
 
         if self._use_contact_forces:

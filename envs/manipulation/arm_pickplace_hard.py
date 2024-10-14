@@ -24,7 +24,7 @@ class ArmPickplaceHard(ArmEnvs):
 
         self.goal_indices = jnp.array([0, 1, 2, 32, 33, 34, 45]) # Cube position, EEF position, and gripper finger distance
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Cube position
-        self.obs_dim = 46
+        self.state_dim = 46
 
         self.arm_noise_scale = 1
         self.cube_noise_scale = 0.3

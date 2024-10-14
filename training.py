@@ -13,7 +13,6 @@ from pyinstrument import Profiler
 
 from src.train import train
 from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
-from envs.wrappers import traj_index_wrapper_factory
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name):

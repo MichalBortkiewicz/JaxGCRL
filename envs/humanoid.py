@@ -63,7 +63,7 @@ class Humanoid(PipelineEnv):
     )
     self._target_ind = self.sys.link_names.index('target')
     
-    self.obs_dim = 268
+    self.state_dim = 268
     self.goal_indices = jp.array([0, 1, 2])
 
   def reset(self, rng: jax.Array) -> State:

@@ -8,7 +8,6 @@ from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
-from envs.wrappers import extract_info_from_obs
 from src import utils
 
 
@@ -35,7 +34,7 @@ def make_losses(
     parametric_action_distribution = crl_network.parametric_action_distribution
     sa_encoder = crl_network.sa_encoder
     g_encoder = crl_network.g_encoder
-    obs_dim = env.obs_dim
+    obs_dim = env.state_dim
 
     def alpha_loss(
         log_alpha: jnp.ndarray,

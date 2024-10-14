@@ -28,7 +28,7 @@ class Reacher(PipelineEnv):
 
         super().__init__(sys=sys, backend=backend, **kwargs)
         
-        self.obs_dim = 10
+        self.state_dim = 10
         self.goal_indices = jp.array([4, 5, 6])
 
     def reset(self, rng: jax.Array) -> State:

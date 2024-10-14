@@ -116,7 +116,7 @@ class ArmEnvs(PipelineEnv):
         Attribute descriptions:
         - Episode lengths are merely a recommendation + used for scaling timestep
         - Goal indices are for data collection/goal-conditioning; completion goal indices are for reward/goal completion checking
-        - Obs_dim is for the observation dimension WITHOUT the goal appended; brax's env.observation_size gives the dimension WITH goal appended
+        - State_dim is for the observation dimension WITHOUT the goal appended; brax's env.observation_size gives the dimension WITH goal appended
         - Noise scale is for the range of uniform-distribution noise
             - Arm: perturb all joints (in radians) and gripper position (in meters)
             - Cube: perturb x, y of starting cube location

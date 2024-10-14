@@ -24,7 +24,7 @@ class ArmGrasp(ArmEnvs):
 
         self.goal_indices = jnp.array([0, 1, 2, 32, 33, 34, 35, 36, 37, 38]) # Cube position, left and right finger positions, and gripper finger distance
         self.completion_goal_indices = jnp.array([0, 1, 2, 32, 33, 34, 35, 36, 37, 38]) # Identical
-        self.obs_dim = 39
+        self.state_dim = 39
 
         self.arm_noise_scale = 1
         self.cube_noise_scale = 0.3

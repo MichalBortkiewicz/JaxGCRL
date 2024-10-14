@@ -132,8 +132,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         future_state = jnp.take(transition.observation, goal_index[:-1], axis=0)
         future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
         goal = future_state[:, env.goal_indices]
-        future_state = future_state[:, :env.obs_dim]
-        state = transition.observation[:-1, :env.obs_dim]
+        future_state = future_state[:, :env.state_dim]
+        state = transition.observation[:-1, :env.state_dim]
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
