@@ -20,11 +20,6 @@ from envs.manipulation.arm_pickplace_easy import ArmPickplaceEasy
 from envs.manipulation.arm_pickplace_hard import ArmPickplaceHard
 from envs.manipulation.arm_binpick import ArmBinpick
 
-Config = namedtuple(
-    "Config",
-    "debug discount unroll_length episode_length repr_dim random_goals disable_entropy_actor use_traj_idx_wrapper",
-)
-
 
 def create_parser():
     parser = argparse.ArgumentParser(description="Training script arguments")
@@ -122,23 +117,14 @@ def get_env_config(args: argparse.Namespace):
     legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
                   "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_pickplace_easy", 
                   "arm_pickplace_hard", "arm_binpick"]
-    if args.env_name == "debug":
-        debug = True
-    elif args.env_name in legal_envs or "maze" in args.env_name:
-        debug = False
-    else:
+
+    if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
+
+    args_dict = vars(args)
+    Config = namedtuple("Config", [*args_dict.keys()])
+    config = Config(*args_dict.values())
     
-    config = Config(
-        debug=debug,
-        discount=args.discounting,
-        unroll_length=args.unroll_length,
-        episode_length=args.episode_length,
-        repr_dim=args.repr_dim,
-        random_goals=args.random_goals,
-        disable_entropy_actor=args.disable_entropy_actor,
-        use_traj_idx_wrapper=args.use_traj_idx_wrapper
-    )
     return config
 
 

@@ -121,7 +121,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
         is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
-        discount = config.discount ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
+        discount = config.discounting ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
         probs = is_future_mask * discount
         single_trajectories = jnp.concatenate(
             [transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0
