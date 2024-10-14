@@ -38,7 +38,7 @@ BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, G, G, G, 1, 1, 1],
             [1, G, G, 1, G, G, G, 1],
             [1, G, 1, G, G, 1, G, 1],
-            [1, G, G, G, 1, G, G, 1],
+            [1, G, G, G, 1, G, R, 1],
             [1, 1, 1, 1, 1, 1, 1, 1]]
 
 BIG_MAZE_EVAL = [[1, 1, 1, 1, 1, 1, 1, 1],
@@ -66,11 +66,14 @@ HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
 MAZE_HEIGHT = 0.5
 
 
-def find_robot(structure, size_scaling):
+def find_starts(structure, size_scaling):
+    starts = []
     for i in range(len(structure)):
         for j in range(len(structure[0])):
             if structure[i][j] == RESET:
-                return i * size_scaling, j * size_scaling
+                starts.append([i * size_scaling, j * size_scaling])
+
+    return jp.array(starts)
             
 def find_goals(structure, size_scaling):
     goals = []
@@ -98,7 +101,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     
     xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_maze.xml")
 
-    robot_x, robot_y = find_robot(maze_layout, maze_size_scaling)
+    possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
 
     tree = ET.parse(xml_path)
@@ -124,15 +127,10 @@ def make_maze(maze_layout_name, maze_size_scaling):
                     rgba="0.7 0.5 0.3 1.0",
                 )
 
-    
-    torso = tree.find(".//numeric[@name='init_qpos']")
-    data = torso.get("data")
-    torso.set("data", f"{robot_x} {robot_y} " + data) 
-
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
     
-    return xml_string, possible_goals
+    return xml_string, possible_starts, possible_goals
 
 
 
@@ -153,9 +151,10 @@ class AntMaze(PipelineEnv):
         maze_size_scaling=4.0,
         **kwargs,
     ):
-        xml_string, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
 
         sys = mjcf.loads(xml_string)
+        self.possible_starts = possible_starts
         self.possible_goals = possible_goals
 
         n_frames = 5
@@ -207,17 +206,21 @@ class AntMaze(PipelineEnv):
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
 
-        rng, rng1, rng2 = jax.random.split(rng, 3)
+        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
         q = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
+            rng, (self.sys.q_size(),), minval=low, maxval=hi
         )
-        qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+        qd = hi * jax.random.normal(rng1, (self.sys.qd_size(),))
 
-        # set the target q, qd
-        _, target = self._random_target(rng)
+        # set the start and target q, qd
+        start = self._random_start(rng2)
+        q = q.at[:2].set(start)
+
+        target = self._random_target(rng3)
         q = q.at[-2:].set(target)
+
         qd = qd.at[-2:].set(0)
 
         pipeline_state = self.pipeline_init(q, qd)
@@ -308,7 +311,11 @@ class AntMaze(PipelineEnv):
 
         return jp.concatenate([qpos] + [qvel] + [target_pos])
 
-    def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
+    def _random_target(self, rng: jax.Array) -> jax.Array:
         """Returns a random target location chosen from possibilities specified in the maze layout."""
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
-        return rng, jp.array(self.possible_goals[idx])[0]
+        return jp.array(self.possible_goals[idx])[0]
+
+    def _random_start(self, rng: jax.Array) -> jax.Array:
+        idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
+        return jp.array(self.possible_starts[idx])[0]
