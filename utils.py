@@ -88,7 +88,7 @@ def create_env(args: argparse.Namespace) -> object:
     elif env_name == "pusher_reacher":
         env = PusherReacher(backend=args.backend or "generalized")
     elif env_name == "humanoid":
-        env = Humanoid(backend=args.backend)
+        env = Humanoid(backend=args.backend or "spring")
     elif env_name == "arm_reach":
         env = ArmReach(backend=args.backend or "mjx")
     elif env_name == "arm_grasp":
