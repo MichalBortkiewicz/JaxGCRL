@@ -16,9 +16,10 @@ from envs.humanoid import Humanoid
 from envs.ant_push import AntPush
 from envs.manipulation.arm_reach import ArmReach
 from envs.manipulation.arm_grasp import ArmGrasp
-from envs.manipulation.arm_pickplace_easy import ArmPickplaceEasy
-from envs.manipulation.arm_pickplace_hard import ArmPickplaceHard
-from envs.manipulation.arm_binpick import ArmBinpick
+from envs.manipulation.arm_push_easy import ArmPushEasy
+from envs.manipulation.arm_push_hard import ArmPushHard
+from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
+from envs.manipulation.arm_binpick_hard import ArmBinpickHard
 
 Config = namedtuple(
     "Config",
@@ -99,12 +100,14 @@ def create_env(args: argparse.Namespace) -> object:
         env = ArmReach(backend=args.backend or "mjx")
     elif env_name == "arm_grasp":
         env = ArmGrasp(backend=args.backend or "mjx")
-    elif env_name == "arm_pickplace_easy":
-        env = ArmPickplaceEasy(backend=args.backend or "mjx")
-    elif env_name == "arm_pickplace_hard":
-        env = ArmPickplaceHard(backend=args.backend or "mjx")
-    elif env_name == "arm_binpick":
-        env = ArmBinpick(backend=args.backend or "mjx")
+    elif env_name == "arm_push_easy":
+        env = ArmPushEasy(backend=args.backend or "mjx")
+    elif env_name == "arm_push_hard":
+        env = ArmPushHard(backend=args.backend or "mjx")
+    elif env_name == "arm_binpick_easy":
+        env = ArmBinpickEasy(backend=args.backend or "mjx")
+    elif env_name == "arm_binpick_hard":
+        env = ArmBinpickHard(backend=args.backend or "mjx")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -120,8 +123,8 @@ def create_eval_env(args: argparse.Namespace) -> object:
 
 def get_env_config(args: argparse.Namespace):
     legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
-                  "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_pickplace_easy", 
-                  "arm_pickplace_hard", "arm_binpick"]
+                  "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_push_easy", 
+                  "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
     if args.env_name == "debug":
         debug = True
     elif args.env_name in legal_envs or "maze" in args.env_name:

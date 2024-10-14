@@ -1,3 +1,4 @@
+<!-- Credit: adapted from Mujoco Menagerie -->
 <mujoco model="panda">
   <compiler angle="radian" meshdir="franka_emika_panda/assets" autolimits="true"/>
 
@@ -163,9 +164,26 @@
                     <geom mesh="link7_5" rgba="0.25 0.25 0.25 1" class="visual"/>
                     <geom mesh="link7_6" rgba="0.25 0.25 0.25 1" class="visual"/>
                     <geom mesh="link7_7" rgba="1 1 1 1" class="visual"/>
-                    
                     <body name="hand" pos="0 0 0.107" quat="0.9238795 0 0 -0.3826834">
                       <geom name="hand_geom" rgba="1 1 1 1" type="capsule" size="0.04 0.06" pos="0 0 0.035" quat="1 1 0 0" contype="0" conaffinity="0"/>
+                      <body name="left_finger" pos="0 0 0.0584">
+                        <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
+                        <joint name="finger_joint1" class="finger"/>
+                        <geom name="left_finger_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
+                        <body name="left_fingertip" pos="0 0.005 0.07">
+                          <joint name="left_fingertip_joint" range="-0.0001 0.0001"/>
+                          <geom name="left_fingertip_geom" type="box" size="0.005 0.005 0.005" rgba="1 0 0 1" contype="0" conaffinity="0"/>
+                        </body>
+                      </body>
+                      <body name="right_finger" pos="0 0 0.0584" quat="0 0 0 1">
+                        <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
+                        <joint name="finger_joint2" class="finger"/>
+                        <geom name="right_finger_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
+                        <body name="right_fingertip" pos="0 0.005 0.07">
+                          <joint name="right_fingertip_joint" range="-0.0001 0.0001"/>
+                          <geom name="right_fingertip_geom" type="box" size="0.005 0.005 0.005" rgba="1 0 0 1" contype="0" conaffinity="0"/>
+                        </body>
+                      </body>
                     </body>
                   </body>
                 </body>
@@ -175,18 +193,42 @@
         </body>
       </body>
     </body>
-      
-    <body name="binA" pos="0 0.3 0">
-      <geom name="binA_floor" pos="0 0 0.005" size="0.3 0.3 0.005" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
+    
+    <body name="cube" pos="0 0.6 0.07">
+      <freejoint/>
+      <geom name="cube_geom" size="0.03 0.03 0.03" type="box" rgba="0 0.4 0 1" contype="0" conaffinity="0"/>
     </body>
-
+    
+    <body name="goal_marker" pos="-0.3 0.6 0.07" quat="1 0 0 1" gravcomp="1">
+      <freejoint/>
+      <geom name="left_finger_goal_geom" pos="0 0 0" rgba="1 0.2 0.2 1" type="box" size="0.005 0.005 0.005" contype="0" conaffinity="0"/>
+      <geom name="right_finger_goal_geom" pos="0 0.07 0" rgba="1 0.2 0.2 1" type="box" size="0.005 0.005 0.005" contype="0" conaffinity="0"/>
+    </body>
+      
+    <body name="binA" pos="0 0.6 0">
+      <geom name="binA_floor" pos="0 0 0.0005" size="0.3 0.3 0.0005" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
+    </body>
+      
     <body name="tablelink" pos="0 .2 0">
         <geom name="table_geom" group="4" pos="0.0 0.0 0.0" size="2.8 2.4 0.1" type="plane" mass="10" friction="0.2 0.005 0.0001" contype="0" conaffinity="0"/>
     </body>
   </worldbody>
 
+  <equality>
+    <joint joint1="finger_joint1" joint2="finger_joint2" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+  </equality>
+    
   <contact>
+    <pair geom1="cube_geom" geom2="table_geom"/>
+    <pair geom1="cube_geom" geom2="hand_geom"/>
+    <pair geom1="cube_geom" geom2="left_finger_geom"/>
+    <pair geom1="cube_geom" geom2="right_finger_geom"/>
+    
     <pair geom1="table_geom" geom2="hand_geom"/>
+    <pair geom1="table_geom" geom2="left_finger_geom"/>
+    <pair geom1="table_geom" geom2="right_finger_geom"/>
+      
+    <pair geom1="left_finger_geom" geom2="right_finger_geom"/>      
   </contact>
 
   <actuator>
@@ -200,5 +242,10 @@
     <general class="panda" name="actuator6" joint="joint6" gainprm="1000" biasprm="0 -2000 -200" forcerange="-12 12"
       ctrlrange="-0.0175 3.7525"/>
     <general class="panda" name="actuator7" joint="joint7" gainprm="1000" biasprm="0 -2000 -200" forcerange="-12 12"/>
+    <!-- Remap original ctrlrange (0, 0.08) to (0, 255): 0.08 * 500 / 255 = 0.15686 -->
+    <general class="panda" name="actuator8" joint="finger_joint1" forcerange="-500 500" ctrlrange="0 255"
+      gainprm="0.15686 0 0" biasprm="0 -500 -50"/>
+    <general class="panda" name="actuator9" joint="finger_joint2" forcerange="-500 500" ctrlrange="0 255"
+      gainprm="0.15686 0 0" biasprm="0 -500 -50"/>
   </actuator>
 </mujoco>
