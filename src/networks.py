@@ -112,7 +112,7 @@ def make_crl_networks(
     )
     sa_encoder = make_embedder(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=env.obs_dim + action_size,
+        obs_size=env.state_dim + action_size,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
         use_ln=use_ln

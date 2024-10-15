@@ -20,11 +20,6 @@ from envs.manipulation.arm_pickplace_easy import ArmPickplaceEasy
 from envs.manipulation.arm_pickplace_hard import ArmPickplaceHard
 from envs.manipulation.arm_binpick import ArmBinpick
 
-Config = namedtuple(
-    "Config",
-    "debug discount unroll_length episode_length repr_dim random_goals disable_entropy_actor use_traj_idx_wrapper",
-)
-
 
 def create_parser():
     parser = argparse.ArgumentParser(description="Training script arguments")
@@ -60,7 +55,6 @@ def create_parser():
     parser.add_argument('--exploration_coef', type=float, default=0.0)
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
-    parser.add_argument('--use_traj_idx_wrapper', default=False, action="store_true", help="Whether to use debug wrapper with info about envs, seeds and trajectories")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
@@ -94,7 +88,7 @@ def create_env(args: argparse.Namespace) -> object:
     elif env_name == "pusher_reacher":
         env = PusherReacher(backend=args.backend or "generalized")
     elif env_name == "humanoid":
-        env = Humanoid(backend=args.backend)
+        env = Humanoid(backend=args.backend or "spring")
     elif env_name == "arm_reach":
         env = ArmReach(backend=args.backend or "mjx")
     elif env_name == "arm_grasp":
@@ -122,23 +116,14 @@ def get_env_config(args: argparse.Namespace):
     legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
                   "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_pickplace_easy", 
                   "arm_pickplace_hard", "arm_binpick"]
-    if args.env_name == "debug":
-        debug = True
-    elif args.env_name in legal_envs or "maze" in args.env_name:
-        debug = False
-    else:
+
+    if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
+
+    args_dict = vars(args)
+    Config = namedtuple("Config", [*args_dict.keys()])
+    config = Config(*args_dict.values())
     
-    config = Config(
-        debug=debug,
-        discount=args.discounting,
-        unroll_length=args.unroll_length,
-        episode_length=args.episode_length,
-        repr_dim=args.repr_dim,
-        random_goals=args.random_goals,
-        disable_entropy_actor=args.disable_entropy_actor,
-        use_traj_idx_wrapper=args.use_traj_idx_wrapper
-    )
     return config
 
 

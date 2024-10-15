@@ -24,7 +24,7 @@ class ArmReach(ArmEnvs):
 
         self.goal_indices = jnp.array([15, 16, 17]) # End-effector position
         self.completion_goal_indices = jnp.array([15, 16, 17]) # Identical
-        self.obs_dim = 28
+        self.state_dim = 28
 
         self.arm_noise_scale = 1
         self.goal_noise_scale = 0.3
