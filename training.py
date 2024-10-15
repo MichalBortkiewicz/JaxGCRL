@@ -15,8 +15,8 @@ from src.train import train
 from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
 
 
-def render(inf_fun_factory, params, env, exp_dir, exp_name):
-    inference_fn = inf_fun_factory(params)
+def render(inf_fun_factory, params, env, exp_dir, exp_name, config):
+    inference_fn = inf_fun_factory(params, env, config)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
     jit_inference_fn = jax.jit(inference_fn)
@@ -135,7 +135,7 @@ def main(args):
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 
     model.save_params(ckpt_dir + '/final', params)
-    render(make_inference_fn, params, env, run_dir, args.exp_name)
+    render(make_inference_fn, params, env, run_dir, args.exp_name, config)
 
 if __name__ == "__main__":
     parser = create_parser()
