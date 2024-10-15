@@ -322,7 +322,7 @@ def train(
         hidden_layer_sizes=[h_dim] * n_hidden,
         use_ln=use_ln,
     )
-    make_policy = crl_networks.make_inference_fn(crl_network)
+    make_policy = crl_networks.make_inference_fn(crl_network, environment, config)
 
     alpha_optimizer = optax.adam(learning_rate=alpha_lr)
     policy_optimizer = optax.adam(learning_rate=policy_lr)
@@ -386,6 +386,7 @@ def train(
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
             training_state.policy_params,
+            training_state.crl_critic_params,
             training_state.normalizer_params,
             transitions,
             key_alpha,
@@ -434,8 +435,7 @@ def train(
         return (new_training_state, key), metrics
 
     def get_experience(
-        normalizer_params: running_statistics.RunningStatisticsState,
-        policy_params: Params,
+        training_state:  TrainingState,
         env_state: Union[envs.State, envs_v1.State],
         buffer_state: ReplayBufferState,
         key: PRNGKey,
@@ -444,7 +444,8 @@ def train(
         Union[envs.State, envs_v1.State],
         ReplayBufferState,
     ]:
-        policy = make_policy((normalizer_params, policy_params))
+        normalizer_params = training_state.normalizer_params
+        policy = make_policy((normalizer_params, training_state.policy_params, training_state.crl_critic_params))
 
         @jax.jit
         def f(carry, unused_t):
@@ -482,8 +483,7 @@ def train(
     ) -> Tuple[TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics]:
         experience_key, training_key = jax.random.split(key)
         normalizer_params, env_state, buffer_state = get_experience(
-            training_state.normalizer_params,
-            training_state.policy_params,
+            training_state,
             env_state,
             buffer_state,
             experience_key,
@@ -507,8 +507,7 @@ def train(
             training_state, env_state, buffer_state, key = carry
             key, new_key = jax.random.split(key)
             new_normalizer_params, env_state, buffer_state = get_experience(
-                training_state.normalizer_params,
-                training_state.policy_params,
+                training_state,
                 env_state,
                 buffer_state,
                 key,
@@ -670,7 +669,7 @@ def train(
     metrics = {}
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(
-            _unpmap((training_state.normalizer_params, training_state.policy_params)),
+            _unpmap((training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params)),
             training_metrics={},
         )
         logging.info(metrics)
@@ -716,7 +715,7 @@ def train(
 
             # Run evals.
             metrics = evaluator.run_evaluation(
-                _unpmap((training_state.normalizer_params, training_state.policy_params)),
+                _unpmap((training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params)),
                 training_metrics,
             )
             logging.info(metrics)

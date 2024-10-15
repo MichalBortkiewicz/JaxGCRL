@@ -67,7 +67,7 @@ def make_embedder(
     )
     return model
 
-def make_inference_fn(crl_networks: CRLNetworks):
+def make_inference_fn(crl_networks: CRLNetworks, env, config):
     """Creates params and inference function for the CRL agent."""
 
     def make_policy(
@@ -76,7 +76,14 @@ def make_inference_fn(crl_networks: CRLNetworks):
         def policy(
             observations: types.Observation, key_sample: PRNGKey
         ) -> Tuple[types.Action, types.Extra]:
-            logits = crl_networks.policy_network.apply(*params[:2], observations)
+            if config.embedding_policy:
+                goal_embedding = crl_networks.g_encoder.apply(params[0], params[2]["g_encoder"], observations[:, env.state_dim:])
+                state = observations[:, :env.state_dim]
+                policy_input = jnp.concat((state, goal_embedding), axis=1)
+            else:
+                policy_input = observations
+
+            logits = crl_networks.policy_network.apply(*params[:2], policy_input)
             if deterministic:
                 return crl_networks.parametric_action_distribution.mode(logits), {}
             return (
@@ -103,9 +110,11 @@ def make_crl_networks(
     parametric_action_distribution = distribution.NormalTanhDistribution(
         event_size=action_size
     )
+    policy_input_size = observation_size if not config.embedding_policy else (env.state_dim + config.repr_dim)
+
     policy_network = networks.make_policy_network(
         parametric_action_distribution.param_size,
-        observation_size,
+        obs_size=policy_input_size,
         preprocess_observations_fn=preprocess_observations_fn,
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,

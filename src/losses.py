@@ -39,6 +39,7 @@ def make_losses(
     def alpha_loss(
         log_alpha: jnp.ndarray,
         policy_params: Params,
+        crl_critic_params: Params,
         normalizer_params: Any,
         transitions: Transition,
         key: PRNGKey,
@@ -46,7 +47,15 @@ def make_losses(
         """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
         obs = transitions.observation
 
-        dist_params = policy_network.apply(normalizer_params, policy_params, obs)
+        if config.embedding_policy:
+            goal_embedding = g_encoder.apply(normalizer_params, crl_critic_params["g_encoder"], obs[:, env.state_dim:])
+            state = obs[:, :env.state_dim]
+            policy_input = jnp.concat((state, goal_embedding), axis=1)
+        else:
+            policy_input = obs
+
+        dist_params = policy_network.apply(normalizer_params, policy_params, policy_input)
+
         action = parametric_action_distribution.sample_no_postprocessing(dist_params, key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         alpha = jnp.exp(log_alpha)
@@ -284,9 +293,18 @@ def make_losses(
 
         goal = future_state[:, env.goal_indices]
 
-        observation = jnp.concatenate([state, goal], axis=1)
+        sa_encoder_params, g_encoder_params = (
+            crl_critic_params["sa_encoder"],
+            crl_critic_params["g_encoder"],
+        )
+        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
 
-        dist_params = policy_network.apply(normalizer_params, policy_params, observation)
+        if config.embedding_policy:
+            policy_input = jnp.concat((state, g_repr), axis=1)
+        else:
+            policy_input = jnp.concatenate([state, goal], axis=1)
+
+        dist_params = policy_network.apply(normalizer_params, policy_params, policy_input)
         action = parametric_action_distribution.sample_no_postprocessing(dist_params, sample_key)
         log_prob = parametric_action_distribution.log_prob(dist_params, action)
         entropy = parametric_action_distribution.entropy(dist_params, entropy_key)
@@ -295,17 +313,14 @@ def make_losses(
         extra_key, key = jax.random.split(key, 2)
         future_action_shuf = jax.random.permutation(extra_key, future_action)
 
-        sa_encoder_params, g_encoder_params = (
-            crl_critic_params["sa_encoder"],
-            crl_critic_params["g_encoder"],
-        )
+        
 
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
             jnp.concatenate([state, action], axis=-1),
         )
-        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
+        
 
         goal_pad = future_state
 
