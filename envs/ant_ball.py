@@ -71,7 +71,7 @@ class AntBall(PipelineEnv):
         )
         self._object_idx = self.sys.link_names.index('object')
 
-        self.obs_dim = 31
+        self.state_dim = 31
         self.goal_indices = jp.array([28, 29])
         
         if self._use_contact_forces:

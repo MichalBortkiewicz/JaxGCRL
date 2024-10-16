@@ -42,7 +42,7 @@ class Halfcheetah(PipelineEnv):
             exclude_current_positions_from_observation
         )
         
-        self.obs_dim = 18
+        self.state_dim = 18
         self.goal_indices = jp.array([0])
 
     def reset(self, rng: jax.Array) -> State:

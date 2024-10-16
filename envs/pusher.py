@@ -36,7 +36,7 @@ class Pusher(PipelineEnv):
     self._goal_idx = self.sys.link_names.index('goal')
     self.kind = kind
     
-    self.obs_dim = 20
+    self.state_dim = 20
     self.goal_indices = jp.array([10, 11, 12])
 
   def reset(self, rng: jax.Array) -> State:
@@ -168,7 +168,7 @@ class PusherReacher(PipelineEnv):
     self._object_idx = self.sys.link_names.index('object')
     self._goal_idx = self.sys.link_names.index('goal')
     
-    self.obs_dim = 17
+    self.state_dim = 17
     self.goal_indices = jp.array([14, 15, 16])
 
   def reset(self, rng: jax.Array) -> State:

@@ -3,8 +3,7 @@
   <option timestep="0.01" iterations="4" />
   <custom>
     <!-- brax custom params -->
-    <!-- (x, y) position of torso is appended during env creation -->
-    <numeric data="0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -1.0 0.0 -1.0 0.0 1.0 0.0 0.0" name="init_qpos"/>
+    <numeric data="0 0 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -1.0 0.0 -1.0 0.0 1.0 0.0 0.0" name="init_qpos"/>
     <numeric data="1000" name="constraint_limit_stiffness"/>
     <numeric data="4000" name="constraint_stiffness"/>
     <numeric data="10" name="constraint_ang_damping"/>
@@ -89,7 +88,7 @@
         <!-- The joint `ref` attributes are removed for brax. -->
         <joint armature="0" axis="1 0 0" damping="0" limited="true" name="target_x" pos="0 0 0" range="-100 100" stiffness="0" type="slide"/>
         <joint armature="0" axis="0 1 0" damping="0" limited="true" name="target_y" pos="0 0 0" range="-100 100" stiffness="0" type="slide"/>
-        <geom conaffinity="0" contype="0" name="target" pos="0 0 0" size=".9" type="sphere"  mass="inf"/>
+        <geom conaffinity="0" contype="0" name="target" pos="0 0 0" size=".9" type="sphere"  mass="1.0"/>
     </body>
   </worldbody>
   <actuator>

@@ -25,6 +25,8 @@ class Humanoid(PipelineEnv):
       reset_noise_scale=0.0,
       exclude_current_positions_from_observation=False,
       backend='generalized',
+      min_goal_dist = 1.0,
+      max_goal_dist = 5.0,
       **kwargs,
   ):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "humanoid.xml")
@@ -62,8 +64,10 @@ class Humanoid(PipelineEnv):
         exclude_current_positions_from_observation
     )
     self._target_ind = self.sys.link_names.index('target')
+    self._min_goal_dist = min_goal_dist
+    self._max_goal_dist = max_goal_dist
     
-    self.obs_dim = 268
+    self.state_dim = 268
     self.goal_indices = jp.array([0, 1, 2])
 
   def reset(self, rng: jax.Array) -> State:
@@ -224,7 +228,9 @@ class Humanoid(PipelineEnv):
   
   def _random_target(self, rng: jax.Array):
     rng, rng1, rng2 = jax.random.split(rng, 3)
-    dist = 5
+
+    # NOTE: this is NOT uniform sampling from 2d torus, it favors closer targets
+    dist = jax.random.uniform(rng1, minval=self._min_goal_dist, maxval=self._max_goal_dist)
     ang = jp.pi * 2.0 * jax.random.uniform(rng2)
     target_x = dist * jp.cos(ang)
     target_y = dist * jp.sin(ang)

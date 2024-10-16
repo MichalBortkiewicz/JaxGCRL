@@ -28,7 +28,7 @@ class ArmBinpickHard(ArmEnvs):
 
         self.goal_indices = jnp.array([0, 1, 2]) # Cube position
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Identical
-        self.obs_dim = 17
+        self.state_dim = 17
 
         self.arm_noise_scale = 0
         self.cube_noise_scale = 0.15

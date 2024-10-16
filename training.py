@@ -13,7 +13,6 @@ from pyinstrument import Profiler
 
 from src.train import train
 from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
-from envs.wrappers import traj_index_wrapper_factory
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name):
@@ -53,10 +52,6 @@ def main(args):
     os.makedirs(ckpt_dir, exist_ok=True)
     with open(run_dir + '/args.pkl', 'wb') as f:
         pickle.dump(args, f)
-
-    if args.use_traj_idx_wrapper:
-        raise Exception("traj_index_wrapper_factory does not yet support the new goal indexing scheme.")
-        env, config = traj_index_wrapper_factory(env, config)
 
     train_fn = functools.partial(
         train,
