@@ -1,3 +1,4 @@
+<!-- Credit: adapted from Mujoco Menagerie -->
 <mujoco model="panda">
   <compiler angle="radian" meshdir="franka_emika_panda/assets" autolimits="true"/>
 
@@ -168,12 +169,12 @@
                       <body name="left_finger" pos="0 0 0.0584">
                         <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
                         <joint name="finger_joint1" class="finger"/>
-                          <geom name="left_fingertip_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
+                          <geom name="left_finger_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
                       </body>
                       <body name="right_finger" pos="0 0 0.0584" quat="0 0 0 1">
                         <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
                         <joint name="finger_joint2" class="finger"/>
-                          <geom name="right_fingertip_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
+                          <geom name="right_finger_geom" rgba="0.25 0.25 0.25 1" class="finger_collision" contype="0" conaffinity="0"/>
                       </body>
                     </body>
                   </body>
@@ -185,22 +186,21 @@
       </body>
     </body>
       
-    <body name="binA" pos="-0.3 0.6 0">
-      <geom name="binA1" pos="0 -0.19 0.035" size="0.195 0.005 0.03" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
-      <geom name="binA2" pos="0 0.19 0.035" size="0.195 0.005 0.03" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
-      <geom name="binA3" pos="0.19 0 0.035" size="0.005 0.185 0.03" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
-      <geom name="binA4" pos="-0.19 0 0.035" size="0.005 0.185 0.03" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
+    <body name="binA" pos="-0.1 0.6 0">
+      <geom name="binA_floor" pos="0 0 0.0005" size="0.1 0.1 0.0005" type="box" rgba="0 0.2 0.8 1" contype="0" conaffinity="0"/>
     </body>
-    <body name="binB" pos="0.3 0.6 0">
-      <geom name="binB1" pos="0 -0.19 0.03" size="0.195 0.005 0.03" type="box" rgba="0.8 0 0 1" contype="0" conaffinity="0"/>
-      <geom name="binB2" pos="0 0.19 0.03" size="0.195 0.005 0.03" type="box" rgba="0.8 0 0 1" contype="0" conaffinity="0"/>
-      <geom name="binB3" pos="0.19 0 0.03" size="0.005 0.185 0.03" type="box" rgba="0.8 0 0 1" contype="0" conaffinity="0"/>
-      <geom name="binB4" pos="-0.19 0 0.03" size="0.005 0.185 0.03" type="box" rgba="0.8 0 0 1" contype="0" conaffinity="0"/>
+    <body name="binB" pos="0.1 0.6 0">
+      <geom name="binB_floor" pos="0 0 0.0005" size="0.1 0.1 0.0005" type="box" rgba="0.8 0 0 1" contype="0" conaffinity="0"/>
     </body>
     
-    <body name="cube" pos="-0.3 0.6 0.07">
+    <body name="cube" pos="-0.1 0.6 0.07">
       <freejoint/>
       <geom name="cube_geom" size="0.03 0.03 0.03" type="box" rgba="0 0.4 0 1" contype="0" conaffinity="0"/>
+    </body>
+      
+    <body name="goal_marker" pos="-0.3 0.6 0.07" gravcomp="1">
+      <freejoint/>
+      <geom name="goal_marker_geom" size="0.03 0.03 0.03" type="box" rgba="0.3 1 0.3 1" contype="0" conaffinity="0"/>
     </body>
       
     <body name="tablelink" pos="0 .2 0">
@@ -212,26 +212,17 @@
     <joint joint1="finger_joint1" joint2="finger_joint2" solimp="0.95 0.99 0.001" solref="0.005 1"/>
   </equality>
     
-<!-- We omit collisions between the bins and the fingers/hand since it doesn't seem to be processing well. Task complexity is mostly enforced by cube and bin collisions anyway. -->
   <contact>
     <pair geom1="cube_geom" geom2="table_geom"/>
-    <pair geom1="cube_geom" geom2="binA1"/>
-    <pair geom1="cube_geom" geom2="binA2"/>
-    <pair geom1="cube_geom" geom2="binA3"/>
-    <pair geom1="cube_geom" geom2="binA4"/>
-    <pair geom1="cube_geom" geom2="binB1"/>
-    <pair geom1="cube_geom" geom2="binB2"/>
-    <pair geom1="cube_geom" geom2="binB3"/>
-    <pair geom1="cube_geom" geom2="binB4"/>
     <pair geom1="cube_geom" geom2="hand_geom"/>
-    <pair geom1="cube_geom" geom2="left_fingertip_geom"/>
-    <pair geom1="cube_geom" geom2="right_fingertip_geom"/>
-      
+    <pair geom1="cube_geom" geom2="left_finger_geom"/>
+    <pair geom1="cube_geom" geom2="right_finger_geom"/>
+    
     <pair geom1="table_geom" geom2="hand_geom"/>
-    <pair geom1="table_geom" geom2="left_fingertip_geom"/>
-    <pair geom1="table_geom" geom2="right_fingertip_geom"/>
+    <pair geom1="table_geom" geom2="left_finger_geom"/>
+    <pair geom1="table_geom" geom2="right_finger_geom"/>
       
-    <pair geom1="left_fingertip_geom" geom2="right_fingertip_geom"/>
+    <pair geom1="left_finger_geom" geom2="right_finger_geom"/>      
   </contact>
 
   <actuator>
