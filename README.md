@@ -45,20 +45,6 @@ set of challenging environments
 }
 ```
 
-## Contributing
-Help us build JaxGCRL into the best possible tool for the GCRL community.
-Reach out and start contributing or just add an Issue/PR!
-
-- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
-- [ ] Add more complex versions of Ant Sokoban.
-- [ ] Get around 70% success rate on Ant Big Maze task.
-- [ ] Integrate environments: 
-    - [ ] Overcooked 
-    - [ ] Hanabi
-    - [ ] Rubik's cube
-    - [ ] Sokoban
-
-
 
 ## Installation
 The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
@@ -73,6 +59,20 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 ```
 > [!NOTE]  
 > If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
+
+## Contributing
+Help us build JaxGCRL into the best possible tool for the GCRL community.
+Reach out and start contributing or just add an Issue/PR!
+
+- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
+- [ ] Add more complex versions of Ant Sokoban.
+- [ ] Get around 70% success rate on Ant Big Maze task.
+- [ ] Integrate environments: 
+    - [ ] Overcooked 
+    - [ ] Hanabi
+    - [ ] Rubik's cube
+    - [ ] Sokoban
+
 
 ## New CRL implementation and Benchmark
 <p align="center">
