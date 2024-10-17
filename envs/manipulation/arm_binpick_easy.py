@@ -7,7 +7,7 @@ from jax import numpy as jnp
 from envs.manipulation.arm_envs import ArmEnvs
 
 """
-Binpick-Easy: Move a cube from a random location in the blue bin to a random location in the red bin. Note that the bins only collide with the cube, not the hand/fingers.
+Binpick-Easy: Move a cube from a random location in the blue bin to a random location in the red bin.
 - Observation space: 17-dim obs + 3-dim goal.
 - Action space:      5-dim, each element in [-1, 1], corresponding to target angles for joints 1, 2, 4, 6, and finger closedness.
 
@@ -75,7 +75,7 @@ class ArmBinpickEasy(ArmEnvs):
          - Fingers (1-dim): finger distance
         Note q is 23-dim: 7-dim cube position/angle, 7-dim goal marker position/angle, 7-dim joint angles, 2-dim finger offset
          
-        Goal space (3-dim): position of cube, position of end-effector, distance between fingers
+        Goal space (3-dim): position of cube
         """
         q_indices = jnp.array([0, 1, 2, 14, 15, 16, 17, 18, 19, 20])
         q_subset = pipeline_state.q[q_indices]
@@ -91,3 +91,7 @@ class ArmBinpickEasy(ArmEnvs):
         finger_distance = jnp.linalg.norm(right_finger_x_pos - left_finger_x_pos)[None] # [None] expands dims from 0 to 1
         
         return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [goal])
+    
+    def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
+        q_indices = jnp.arange(14, 21)
+        return pipeline_state.q[q_indices]

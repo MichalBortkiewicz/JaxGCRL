@@ -218,7 +218,7 @@
     <joint joint1="finger_joint1" joint2="finger_joint2" solimp="0.95 0.99 0.001" solref="0.005 1"/>
   </equality>
     
-<!-- We omit collisions between the bins and the fingers/hand since it doesn't seem to be processing well. Task complexity is mostly enforced by cube and bin collisions anyway. -->
+
   <contact>
     <pair geom1="cube_geom" geom2="table_geom"/>
     <pair geom1="cube_geom" geom2="binA1"/>
@@ -236,6 +236,32 @@
     <pair geom1="table_geom" geom2="hand_geom"/>
     <pair geom1="table_geom" geom2="left_finger_geom"/>
     <pair geom1="table_geom" geom2="right_finger_geom"/>
+    
+    <!-- The finger and bin collisions aren't being registered that well so fingers will ghost through the bin if enough force is applied and the fingers are fast enough. -->
+    <pair geom1="left_finger_geom" geom2="binA1"/>
+    <pair geom1="left_finger_geom" geom2="binA2"/>
+    <pair geom1="left_finger_geom" geom2="binA3"/>
+    <pair geom1="left_finger_geom" geom2="binA4"/>
+    <pair geom1="left_finger_geom" geom2="binB1"/>
+    <pair geom1="left_finger_geom" geom2="binB2"/>
+    <pair geom1="left_finger_geom" geom2="binB3"/>
+    <pair geom1="left_finger_geom" geom2="binB4"/>
+    <pair geom1="right_finger_geom" geom2="binA1"/>
+    <pair geom1="right_finger_geom" geom2="binA2"/>
+    <pair geom1="right_finger_geom" geom2="binA3"/>
+    <pair geom1="right_finger_geom" geom2="binA4"/>
+    <pair geom1="right_finger_geom" geom2="binB1"/>
+    <pair geom1="right_finger_geom" geom2="binB2"/>
+    <pair geom1="right_finger_geom" geom2="binB3"/>
+    <pair geom1="right_finger_geom" geom2="binB4"/>
+    <pair geom1="hand_geom" geom2="binA1"/>
+    <pair geom1="hand_geom" geom2="binA2"/>
+    <pair geom1="hand_geom" geom2="binA3"/>
+    <pair geom1="hand_geom" geom2="binA4"/>
+    <pair geom1="hand_geom" geom2="binB1"/>
+    <pair geom1="hand_geom" geom2="binB2"/>
+    <pair geom1="hand_geom" geom2="binB3"/>
+    <pair geom1="hand_geom" geom2="binB4"/>
       
     <pair geom1="left_finger_geom" geom2="right_finger_geom"/>
   </contact>

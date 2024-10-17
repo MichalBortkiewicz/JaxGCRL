@@ -82,3 +82,7 @@ class ArmReach(ArmEnvs):
         eef_xd_vel = pipeline_state.xd.vel[eef_index]
         
         return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [goal])
+    
+    def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
+        q_indices = jnp.arange(7, 14)
+        return pipeline_state.q[q_indices]

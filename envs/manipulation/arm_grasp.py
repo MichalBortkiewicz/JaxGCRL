@@ -121,3 +121,7 @@ class ArmGrasp(ArmEnvs):
         fingertip_distance = jnp.linalg.norm(right_fingertip_x_pos - left_fingertip_x_pos)[None] # [None] expands dims from 0 to 1
         
         return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [left_fingertip_x_pos] + [right_fingertip_x_pos] + [fingertip_distance] + [goal])
+    
+    def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
+        q_indices = jnp.arange(14, 21)
+        return pipeline_state.q[q_indices]
