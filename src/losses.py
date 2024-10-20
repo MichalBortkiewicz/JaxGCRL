@@ -66,7 +66,7 @@ def make_losses(
             crl_critic_params["c"],
         )
 
-        # key1, key2 = jax.random.split(key, 2)
+        key, t1_key, t2_key = jax.random.split(key, 3)
         obs = transitions.observation[:, :obs_dim]
         action = transitions.action
         future_action = transitions.extras["future_action"]
@@ -76,12 +76,24 @@ def make_losses(
         # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
         goal_pad = transitions.extras["future_state"]
 
+        tau1 = jax.random.uniform(t1_key, (config.num_tau))
+        tau2 = jax.random.uniform(t2_key, (config.num_tau))
+
+        if config.risk_measure == "cpw71":
+            eta = 0.71
+            tau2 = tau2 ** eta / ((tau2 ** eta + (1. - tau2) ** eta) ** (1. / eta))
+        
+
+        
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
             jnp.concatenate([obs, action], axis=-1),
+            tau1,
         )
-        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:])
+        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, transitions.observation[:, obs_dim:], tau2)
+
+
         if energy_fn == "l2":
             logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))
         elif energy_fn == "l2_no_sqrt":
@@ -269,7 +281,7 @@ def make_losses(
         key: PRNGKey,
     ) -> jnp.ndarray:
 
-        sample_key, entropy_key, goal_key = jax.random.split(key, 3)
+        sample_key, entropy_key, goal_key, t1_key, t2_key = jax.random.split(key, 5)
 
         obs = transitions.observation
 
@@ -299,13 +311,17 @@ def make_losses(
             crl_critic_params["sa_encoder"],
             crl_critic_params["g_encoder"],
         )
+        
+        tau1 = jax.random.uniform(t1_key, (config.num_tau))
+        tau2 = jax.random.uniform(t2_key, (config.num_tau))
 
         sa_repr = sa_encoder.apply(
             normalizer_params,
             sa_encoder_params,
             jnp.concatenate([state, action], axis=-1),
+            tau1
         )
-        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal)
+        g_repr = g_encoder.apply(normalizer_params, g_encoder_params, goal, tau2)
 
         goal_pad = future_state
 

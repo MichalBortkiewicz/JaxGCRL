@@ -45,6 +45,50 @@ class MLP(linen.Module):
         return hidden
 
 
+class TauEncoder(linen.Module):
+    output_dim: int
+    kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
+
+    @linen.compact
+    def __call__(self, tau: jnp.ndarray):
+        # Tau has shape [num_tau_samples]
+
+        tau = jnp.cos(tau * jnp.arange(tau.shape[-1]) * jnp.pi)
+        encoded_tau = linen.Dense(
+            self.output_dim,
+            name=f"tau_enc_dense",
+            use_bias=True,
+        )(tau)
+        return encoded_tau
+
+
+
+class IQN(linen.Module):
+    layer_sizes: Sequence[int]
+    activation: ActivationFn = linen.relu
+    kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
+    activate_final: bool = False
+    bias: bool = True
+    use_layer_norm: bool = False
+    repr_dim: int = 64
+
+    @linen.compact
+    def __call__(self, data: jnp.ndarray, tau: jnp.ndarray):
+        # data - [batch_size, input_dim]
+        # tau_samples - [num_tau_samples]
+        obs_encoder = MLP(layer_sizes=self.layer_sizes, activation=self.activation, kernel_init=self.kernel_init, activate_final=self.activate_final, bias=self.bias, use_layer_norm=self.use_layer_norm)
+        combined_encoder = MLP(layer_sizes=self.layer_sizes, activation=self.activation, kernel_init=self.kernel_init, activate_final=self.activate_final, bias=self.bias, use_layer_norm=self.use_layer_norm)
+
+        # encoded_obs - [batch_size, repr_dim]
+        # encoded_tau - [repr_dim]
+        encoded_obs = obs_encoder(data)
+        encoded_tau = TauEncoder(output_dim=self.repr_dim,kernel_init=self.kernel_init)(tau)
+
+        combined = encoded_obs * encoded_tau
+
+        return combined_encoder(combined)
+
+
 def make_embedder(
     layer_sizes: Sequence[int],
     obs_size: int,
@@ -66,6 +110,35 @@ def make_embedder(
         init=lambda rng: module.init(rng, dummy_obs), apply=apply
     )
     return model
+
+
+
+def make_iqn_embedder( 
+    layer_sizes: Sequence[int],
+    obs_size: int,
+    tau_size: int,
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = linen.swish,
+    preprocess_observations_fn: types.PreprocessObservationFn = types,
+    use_ln: bool = False,
+) -> networks.FeedForwardNetwork:
+    
+    repr_dim = layer_sizes[-1]
+
+    dummy_obs = jnp.zeros((1, obs_size))
+    dummy_tau = jnp.zeros((tau_size))
+    module = IQN(layer_sizes=layer_sizes, activation=activation, use_layer_norm=use_ln, repr_dim=repr_dim)
+
+    # TODO: should we have a function to preprocess the observations?
+    def apply(processor_params, params, obs, tau):
+        # obs = preprocess_observations_fn(obs, processor_params)
+        return module.apply(params, obs, tau)
+
+    model = networks.FeedForwardNetwork(
+        init=lambda rng: module.init(rng, dummy_obs, dummy_tau), apply=apply
+    )
+    return model
+
+
 
 def make_inference_fn(crl_networks: CRLNetworks):
     """Creates params and inference function for the CRL agent."""
@@ -110,16 +183,20 @@ def make_crl_networks(
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
     )
-    sa_encoder = make_embedder(
+
+    embedder_factory = make_embedder if not config.use_iqn else make_iqn_embedder
+    sa_encoder = embedder_factory(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
         obs_size=env.state_dim + action_size,
+        tau_size=config.num_tau,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
         use_ln=use_ln
     )
-    g_encoder = make_embedder(
+    g_encoder = embedder_factory(
         layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
         obs_size=len(env.goal_indices),
+        tau_size=config.num_tau,
         activation=activation,
         preprocess_observations_fn=preprocess_observations_fn,
         use_ln=use_ln

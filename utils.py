@@ -59,6 +59,9 @@ def create_parser():
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
+    parser.add_argument("--use_iqn", default=False, action="store_true", help="Whether to use IQN inspired DCRL algorithm")
+    parser.add_argument("--num_tau", type=int, default=10, help="Number of tau samples used in IQN")
+    parser.add_argument("--risk_measure", choices=["identity", "cpw71"], default="identity", help="Risk measure to use on tau in policy loss (Beta in overleaf)")
     return parser
 
 
