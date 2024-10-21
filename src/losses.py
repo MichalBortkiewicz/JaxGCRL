@@ -76,8 +76,8 @@ def make_losses(
         # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
         goal_pad = transitions.extras["future_state"]
 
-        tau1 = jax.random.uniform(t1_key, (config.num_tau))
-        tau2 = jax.random.uniform(t2_key, (config.num_tau))
+        tau1 = jax.random.uniform(t1_key, (config.num_tau,))
+        tau2 = jax.random.uniform(t2_key, (config.num_tau,))
 
         if config.risk_measure == "cpw71":
             eta = 0.71
@@ -312,8 +312,8 @@ def make_losses(
             crl_critic_params["g_encoder"],
         )
         
-        tau1 = jax.random.uniform(t1_key, (config.num_tau))
-        tau2 = jax.random.uniform(t2_key, (config.num_tau))
+        tau1 = jax.random.uniform(t1_key, (config.num_tau,))
+        tau2 = jax.random.uniform(t2_key, (config.num_tau,))
 
         sa_repr = sa_encoder.apply(
             normalizer_params,
