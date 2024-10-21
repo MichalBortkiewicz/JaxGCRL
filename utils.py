@@ -13,6 +13,7 @@ from envs.pusher import Pusher, PusherReacher
 from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
 from envs.humanoid import Humanoid
+from envs.humanoid_maze import HumanoidMaze
 from envs.ant_push import AntPush
 from envs.manipulation.arm_reach import ArmReach
 from envs.manipulation.arm_grasp import ArmGrasp
@@ -75,9 +76,12 @@ def create_env(args: argparse.Namespace) -> object:
         # This is stable only in mjx backend
         assert args.backend == "mjx"
         env = AntPush(backend=args.backend)
-    elif "maze" in env_name:
+    elif "ant" in env_name and "maze" in env_name:
         # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
         env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+    elif "humanoid" in env_name and "maze" in env_name:
+        # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
+        env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "debug":
