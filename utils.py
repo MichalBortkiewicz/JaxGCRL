@@ -61,7 +61,8 @@ def create_parser():
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     parser.add_argument("--use_iqn", default=False, action="store_true", help="Whether to use IQN inspired DCRL algorithm")
     parser.add_argument("--num_tau", type=int, default=10, help="Number of tau samples used in IQN")
-    parser.add_argument("--risk_measure", choices=["identity", "cpw71"], default="identity", help="Risk measure to use on tau in policy loss (Beta in overleaf)")
+    parser.add_argument("--risk_measure", choices=["identity", "cpw", "cvar", "pow"], default="identity", help="Risk measure to use on tau in policy loss (Beta in overleaf)")
+    parser.add_argument("--eta", type=float, default=None, help="Eta parameter used in risk measure, default value is defined for each risk measure, but can be overwritten")
     return parser
 
 
