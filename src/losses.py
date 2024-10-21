@@ -79,9 +79,6 @@ def make_losses(
         tau1 = jax.random.uniform(t1_key, (config.num_tau,))
         tau2 = jax.random.uniform(t2_key, (config.num_tau,))
 
-        if config.risk_measure == "cpw71":
-            eta = 0.71
-            tau2 = tau2 ** eta / ((tau2 ** eta + (1. - tau2) ** eta) ** (1. / eta))
         
 
         
@@ -314,6 +311,13 @@ def make_losses(
         
         tau1 = jax.random.uniform(t1_key, (config.num_tau,))
         tau2 = jax.random.uniform(t2_key, (config.num_tau,))
+
+        if config.risk_measure == "cpw71":
+            eta = 0.71
+            tau2 = tau2 ** eta / ((tau2 ** eta + (1. - tau2) ** eta) ** (1. / eta))
+        elif config.risk_measure == "cvar01":
+            eta = 0.1
+            tau2 = eta * tau2
 
         sa_repr = sa_encoder.apply(
             normalizer_params,
