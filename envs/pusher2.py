@@ -123,7 +123,7 @@ class Pusher2(PipelineEnv):
         obj_to_goal_dist = safe_norm(vec_2, axis=-1)
         reward_near = -jnp.mean(safe_norm(vec_1, axis=-1))
 
-        reward_dist = -obj_to_goal_dist
+        reward_dist = -obj_to_goal_dist.sum()
         reward_ctrl = -jnp.square(action).sum()
         reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
 
@@ -141,8 +141,8 @@ class Pusher2(PipelineEnv):
             reward_near=reward_near,
             reward_dist=reward_dist,
             reward_ctrl=reward_ctrl,
-            success=jnp.all( jnp.array(obj_to_goal_dist < 0.1, dtype=float) ),
-            success_easy=jnp.sum( jnp.array(obj_to_goal_dist < 0.1, dtype=float) ),
+            success=jnp.all(obj_to_goal_dist < 0.1).astype(float),
+            success_easy=jnp.sum(obj_to_goal_dist < 0.1, dtype=float),
         )
         state.info.update(info)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
