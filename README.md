@@ -60,6 +60,20 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 > [!NOTE]  
 > If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
+## Contributing
+Help us build JaxGCRL into the best possible tool for the GCRL community.
+Reach out and start contributing or just add an Issue/PR!
+
+- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
+- [ ] Add more complex versions of Ant Sokoban.
+- [ ] Get around 70% success rate on Ant Big Maze task.
+- [ ] Integrate environments: 
+    - [ ] Overcooked 
+    - [ ] Hanabi
+    - [ ] Rubik's cube
+    - [ ] Sokoban
+
+
 ## New CRL implementation and Benchmark
 <p align="center">
   <img src="imgs/teaser.jpg" width=100% /> 
@@ -98,3 +112,22 @@ In addition, you can find exemplary plotting utils for data downloaded by `wandb
  
 ## Questions?
 If you have any questions, comments, or suggestions, please reach out to Michał Bortkiewicz ([michalbortkiewicz8@gmail.com](michalbortkiewicz8@gmail.com))
+
+
+## See Also 🙌
+There are a number of other libraries which inspired this work, we encourage you to take a look!
+
+JAX-native algorithms:
+- [Mava](https://github.com/instadeepai/Mava): JAX implementations of IPPO and MAPPO, two popular MARL algorithms.
+- [PureJaxRL](https://github.com/luchris429/purejaxrl): JAX implementation of PPO, and demonstration of end-to-end JAX-based RL training.
+- [Minimax](https://github.com/facebookresearch/minimax/): JAX implementations of autocurricula baselines for RL.
+- [JaxIRL](https://github.com/FLAIROx/jaxirl?tab=readme-ov-file): JAX implementation of algorithms for inverse reinforcement learning.
+
+JAX-native environments:
+- [Gymnax](https://github.com/RobertTLange/gymnax): Implementations of classic RL tasks including classic control, bsuite and MinAtar.
+- [Jumanji](https://github.com/instadeepai/jumanji): A diverse set of environments ranging from simple games to NP-hard combinatorial problems.
+- [Pgx](https://github.com/sotetsuk/pgx): JAX implementations of classic board games, such as Chess, Go and Shogi.
+- [Brax](https://github.com/google/brax): A fully differentiable physics engine written in JAX, features continuous control tasks.
+- [XLand-MiniGrid](https://github.com/corl-team/xland-minigrid): Meta-RL gridworld environments inspired by XLand and MiniGrid.
+- [Craftax](https://github.com/MichaelTMatthews/Craftax): (Crafter + NetHack) in JAX.
+- [JaxMARL](https://github.com/FLAIROx/JaxMARL): Multi-agent RL in Jax.
