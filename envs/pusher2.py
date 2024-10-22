@@ -27,7 +27,7 @@ def safe_norm(x: jax.Array, axis=None):
     return n
 
 class Pusher2(PipelineEnv):
-    def __init__(self, backend='generalized', kind="hard", **kwargs):
+    def __init__(self, backend='generalized', **kwargs):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "pusher2.xml")
         sys = mjcf.load(path)
 
@@ -49,7 +49,9 @@ class Pusher2(PipelineEnv):
         self._tips_arm_idx = self.sys.link_names.index('r_wrist_flex_link')
         self._object_idxs = jnp.array([self.sys.link_names.index('object1'), self.sys.link_names.index('object2')])
         self._goal_idxs = jnp.array([self.sys.link_names.index('goal1'), self.sys.link_names.index('goal2')])
-        self.kind = kind
+        
+        self.state_dim = 23
+        self.goal_indices = jnp.array([10, 11, 12, 13, 14, 15])
 
     def reset(self, rng: jax.Array) -> State:
         qpos = self.sys.init_q
@@ -67,17 +69,15 @@ class Pusher2(PipelineEnv):
             jax.random.uniform(rng3, (1,), minval=0.45 + 1e-6, maxval=0.65),
         ])
 
-        # randomly place the goal depending on env kind
-        if self.kind == "hard":
-            goal_pos1 = jnp.concatenate([
-                jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
-                jax.random.uniform(rng5, (1,), minval=-0.15, maxval=0.375 - 1e-6),
-            ])
+        goal_pos1 = jnp.concatenate([
+            jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
+            jax.random.uniform(rng5, (1,), minval=-0.15, maxval=0.375 - 1e-6),
+        ])
 
-            goal_pos2 = jnp.concatenate([
-                jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
-                jax.random.uniform(rng7, (1,), minval=0.375 + 1e-6, maxval=0.9),
-            ])
+        goal_pos2 = jnp.concatenate([
+            jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
+            jax.random.uniform(rng7, (1,), minval=0.375 + 1e-6, maxval=0.9),
+        ])
 
         # constrain minimum distance of object to goal
         norm1 = safe_norm(cylinder_pos1 - goal_pos1)

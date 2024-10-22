@@ -139,7 +139,7 @@ class HumanoidMaze(PipelineEnv):
         exclude_current_positions_from_observation=False,
         backend='generalized',
         maze_layout_name="u_maze",
-        maze_size_scaling=1.0, # Was 4.0 for ant -- just trying to make it tractable
+        maze_size_scaling=2.0, # Was 4.0 for antmaze -- just trying to make it tractable
         **kwargs,
     ):
         xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
