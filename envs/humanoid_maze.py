@@ -3,7 +3,7 @@ from brax import base
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 import jax
-from jax import numpy as jp
+from jax import numpy as jnp
 import mujoco
 import os
 import xml.etree.ElementTree as ET
@@ -68,7 +68,7 @@ def find_starts(structure, size_scaling):
             if structure[i][j] == RESET:
                 starts.append([i * size_scaling, j * size_scaling])
 
-    return jp.array(starts)
+    return jnp.array(starts)
             
 def find_goals(structure, size_scaling):
     goals = []
@@ -77,7 +77,7 @@ def find_goals(structure, size_scaling):
             if structure[i][j] == GOAL:
                 goals.append([i * size_scaling, j * size_scaling])
 
-    return jp.array(goals)
+    return jnp.array(goals)
 
 # Create a xml with maze and a list of possible goal positions
 def make_maze(maze_layout_name, maze_size_scaling):
@@ -152,7 +152,7 @@ class HumanoidMaze(PipelineEnv):
         if backend in ['spring', 'positional']:
             sys = sys.tree_replace({'opt.timestep': 0.0015})
             n_frames = 10
-            gear = jp.array([
+            gear = jnp.array([
               350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0,
               350.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0])  # pyformat: disable
             sys = sys.replace(actuator=sys.actuator.replace(gear=gear))
@@ -181,7 +181,7 @@ class HumanoidMaze(PipelineEnv):
         self._target_ind = self.sys.link_names.index('target')
 
         self.state_dim = 268
-        self.goal_indices = jp.array([0, 1, 2])
+        self.goal_indices = jnp.array([0, 1, 2])
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
@@ -200,9 +200,9 @@ class HumanoidMaze(PipelineEnv):
         qvel = qvel.at[-2:].set(0)       
 
         pipeline_state = self.pipeline_init(qpos, qvel)
-        obs = self._get_obs(pipeline_state, jp.zeros(self.sys.act_size()))
+        obs = self._get_obs(pipeline_state, jnp.zeros(self.sys.act_size()))
         
-        reward, done, zero = jp.zeros(3)
+        reward, done, zero = jnp.zeros(3)
         metrics = {
             'forward_reward': zero,
             'reward_linvel': zero,
@@ -228,7 +228,7 @@ class HumanoidMaze(PipelineEnv):
         """Runs one timestep of the environment's dynamics."""
 
         if "steps" in state.info.keys():
-            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
+            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
         info = {"seed": seed}
@@ -247,22 +247,22 @@ class HumanoidMaze(PipelineEnv):
         forward_reward = self._forward_reward_weight * velocity[0]
 
         min_z, max_z = self._healthy_z_range
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
+        is_healthy = jnp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
+        is_healthy = jnp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
         if self._terminate_when_unhealthy:
             healthy_reward = self._healthy_reward
         else:
             healthy_reward = self._healthy_reward * is_healthy
 
-        ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
+        ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
 
         obs = self._get_obs(pipeline_state, action)
-        distance_to_target = jp.linalg.norm(obs[:3] - obs[-3:])
+        distance_to_target = jnp.linalg.norm(obs[:3] - obs[-3:])
 
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
         reward = -distance_to_target + healthy_reward - ctrl_cost
-        success = jp.array(distance_to_target < 0.5, dtype=float)
-        success_easy = jp.array(distance_to_target < 2., dtype=float)
+        success = jnp.array(distance_to_target < 0.5, dtype=float)
+        success_easy = jnp.array(distance_to_target < 2., dtype=float)
         state.metrics.update(
             forward_reward=forward_reward,
             reward_linvel=forward_reward,
@@ -270,7 +270,7 @@ class HumanoidMaze(PipelineEnv):
             reward_alive=healthy_reward,
             x_position=com_after[0],
             y_position=com_after[1],
-            distance_from_origin=jp.linalg.norm(com_after),
+            distance_from_origin=jnp.linalg.norm(com_after),
             dist=distance_to_target,
             x_velocity=velocity[0],
             y_velocity=velocity[1],
@@ -294,7 +294,7 @@ class HumanoidMaze(PipelineEnv):
 
         com, inertia, mass_sum, x_i = self._com(pipeline_state)
         cinr = x_i.replace(pos=x_i.pos - com).vmap().do(inertia)
-        com_inertia = jp.hstack(
+        com_inertia = jnp.hstack(
             [cinr.i.reshape((cinr.i.shape[0], -1)), inertia.mass[:, None]]
         )
 
@@ -305,46 +305,44 @@ class HumanoidMaze(PipelineEnv):
         )
         com_vel = inertia.mass[:, None] * xd_i.vel / mass_sum
         com_ang = xd_i.ang
-        com_velocity = jp.hstack([com_vel, com_ang])
+        com_velocity = jnp.hstack([com_vel, com_ang])
 
-        qfrc_actuator = actuator.to_tau(
-            self.sys, action, pipeline_state.q, pipeline_state.qd)
-
+        qfrc_actuator = actuator.to_tau(self.sys, action, pipeline_state.q, pipeline_state.qd)
 
         target_pos = pipeline_state.x.pos[-1][:2]
         # external_contact_forces are excluded
-        return jp.concatenate([
+        return jnp.concatenate([
             position,
             velocity,
             com_inertia.ravel(),
             com_velocity.ravel(),
             qfrc_actuator,
             target_pos,
-            jp.array([TARGET_Z_COORD]), # Height of the target is fixed
+            jnp.array([TARGET_Z_COORD]), # Height of the target is fixed
         ])
 
     def _com(self, pipeline_state: base.State) -> jax.Array:
         inertia = self.sys.link.inertia
         if self.backend in ['spring', 'positional']:
             inertia = inertia.replace(
-                i=jax.vmap(jp.diag)(
-                    jax.vmap(jp.diagonal)(inertia.i)
+                i=jax.vmap(jnp.diag)(
+                    jax.vmap(jnp.diagonal)(inertia.i)
                     ** (1 - self.sys.spring_inertia_scale)
                 ),
                 mass=inertia.mass ** (1 - self.sys.spring_mass_scale),
             )
-        mass_sum = jp.sum(inertia.mass)
+        mass_sum = jnp.sum(inertia.mass)
         x_i = pipeline_state.x.vmap().do(inertia.transform)
         com = (
-            jp.sum(jax.vmap(jp.multiply)(inertia.mass, x_i.pos), axis=0) / mass_sum
+            jnp.sum(jax.vmap(jnp.multiply)(inertia.mass, x_i.pos), axis=0) / mass_sum
         )
         return com, inertia, mass_sum, x_i  # pytype: disable=bad-return-type  # jax-ndarray
     
     def _random_target(self, rng: jax.Array) -> jax.Array:
         """Returns a random target location chosen from possibilities specified in the maze layout."""
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
-        return jp.array(self.possible_goals[idx])[0]
+        return jnp.array(self.possible_goals[idx])[0]
 
     def _random_start(self, rng: jax.Array) -> jax.Array:
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
-        return jp.array(self.possible_starts[idx])[0]
+        return jnp.array(self.possible_starts[idx])[0]

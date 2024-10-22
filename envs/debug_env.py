@@ -6,11 +6,10 @@ from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from etils import epath
 import jax
-from jax import numpy as jp
+from jax import numpy as jnp
 
 
 class Debug(PipelineEnv):
-
     def __init__(self, backend="generalized", **kwargs):
         path = epath.resource_path("brax") / "envs/assets/reacher.xml"
         sys = mjcf.load(path)
@@ -20,7 +19,7 @@ class Debug(PipelineEnv):
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
             sys = sys.replace(
-                actuator=sys.actuator.replace(gear=jp.array([25.0, 25.0]))
+                actuator=sys.actuator.replace(gear=jnp.array([25.0, 25.0]))
             )
             n_frames = 4
 
@@ -29,7 +28,7 @@ class Debug(PipelineEnv):
         super().__init__(sys=sys, backend=backend, **kwargs)
         
         self.state_dim = 3
-        self.goal_indices = jp.array([1, 2])
+        self.goal_indices = jnp.array([1, 2])
 
     def reset(self, rng: jax.Array) -> State:
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
@@ -50,10 +49,10 @@ class Debug(PipelineEnv):
 
         seed=0
         env=rng3[0]%1000
-        info = {"seed": seed, "env": jp.array(env, dtype=jp.float32)}
-        obs = jp.array([env, seed, 0, seed, 0], dtype=jp.float32)
+        info = {"seed": seed, "env": jnp.array(env, dtype=jnp.float32)}
+        obs = jnp.array([env, seed, 0, seed, 0], dtype=jnp.float32)
 
-        reward, done, zero = jp.zeros(3)
+        reward, done, zero = jnp.zeros(3)
         metrics = {
             "reward_dist": zero,
             "reward_ctrl": zero,
@@ -65,41 +64,41 @@ class Debug(PipelineEnv):
     def step(self, state: State, action: jax.Array) -> State:
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
 
-        env_reseted = jp.where(state.info["steps"], 0, 1)
+        env_reseted = jnp.where(state.info["steps"], 0, 1)
         seed = state.info["seed"] + env_reseted
 
         info = {"seed": seed}
         state.info.update(info)
 
         step_now = state.info["steps"]
-        obs = jp.array([state.info["env"] ,seed, step_now, seed, step_now], dtype=jp.float32)
+        obs = jnp.array([state.info["env"] ,seed, step_now, seed, step_now], dtype=jnp.float32)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=0.0)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Returns egocentric observation of target and arm body."""
-        return jp.concatenate(
+        return jnp.concatenate(
             [
-                jp.array(
+                jnp.array(
                     [
                         0,
                     ]
                 ),
-                jp.array(
+                jnp.array(
                     [
                         0,
                     ]
                 ),
-                jp.array(
+                jnp.array(
                     [
                         0,
                     ]
                 ),
-                jp.array(
+                jnp.array(
                     [
                         0,
                     ]
                 ),
-                jp.array(
+                jnp.array(
                     [
                         0,
                     ]
@@ -111,7 +110,7 @@ class Debug(PipelineEnv):
         """Returns a target location in a random circle slightly above xy plane."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
         dist = 0.2 * jax.random.uniform(rng1)
-        ang = jp.pi * 2.0 * jax.random.uniform(rng2)
-        target_x = dist * jp.cos(ang)
-        target_y = dist * jp.sin(ang)
-        return rng, jp.array([target_x, target_y])
+        ang = jnp.pi * 2.0 * jax.random.uniform(rng2)
+        target_x = dist * jnp.cos(ang)
+        target_y = dist * jnp.sin(ang)
+        return rng, jnp.array([target_x, target_y])
