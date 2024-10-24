@@ -19,6 +19,7 @@ from envs.manipulation.arm_grasp import ArmGrasp
 from envs.manipulation.arm_pickplace_easy import ArmPickplaceEasy
 from envs.manipulation.arm_pickplace_hard import ArmPickplaceHard
 from envs.manipulation.arm_binpick import ArmBinpick
+from envs.simple_maze import SimpleMaze
 
 
 def create_parser():
@@ -75,8 +76,12 @@ def create_env(args: argparse.Namespace) -> object:
         assert args.backend == "mjx"
         env = AntPush(backend=args.backend)
     elif "maze" in env_name:
-        # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-        env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+        if "ant" in env_name:
+            # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
+            env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+        else:
+            # Possible env_name = {'debug_u_maze', 'debug_big_maze', 'debug_hardest_maze'}
+            env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[6:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "debug":
