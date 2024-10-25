@@ -62,30 +62,20 @@ def make_embedder(
         # obs = preprocess_observations_fn(obs, processor_params)
         return module.apply(policy_params, obs)
 
-    model = networks.FeedForwardNetwork(
-        init=lambda rng: module.init(rng, dummy_obs), apply=apply
-    )
+    model = networks.FeedForwardNetwork(init=lambda rng: module.init(rng, dummy_obs), apply=apply)
     return model
 
 def make_inference_fn(crl_networks: CRLNetworks):
     """Creates params and inference function for the CRL agent."""
-
-    def make_policy(
-        params: types.PolicyParams, deterministic: bool = False
-    ) -> types.Policy:
-        def policy(
-            observations: types.Observation, key_sample: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
-            logits = crl_networks.policy_network.apply(*params[:2], observations)
+    def make_policy(params: types.PolicyParams, deterministic: bool = False) -> types.Policy:
+        def policy(obs: types.Observation, key_sample: PRNGKey) -> Tuple[types.Action, types.Extra]:
+            logits = crl_networks.policy_network.apply(*params[:2], obs)
             if deterministic:
-                return crl_networks.parametric_action_distribution.mode(logits), {}
-            return (
-                crl_networks.parametric_action_distribution.sample(logits, key_sample),
-                {},
-            )
-
+                action = crl_networks.parametric_action_distribution.mode(logits)
+            else:
+                action = crl_networks.parametric_action_distribution.sample(logits, key_sample)
+            return action, {}
         return policy
-
     return make_policy
 
 
@@ -100,9 +90,8 @@ def make_crl_networks(
     use_ln: bool= False
 ) -> CRLNetworks:
     """Make CRL networks."""
-    parametric_action_distribution = distribution.NormalTanhDistribution(
-        event_size=action_size
-    )
+    parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
+    
     policy_network = networks.make_policy_network(
         parametric_action_distribution.param_size,
         observation_size,
