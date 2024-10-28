@@ -47,18 +47,22 @@ class MLP(linen.Module):
 
 class TauEncoder(linen.Module):
     output_dim: int
+    embedding_dim: int = 64
     kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
 
     @linen.compact
     def __call__(self, tau: jnp.ndarray):
         # Tau has shape [num_tau_samples]
 
-        tau = jnp.cos(tau * jnp.arange(tau.shape[-1]) * jnp.pi)
+        tau = jnp.tile(tau[:, None], [1, self.embedding_dim]) # [num_tau_samples, embedding_dim]
+        
+        tau = jnp.cos(tau * jnp.arange(self.embedding_dim).astype(jnp.float32) * jnp.pi)
+
         encoded_tau = linen.Dense(
             self.output_dim,
             name=f"tau_enc_dense",
             use_bias=True,
-        )(tau)
+        )(tau) # [num_tau_samples, output_dim]
         return encoded_tau
 
 
@@ -80,11 +84,12 @@ class IQN(linen.Module):
         combined_encoder = MLP(layer_sizes=self.layer_sizes, activation=self.activation, kernel_init=self.kernel_init, activate_final=self.activate_final, bias=self.bias, use_layer_norm=self.use_layer_norm)
 
         # encoded_obs - [batch_size, repr_dim]
-        # encoded_tau - [repr_dim]
+        # encoded_tau - [num_tau_samples, repr_dim]
         encoded_obs = obs_encoder(data)
         encoded_tau = TauEncoder(output_dim=self.repr_dim,kernel_init=self.kernel_init)(tau)
 
-        combined = encoded_obs * encoded_tau
+        combined = encoded_obs[None,: , :] * encoded_tau[:, None, :] # [num_tau_samples, batch_size, repr_dim]
+        # jax.debug.print("combined shape {sh}", sh=combined.shape)
 
         return combined_encoder(combined)
 
