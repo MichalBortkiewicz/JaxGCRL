@@ -36,7 +36,7 @@ class ArmReach(ArmEnvs):
     def _get_initial_state(self, rng):
         target_q = self.sys.init_q[:7]
         arm_q_default = jnp.array([1.571, 0.742, 0, -1.571, 0, 3.054, 1.449]) # Start closer to the relevant area
-        arm_q = arm_q_default + self.arm_noise_scale * jax.random.uniform(subkey2, [self.sys.q_size() - 7], minval=-1)
+        arm_q = arm_q_default + self.arm_noise_scale * jax.random.uniform(rng, [self.sys.q_size() - 7], minval=-1)
         
         q = jnp.concatenate([target_q] + [arm_q])
         qd = jnp.zeros([self.sys.qd_size()])
