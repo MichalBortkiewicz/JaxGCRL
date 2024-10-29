@@ -36,14 +36,14 @@ def create_parser():
     parser.add_argument("--action_repeat", type=int, default=2, help="Number of times to repeat each action")
     parser.add_argument("--discounting", type=float, default=0.997, help="Discounting factor for rewards")
     parser.add_argument("--num_envs", type=int, default=256, help="Number of environments")
-    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for training")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
     parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument('--policy_lr', type=float, default=6e-4)
+    parser.add_argument('--policy_lr', type=float, default=3e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
@@ -61,17 +61,19 @@ def create_parser():
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
+    parser.add_argument('--use_sparse_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
+    parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
     return parser
 
 
 def create_env(args: argparse.Namespace) -> object:
     env_name = args.env_name
     if env_name == "reacher":
-        env = Reacher(backend=args.backend or "generalized")
+        env = Reacher(sparse_reward=args.use_sparse_reward, backend=args.backend or "generalized")
     elif env_name == "ant":
-        env = Ant(backend=args.backend or "spring")
+        env = Ant(sparse_reward=args.use_sparse_reward, backend=args.backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(backend=args.backend or "spring")
+        env = AntBall(sparse_reward=args.use_sparse_reward, backend=args.backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
         assert args.backend == "mjx"

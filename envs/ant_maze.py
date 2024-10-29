@@ -148,6 +148,7 @@ class AntMaze(PipelineEnv):
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
+        sparse_reward:bool=False,
         **kwargs,
     ):
         xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
@@ -195,7 +196,7 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        
+        self.sparse_reward = sparse_reward
         self.state_dim = 29
         self.goal_indices = jp.array([0, 1])
 
@@ -271,13 +272,21 @@ class AntMaze(PipelineEnv):
         ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
         contact_cost = 0.0
 
+        old_obs = self._get_obs(pipeline_state0)
+        old_dist = jp.linalg.norm(old_obs[:2] - old_obs[-2:])
         obs = self._get_obs(pipeline_state)
-        done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
-
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
+        vel_to_target =  (old_dist-dist) / self.dt
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
+
+        if self.sparse_reward:
+            reward = success
+        else:
+            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+
+        done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+
         state.metrics.update(
             reward_forward=forward_reward,
             reward_survive=healthy_reward,

@@ -27,6 +27,7 @@ class Humanoid(PipelineEnv):
       backend='generalized',
       min_goal_dist = 1.0,
       max_goal_dist = 5.0,
+      sparse_reward: bool = False,
       **kwargs,
   ):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "humanoid.xml")
@@ -64,6 +65,7 @@ class Humanoid(PipelineEnv):
         exclude_current_positions_from_observation
     )
     self._target_ind = self.sys.link_names.index('target')
+    self.sparse_reward = sparse_reward
     self._min_goal_dist = min_goal_dist
     self._max_goal_dist = max_goal_dist
     
@@ -145,10 +147,16 @@ class Humanoid(PipelineEnv):
     obs = self._get_obs(pipeline_state, action)
     distance_to_target = jp.linalg.norm(obs[:3] - obs[-3:])
 
-    done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
-    reward = -distance_to_target + healthy_reward - ctrl_cost
     success = jp.array(distance_to_target < 0.5, dtype=float)
     success_easy = jp.array(distance_to_target < 2., dtype=float)
+
+    if self.sparse_reward:
+        reward = success
+    else:
+        reward = -distance_to_target + healthy_reward - ctrl_cost
+
+    done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+
     state.metrics.update(
         forward_reward=forward_reward,
         reward_linvel=forward_reward,
