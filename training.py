@@ -16,7 +16,7 @@ from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, 
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name, config):
-    inference_fn = inf_fun_factory(params, env, config)
+    inference_fn = inf_fun_factory(params)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
     jit_inference_fn = jax.jit(inference_fn)
