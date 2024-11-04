@@ -3,39 +3,14 @@ import json
 import os
 import pickle
 
-import jax
 import math
 import wandb
 from brax.io import model
-from brax.io import html
 from pyinstrument import Profiler
 
 
 from src.train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
-
-
-def render(inf_fun_factory, params, env, exp_dir, exp_name):
-    inference_fn = inf_fun_factory(params)
-    jit_env_reset = jax.jit(env.reset)
-    jit_env_step = jax.jit(env.step)
-    jit_inference_fn = jax.jit(inference_fn)
-
-    rollout = []
-    rng = jax.random.PRNGKey(seed=1)
-    state = jit_env_reset(rng=rng)
-    for i in range(5000):
-        rollout.append(state.pipeline_state)
-        act_rng, rng = jax.random.split(rng)
-        act, _ = jit_inference_fn(state.obs, act_rng)
-        state = jit_env_step(state, act)
-        if i % 1000 == 0:
-            state = jit_env_reset(rng=rng)
-
-    url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
-    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
-        file.write(url)
-    wandb.log({"render": wandb.Html(url)})
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
 
 
 def main(args):

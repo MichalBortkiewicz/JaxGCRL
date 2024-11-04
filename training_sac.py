@@ -9,10 +9,7 @@ from brax.io import model
 from pyinstrument import Profiler
 
 from src.baselines.sac import train
-from training import render
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
-
-
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
 
 
 def main(args):
@@ -105,6 +102,15 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
+    sgd_to_env = (
+        args.num_envs
+        * args.episode_length
+        * args.multiplier_num_sgd_steps
+        / args.batch_size
+    ) / (args.num_envs * args.unroll_length)
+    print(f"SGD steps per env steps: {sgd_to_env}")
+    args.sgd_to_env = sgd_to_env
+
     wandb.init(
         project=args.project_name,
         group=args.group_name,

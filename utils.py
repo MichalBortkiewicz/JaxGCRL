@@ -1,6 +1,10 @@
 import argparse
+import os
 from collections import namedtuple
 from datetime import datetime
+
+import jax
+from brax.io import html
 
 from matplotlib import pyplot as plt
 import wandb
@@ -196,3 +200,26 @@ class MetricsRecorder:
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
+
+
+def render(inf_fun_factory, params, env, exp_dir, exp_name):
+    inference_fn = inf_fun_factory(params)
+    jit_env_reset = jax.jit(env.reset)
+    jit_env_step = jax.jit(env.step)
+    jit_inference_fn = jax.jit(inference_fn)
+
+    rollout = []
+    rng = jax.random.PRNGKey(seed=1)
+    state = jit_env_reset(rng=rng)
+    for i in range(5000):
+        rollout.append(state.pipeline_state)
+        act_rng, rng = jax.random.split(rng)
+        act, _ = jit_inference_fn(state.obs, act_rng)
+        state = jit_env_step(state, act)
+        if i % 1000 == 0:
+            state = jit_env_reset(rng=rng)
+
+    url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
+    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+        file.write(url)
+    wandb.log({"render": wandb.Html(url)})
