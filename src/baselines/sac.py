@@ -133,8 +133,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         return buffer_state.replace(key=key), transitions
 
     @staticmethod
-    @functools.partial(jax.jit, static_argnames="config")
-    def flatten_crl_fn(config, transition: Transition, sample_key: PRNGKey) -> Transition:
+    @functools.partial(jax.jit, static_argnames=["config", "env"])
+    def flatten_crl_fn(config, env, transition: Transition, sample_key: PRNGKey) -> Transition:
         if config.use_her:
             # Find truncation indexes if present
             seq_len = transition.observation.shape[0]
@@ -146,7 +146,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
             # final_step_mask.shape == (seq_len, seq_len)
             final_step_mask = is_future_mask * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
-            final_step_mask = jnp.logical_and(final_step_mask, transition.extras["state_extras"]["truncation"][None,:])
+            final_step_mask = jnp.logical_and(final_step_mask, transition.extras["state_extras"]["truncation"][None, :])
             non_zero_columns = jnp.nonzero(final_step_mask, size=seq_len)[1]
 
             # If final state is not present use original goal (i.e. don't change anything)
@@ -154,20 +154,20 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
 
             new_goals = (
-                binary_mask[:,None] * transition.observation[new_goals_idx][:, config.goal_start_idx : config.goal_end_idx]
-                + jnp.logical_not(binary_mask)[:,None]  * transition.observation[new_goals_idx][:, config.obs_dim :]
+                binary_mask[:, None] * transition.observation[new_goals_idx][:, env.goal_indices]
+                + jnp.logical_not(binary_mask)[:, None] * transition.observation[new_goals_idx][:, env.state_dim :]
             )
 
             # Transform observation
-            state = transition.observation[:, : config.obs_dim]
+            state = transition.observation[:, : env.state_dim]
             new_obs = jnp.concatenate([state, new_goals], axis=1)
 
             # Recalculate reward
-            dist = jnp.linalg.norm(new_obs[:,config.obs_dim :] - new_obs[:,config.goal_start_idx : config.goal_end_idx], axis=1)
-            new_reward = jnp.array(dist < config.goal_dist, dtype=float)
+            dist = jnp.linalg.norm(new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1)
+            new_reward = jnp.array(dist < env.goal_dist, dtype=float)
 
             # Transform next observation
-            next_state = transition.next_observation[:, : config.obs_dim]
+            next_state = transition.next_observation[:, : env.state_dim]
             new_next_obs = jnp.concatenate([next_state, new_goals], axis=1)
 
             return transition._replace(
@@ -534,8 +534,8 @@ def train(
         buffer_state, transitions = replay_buffer.sample(buffer_state)
 
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
-            config, transitions, batch_keys
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, None, 0, 0))(
+            config, env, transitions, batch_keys
         )
 
         # Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)
