@@ -10,7 +10,6 @@ from matplotlib import pyplot as plt
 import wandb
 
 from envs.ant import Ant
-from envs.debug_env import Debug
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
@@ -91,8 +90,6 @@ def create_env(args: argparse.Namespace) -> object:
             env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
-    elif env_name == "debug":
-        env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":
         env = Pusher(backend=args.backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
@@ -127,7 +124,7 @@ def create_eval_env(args: argparse.Namespace) -> object:
     return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
-    legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
+    legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant",
                   "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_push_easy", 
                   "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
 
