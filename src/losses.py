@@ -8,7 +8,7 @@ from brax.training.types import Params
 from brax.training.types import PRNGKey
 import jax
 import jax.numpy as jnp
-from src import utils
+from src import losses_utils
 
 
 Transition = types.Transition
