@@ -111,9 +111,6 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
         )  # pytype: disable=bad-return-type  # jax-ndarray
 
 
-ReplayBufferState = Any
-
-
 class Transition(NamedTuple):
     """Container for a transition."""
 
