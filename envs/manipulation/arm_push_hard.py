@@ -29,6 +29,7 @@ class ArmPushHard(ArmEnvs):
         self.goal_indices = jnp.array([0, 1, 2]) # Cube position
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Identical
         self.state_dim = 17
+        self.goal_dist = 0.1
 
         self.arm_noise_scale = 0
         self.cube_noise_scale = 0.25
@@ -57,7 +58,7 @@ class ArmPushHard(ArmEnvs):
         goal_pos = goal[:3]
         dist = jnp.linalg.norm(current_cube_pos - goal_pos)
 
-        success = jnp.array(dist < 0.1, dtype=float)
+        success = jnp.array(dist < self.goal_dist, dtype=float)
         success_easy = jnp.array(dist < 0.3, dtype=float)
         success_hard = jnp.array(dist < 0.03, dtype=float)
         return success, success_easy, success_hard

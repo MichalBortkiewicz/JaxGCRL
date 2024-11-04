@@ -30,6 +30,7 @@ class Reacher(PipelineEnv):
         self.dense_reward = dense_reward
         self.state_dim = 10
         self.goal_indices = jp.array([4, 5, 6])
+        self.goal_dist = 0.05
 
     def reset(self, rng: jax.Array) -> State:
         rng, rng1, rng2 = jax.random.split(rng, 3)
@@ -80,7 +81,7 @@ class Reacher(PipelineEnv):
         tip_to_target = target_pos - tip_pos
         dist = jp.linalg.norm(tip_to_target)
         reward_dist = -math.safe_norm(tip_to_target)
-        success = jp.array(dist < 0.05, dtype=float)
+        success = jp.array(dist < self.goal_dist, dtype=float)
 
         if self.dense_reward:
             reward = reward_dist

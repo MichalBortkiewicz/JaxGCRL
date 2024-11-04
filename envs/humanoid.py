@@ -71,6 +71,7 @@ class Humanoid(PipelineEnv):
     
     self.state_dim = 268
     self.goal_indices = jp.array([0, 1, 2])
+    self.goal_dist = 0.5
 
   def reset(self, rng: jax.Array) -> State:
     """Resets the environment to an initial state."""
@@ -147,7 +148,7 @@ class Humanoid(PipelineEnv):
     obs = self._get_obs(pipeline_state, action)
     distance_to_target = jp.linalg.norm(obs[:3] - obs[-3:])
 
-    success = jp.array(distance_to_target < 0.5, dtype=float)
+    success = jp.array(distance_to_target < self.goal_dist, dtype=float)
     success_easy = jp.array(distance_to_target < 2., dtype=float)
 
     if self.dense_reward:

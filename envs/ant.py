@@ -73,6 +73,7 @@ class Ant(PipelineEnv):
         self.dense_reward = dense_reward
         self.state_dim = 29
         self.goal_indices = jp.array([0, 1])
+        self.goal_dist = 0.5
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -147,7 +148,7 @@ class Ant(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
         vel_to_target =  (old_dist-dist) / self.dt
-        success = jp.array(dist < 0.5, dtype=float)
+        success = jp.array(dist < self.goal_dist, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
         if self.dense_reward:
