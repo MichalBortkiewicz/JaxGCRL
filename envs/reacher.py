@@ -11,7 +11,7 @@ from jax import numpy as jp
 # https://github.com/google/brax/blob/main/brax/envs/reacher.py
 
 class Reacher(PipelineEnv):
-    def __init__(self, backend="generalized", sparse_reward: bool = False, **kwargs):
+    def __init__(self, backend="generalized", dense_reward: bool = False, **kwargs):
         path = epath.resource_path("brax") / "envs/assets/reacher.xml"
         sys = mjcf.load(path)
 
@@ -27,7 +27,7 @@ class Reacher(PipelineEnv):
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
-        self.sparse_reward = sparse_reward
+        self.dense_reward = dense_reward
         self.state_dim = 10
         self.goal_indices = jp.array([4, 5, 6])
 
@@ -82,10 +82,10 @@ class Reacher(PipelineEnv):
         reward_dist = -math.safe_norm(tip_to_target)
         success = jp.array(dist < 0.05, dtype=float)
 
-        if self.sparse_reward:
-            reward = success
-        else:
+        if self.dense_reward:
             reward = reward_dist
+        else:
+            reward = success
 
         state.metrics.update(
             reward_dist=reward_dist,

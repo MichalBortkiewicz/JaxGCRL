@@ -26,7 +26,7 @@ class AntPush(PipelineEnv):
         reset_noise_scale=0.1,
         exclude_current_positions_from_observation=False,
         backend="mjx",
-        sparse_reward: bool = False,
+        dense_reward: bool = False,
         **kwargs,
     ):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_push.xml")
@@ -60,7 +60,7 @@ class AntPush(PipelineEnv):
             exclude_current_positions_from_observation
         )
         self._object_idx = self.sys.link_names.index('movable')
-        self.sparse_reward = sparse_reward
+        self.dense_reward = dense_reward
         self.state_dim = 31
         self.goal_indices = jp.array([0, 1])
 
@@ -141,10 +141,10 @@ class AntPush(PipelineEnv):
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
-        if self.sparse_reward:
-            reward = success
+        if self.dense_reward:
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
         else:
-            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+            reward = success
 
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 

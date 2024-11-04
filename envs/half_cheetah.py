@@ -18,7 +18,7 @@ class Halfcheetah(PipelineEnv):
         reset_noise_scale=0.1,
         exclude_current_positions_from_observation=False,
         backend="mjx",
-        sparse_reward: bool = False,
+        dense_reward: bool = False,
         **kwargs
     ):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "half_cheetah.xml")
@@ -42,7 +42,7 @@ class Halfcheetah(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        self.sparse_reward = sparse_reward
+        self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jp.array([0])
 
@@ -101,10 +101,10 @@ class Halfcheetah(PipelineEnv):
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
-        if self.sparse_reward:
-            reward = success
-        else:
+        if self.dense_reward:
             reward = ctrl_cost - dist
+        else:
+            reward = success
 
         state.metrics.update(
             x_position=pipeline_state.x.pos[0, 0],

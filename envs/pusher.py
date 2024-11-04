@@ -11,7 +11,7 @@ from jax import numpy as jp
 
 
 class Pusher(PipelineEnv):
-  def __init__(self, backend='generalized', kind="easy", sparse_reward:bool=False, **kwargs):
+  def __init__(self, backend='generalized', kind="easy", dense_reward:bool=False, **kwargs):
     path = epath.resource_path('brax') / 'envs/assets/pusher.xml'
     sys = mjcf.load(path)
 
@@ -35,7 +35,7 @@ class Pusher(PipelineEnv):
     self._object_idx = self.sys.link_names.index('object')
     self._goal_idx = self.sys.link_names.index('goal')
     self.kind = kind
-    self.sparse_reward = sparse_reward
+    self.dense_reward = dense_reward
     self.state_dim = 20
     self.goal_indices = jp.array([10, 11, 12])
 
@@ -117,10 +117,10 @@ class Pusher(PipelineEnv):
     obs = self._get_obs(pipeline_state)
     success = jp.array(obj_to_goal_dist < 0.1, dtype=float)
 
-    if self.sparse_reward:
-        reward = success
-    else:
+    if self.dense_reward:
         reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
+    else:
+        reward = success
 
     state.metrics.update(
         reward_near=reward_near,

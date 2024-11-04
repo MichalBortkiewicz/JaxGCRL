@@ -148,7 +148,7 @@ class AntMaze(PipelineEnv):
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
-        sparse_reward:bool=False,
+        dense_reward:bool=False,
         **kwargs,
     ):
         xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
@@ -196,7 +196,7 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        self.sparse_reward = sparse_reward
+        self.dense_reward = dense_reward
         self.state_dim = 29
         self.goal_indices = jp.array([0, 1])
 
@@ -280,10 +280,10 @@ class AntMaze(PipelineEnv):
         success = jp.array(dist < 0.5, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
-        if self.sparse_reward:
-            reward = success
+        if self.dense_reward:
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
         else:
-            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+            reward = success
 
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 

@@ -61,7 +61,7 @@ def create_parser():
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
-    parser.add_argument('--use_sparse_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
+    parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
     parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
     return parser
 
@@ -69,11 +69,11 @@ def create_parser():
 def create_env(args: argparse.Namespace) -> object:
     env_name = args.env_name
     if env_name == "reacher":
-        env = Reacher(sparse_reward=args.use_sparse_reward, backend=args.backend or "generalized")
+        env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
-        env = Ant(sparse_reward=args.use_sparse_reward, backend=args.backend or "spring")
+        env = Ant(backend=args.backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(sparse_reward=args.use_sparse_reward, backend=args.backend or "spring")
+        env = AntBall(backend=args.backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
         assert args.backend == "mjx"
