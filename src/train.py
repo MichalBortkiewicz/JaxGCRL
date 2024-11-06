@@ -7,18 +7,13 @@ import jax
 import jax.numpy as jnp
 import optax
 from absl import logging
-from brax import base
-from brax import envs
-from brax.io import model
-from brax.training import gradients
-from brax.training import pmap
-from brax.training import types
-from brax.training.acme import running_statistics
-from brax.training.acme import specs
+import brax
+from brax import base, envs
+from brax.training import gradients, pmap, types
+from brax.training.acme import running_statistics, specs
 from brax.training.acme.types import NestedArray
 from brax.training.replay_buffers_test import jit_wrap
-from brax.training.types import PRNGKey
-from brax.training.types import Params, Policy
+from brax.training.types import PRNGKey, Params, Policy
 from brax.v1 import envs as envs_v1
 
 from src import losses as crl_losses
@@ -26,49 +21,34 @@ from src import networks as crl_networks
 from src.replay_buffer import QueueBase, Sample
 from src.evaluator import CrlEvaluator
 
-
 Metrics = types.Metrics
-# Transition = types.Transition
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
-
+InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
+ReplayBufferState = Any
+_PMAP_AXIS_NAME = "i"
 
 class Transition(NamedTuple):
     """Container for a transition."""
-
     observation: NestedArray
     action: NestedArray
     reward: NestedArray
     discount: NestedArray
     extras: NestedArray = ()  # pytype: disable=annotation-type-mismatch  # jax-ndarray
+    
+@flax.struct.dataclass
+class TrainingState:
+    """Contains training state for the learner."""
 
-
-def actor_step(
-    env: Env,
-    env_state: State,
-    policy: Policy,
-    key: PRNGKey,
-    extra_fields: Sequence[str] = (),
-) -> Tuple[State, Transition]:
-    """Collect data."""
-    actions, policy_extras = policy(env_state.obs, key)
-    nstate = env.step(env_state, actions)
-    state_extras = {x: nstate.info[x] for x in extra_fields}
-    return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        observation=env_state.obs,
-        action=actions,
-        reward=nstate.reward,
-        discount=1 - nstate.done,
-        extras={"policy_extras": policy_extras, "state_extras": state_extras},
-    )
-
-
-InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
-
-ReplayBufferState = Any
-
-_PMAP_AXIS_NAME = "i"
-
+    policy_optimizer_state: optax.OptState
+    policy_params: Params
+    gradient_steps: jnp.ndarray
+    env_steps: jnp.ndarray
+    alpha_optimizer_state: optax.OptState
+    alpha_params: Params
+    normalizer_params: running_statistics.RunningStatisticsState
+    crl_critic_params: Params
+    crl_critic_optimizer_state: optax.OptState
 
 class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
     """Implements an uniform sampling limited-size replay queue BUT WITH TRAJECTORIES."""
@@ -155,25 +135,26 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             extras=extras,
         )
 
-
-@flax.struct.dataclass
-class TrainingState:
-    """Contains training state for the learner."""
-
-    policy_optimizer_state: optax.OptState
-    policy_params: Params
-    gradient_steps: jnp.ndarray
-    env_steps: jnp.ndarray
-    alpha_optimizer_state: optax.OptState
-    alpha_params: Params
-    normalizer_params: running_statistics.RunningStatisticsState
-    crl_critic_params: Params
-    crl_critic_optimizer_state: optax.OptState
-
-
 def _unpmap(v):
     return jax.tree_util.tree_map(lambda x: x[0], v)
 
+def actor_step(env: Env, env_state: State, policy: Policy, key: PRNGKey, extra_fields: Sequence[str] = ()) -> Tuple[State, Transition]:
+    """Collect data."""
+    # Generate network and random actions
+    key, subkey1, subkey2 = jax.random.split(key, 3)
+    network_action, policy_extras = policy(env_state.obs, subkey1)
+    action = network_action
+    
+    # Take step
+    nstate = env.step(env_state, action)
+    state_extras = {x: nstate.info[x] for x in extra_fields}
+    return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        observation=env_state.obs,
+        action=action,
+        reward=nstate.reward,
+        discount=1 - nstate.done,
+        extras={"policy_extras": policy_extras, "state_extras": state_extras},
+    )
 
 def _init_training_state(
     key: PRNGKey,
@@ -185,20 +166,17 @@ def _init_training_state(
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
-    key_policy, key_sa_enc, key_g_enc = jax.random.split(key, 3)
+    key_policy, key_value_network = jax.random.split(key)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
-    c = jnp.asarray(0.0, dtype=jnp.float32)
-
+    normalizer_params = running_statistics.init_state(specs.Array((obs_size,), jnp.dtype("float32")))
+    
     policy_params = crl_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
 
-    normalizer_params = running_statistics.init_state(specs.Array((obs_size,), jnp.dtype("float32")))
-
-    sa_encoder_params = crl_network.sa_encoder.init(key_sa_enc)
-    g_encoder_params = crl_network.g_encoder.init(key_g_enc)
-    crl_critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params, "c": c}
+    value_network_params = crl_network.value_network.init(key_value_network)
+    crl_critic_params = {"value_network": value_network_params}
     crl_critic_state = crl_critics_optimizer.init(crl_critic_params)
 
     training_state = TrainingState(
@@ -382,7 +360,7 @@ def train(
         training_state, key = carry
 
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
-
+        
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
             training_state.alpha_params,
             training_state.policy_params,
@@ -603,6 +581,7 @@ def train(
         (training_state, env_state, buffer_state, metrics) = training_epoch(
             training_state, env_state, buffer_state, key
         )
+        
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
 
@@ -674,7 +653,8 @@ def train(
             training_metrics={},
         )
         logging.info(metrics)
-        progress_fn(0, metrics)
+        params = _unpmap((training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params))
+        progress_fn(0, metrics, make_policy, params, do_render=True)
 
     # Create and initialize the replay buffer.
     t = time.time()
@@ -706,22 +686,25 @@ def train(
 
         # Eval and logging
         if process_id == 0:
-            if checkpoint_logdir:
-                # Save current policy and critic params.
-                params = _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params)
-                )
-                path = f"{checkpoint_logdir}/step_{current_step}.pkl"
-                model.save_params(path, params)
-
             # Run evals.
             metrics = evaluator.run_evaluation(
                 _unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics,
             )
             logging.info(metrics)
-            progress_fn(current_step, metrics)
-
+            
+            if checkpoint_logdir:
+                # Save current policy and critic params.
+                params = _unpmap(
+                    (training_state.normalizer_params, training_state.policy_params, training_state.crl_critic_params)
+                )
+                path = f"{checkpoint_logdir}/step_{current_step}.pkl"
+                brax.io.model.save_params(path, params)
+                
+                progress_fn(current_step, metrics, make_policy, params, do_render=True)
+            else:
+                progress_fn(current_step, metrics, None, None, do_render=False)
+    
     total_steps = current_step
     assert total_steps >= num_timesteps
 

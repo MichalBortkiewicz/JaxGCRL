@@ -14,56 +14,9 @@ Initializer = Callable[..., Any]
 
 @flax.struct.dataclass
 class CRLNetworks:
-    policy_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
-    sa_encoder: networks.FeedForwardNetwork
-    g_encoder: networks.FeedForwardNetwork
-
-class MLP(linen.Module):
-    """MLP module."""
-
-    layer_sizes: Sequence[int]
-    activation: ActivationFn = linen.relu
-    kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
-    activate_final: bool = False
-    bias: bool = True
-    use_layer_norm: bool = False
-    @linen.compact
-    def __call__(self, data: jnp.ndarray):
-        hidden = data
-        for i, hidden_size in enumerate(self.layer_sizes):
-            hidden = linen.Dense(
-                hidden_size,
-                name=f"hidden_{i}",
-                kernel_init=self.kernel_init,
-                use_bias=self.bias,
-            )(hidden)
-            if i != len(self.layer_sizes) - 1 or self.activate_final:
-                if self.use_layer_norm:
-                    hidden = linen.LayerNorm()(hidden)
-                hidden = self.activation(hidden)
-        return hidden
-
-
-def make_embedder(
-    layer_sizes: Sequence[int],
-    obs_size: int,
-    activation: Callable[[jnp.ndarray], jnp.ndarray] = linen.swish,
-    preprocess_observations_fn: types.PreprocessObservationFn = types,
-    use_ln: bool = False
-) -> networks.FeedForwardNetwork:
-
-    """Creates a model."""
-    dummy_obs = jnp.zeros((1, obs_size))
-    module = MLP(layer_sizes=layer_sizes, activation=activation, use_layer_norm=use_ln)
-
-    # TODO: should we have a function to preprocess the observations?
-    def apply(processor_params, policy_params, obs):
-        # obs = preprocess_observations_fn(obs, processor_params)
-        return module.apply(policy_params, obs)
-
-    model = networks.FeedForwardNetwork(init=lambda rng: module.init(rng, dummy_obs), apply=apply)
-    return model
+    policy_network: networks.FeedForwardNetwork
+    value_network: networks.FeedForwardNetwork
 
 def make_inference_fn(crl_networks: CRLNetworks):
     """Creates params and inference function for the CRL agent."""
@@ -78,17 +31,10 @@ def make_inference_fn(crl_networks: CRLNetworks):
         return policy
     return make_policy
 
-
-def make_crl_networks(
-    config: NamedTuple,
-    env: object,
-    observation_size: int,
-    action_size: int,
-    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
-    hidden_layer_sizes: Sequence[int] = (256, 256),
-    activation: networks.ActivationFn = linen.relu,
-    use_ln: bool= False
-) -> CRLNetworks:
+def make_crl_networks(config: NamedTuple, env: object, observation_size: int, action_size: int,
+                      preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+                      hidden_layer_sizes: Sequence[int] = (256, 256), activation: networks.ActivationFn = linen.relu, 
+                      use_ln: bool=False) -> CRLNetworks:
     """Make CRL networks."""
     parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
     
@@ -99,24 +45,14 @@ def make_crl_networks(
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
     )
-    sa_encoder = make_embedder(
-        layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=env.state_dim + action_size,
-        activation=activation,
+    value_network = networks.make_value_network(
+        obs_size=env.state_dim + action_size + len(env.goal_indices),
         preprocess_observations_fn=preprocess_observations_fn,
-        use_ln=use_ln
-    )
-    g_encoder = make_embedder(
-        layer_sizes=list(hidden_layer_sizes) + [config.repr_dim],
-        obs_size=len(env.goal_indices),
+        hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
-        preprocess_observations_fn=preprocess_observations_fn,
-        use_ln=use_ln
     )
-
     return CRLNetworks(
-        policy_network=policy_network,
         parametric_action_distribution=parametric_action_distribution,
-        sa_encoder=sa_encoder,
-        g_encoder=g_encoder,
+        policy_network=policy_network,
+        value_network=value_network,
     )
