@@ -7,7 +7,7 @@ from jax import numpy as jnp
 from envs.manipulation.arm_envs import ArmEnvs
 
 """
-Binpick-Easy (EEF): Move a cube from a random location in the blue bin to a random location in the red bin, controlling the EEF position directly. There are
+Binpick-Easy (EEF): Move a cube from a random location in the blue bin to the center of the red bin, controlling the EEF position directly. There are
                     invisible walls to prevent the cube from going too far.
 - Observation space: 11-dim obs + 3-dim goal.
 - Action space:      4-dim, each element in [-1, 1], corresponding to target delta position for EEF, and finger closedness.
@@ -90,6 +90,6 @@ class ArmBinpickEasyEEF(ArmEnvs):
         right_finger_index = 4
         right_finger_x_pos = pipeline_state.x.pos[right_finger_index]
         finger_distance = jnp.linalg.norm(right_finger_x_pos - left_finger_x_pos, keepdims=True)
-        gripper_force = (0.1 * pipeline_state.qfrc_actuator[:-2]).mean(keepdims=True) # Normalize it from range [-20, 20] to [-2, 2]
+        gripper_force = (pipeline_state.qfrc_actuator[:-2]).mean(keepdims=True) * 0.1 # Normalize it from range [-20, 20] to [-2, 2]
         
         return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [gripper_force] + [goal])

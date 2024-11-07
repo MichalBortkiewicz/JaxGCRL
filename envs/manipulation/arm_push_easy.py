@@ -8,7 +8,7 @@ from envs.manipulation.arm_envs import ArmEnvs
 
 """
 Push-Easy: Move a cube from a random location on the blue region to a random goal on the adjacent red region. The regions are very small.
-- Observation space: 17-dim obs + 3-dim goal.
+- Observation space: 18-dim obs + 3-dim goal.
 - Action space:      5-dim, each element in [-1, 1], corresponding to target angles for joints 1, 2, 4, 6, and finger closedness.
 
 See _get_obs() and ArmEnvs._convert_action() for details.
@@ -28,7 +28,7 @@ class ArmPushEasy(ArmEnvs):
         
         self.goal_indices = jnp.array([0, 1, 2]) # Cube position
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Identical
-        self.state_dim = 17
+        self.state_dim = 18
 
         self.arm_noise_scale = 0
         self.cube_noise_scale = 0.1
@@ -69,10 +69,10 @@ class ArmPushEasy(ArmEnvs):
     
     def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
-        Observation space (17-dim)
+        Observation space (18-dim)
          - q_subset (10-dim): 3-dim cube position, 7-dim joint angles
          - End-effector (6-dim): position and velocity
-         - Fingers (1-dim): finger distance
+         - Fingers (2-dim): finger distance, gripper force
         Note q is 23-dim: 7-dim cube position/angle, 7-dim goal marker position/angle, 7-dim joint angles, 2-dim finger offset
          
         Goal space (3-dim): position of cube
@@ -89,8 +89,9 @@ class ArmPushEasy(ArmEnvs):
         right_finger_index = 10
         right_finger_x_pos = pipeline_state.x.pos[right_finger_index]
         finger_distance = jnp.linalg.norm(right_finger_x_pos - left_finger_x_pos)[None] # [None] expands dims from 0 to 1
+        gripper_force = (pipeline_state.qfrc_actuator[:-2]).mean(keepdims=True) * 0.1 # Normalize it from range [-20, 20] to [-2, 2]
         
-        return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [goal])
+        return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [gripper_force] + [goal])
     
     def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
         q_indices = jnp.arange(14, 21)
