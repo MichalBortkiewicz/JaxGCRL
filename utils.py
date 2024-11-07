@@ -22,6 +22,7 @@ from envs.manipulation.arm_push_easy import ArmPushEasy
 from envs.manipulation.arm_push_hard import ArmPushHard
 from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
 from envs.manipulation.arm_binpick_hard import ArmBinpickHard
+from envs.simple_maze import SimpleMaze
 
 
 def create_parser():
@@ -77,12 +78,16 @@ def create_env(args: argparse.Namespace) -> object:
         # This is stable only in mjx backend
         assert args.backend == "mjx"
         env = AntPush(backend=args.backend)
-    elif "ant" in env_name and "maze" in env_name:
-        # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-        env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
-    elif "humanoid" in env_name and "maze" in env_name:
-        # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
-        env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+    elif "maze" in env_name:
+        if "ant" in env_name: 
+            # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
+            env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+        elif "humanoid" in env_name:
+            # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
+            env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+        else:
+            # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
+            env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "debug":
