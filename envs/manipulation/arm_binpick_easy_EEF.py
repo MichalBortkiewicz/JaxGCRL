@@ -8,7 +8,7 @@ from envs.manipulation.arm_envs import ArmEnvs
 
 """
 Binpick-Easy (EEF): Move a cube from a random location in the blue bin to the center of the red bin, controlling the EEF position directly. There are
-                    invisible walls to prevent the cube from going too far.
+                    invisible walls (currently renderer is broken so they're visible) to prevent the cube from going too far, which don't collide with the hand.
 - Observation space: 11-dim obs + 3-dim goal.
 - Action space:      4-dim, each element in [-1, 1], corresponding to target delta position for EEF, and finger closedness.
 
