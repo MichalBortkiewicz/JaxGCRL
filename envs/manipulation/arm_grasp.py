@@ -24,7 +24,7 @@ class ArmGrasp(ArmEnvs):
     # See ArmEnvs._set_environment_attributes for descriptions of attributes
     def _set_environment_attributes(self):
         self.env_name = "arm_grasp"
-        self.episode_length = 50
+        self.episode_length = 100
 
         self.goal_indices = jnp.array([16, 17, 18, 19, 20, 21, 22]) # Left and right fingertip positions, and fingertip distance
         self.completion_goal_indices = jnp.array([16, 17, 18, 19, 20, 21, 22]) # Identical

@@ -24,7 +24,7 @@ class ArmPushHard(ArmEnvs):
     # See ArmEnvs._set_environment_attributes for descriptions of attributes
     def _set_environment_attributes(self):
         self.env_name = "arm_push_hard"
-        self.episode_length = 80
+        self.episode_length = 150
 
         self.goal_indices = jnp.array([0, 1, 2]) # Cube position
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Identical

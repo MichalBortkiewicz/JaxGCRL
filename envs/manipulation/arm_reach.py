@@ -24,7 +24,7 @@ class ArmReach(ArmEnvs):
     # See ArmEnvs._set_environment_attributes for descriptions of attributes
     def _set_environment_attributes(self):
         self.env_name = "arm_reach"
-        self.episode_length = 50
+        self.episode_length = 100
 
         self.goal_indices = jnp.array([7, 8, 9]) # End-effector position
         self.completion_goal_indices = jnp.array([7, 8, 9]) # Identical
