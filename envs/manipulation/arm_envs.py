@@ -149,6 +149,7 @@ class ArmEnvs(PipelineEnv):
         return converted_action
     
     def _convert_action_to_actuator_input_EEF(self, pipeline_state: base.State, action: jax.Array) -> jax.Array:
+        eef_index = 2
         current_position = pipeline_state.x.pos[eef_index]
         delta_range = 0.2 # Unlike arm angle control which is more complex, if this number is 0.2, an action of +/- 1 simply targets +/- 0.2 distance in position
         arm_action = current_position + delta_range * jnp.clip(action[:3], -1, 1)
