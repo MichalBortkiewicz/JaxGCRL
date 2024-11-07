@@ -24,15 +24,15 @@ class ArmBinpickEasy(ArmEnvs):
     # See ArmEnvs._set_environment_attributes for descriptions of attributes
     def _set_environment_attributes(self):
         self.env_name = "arm_binpick_easy"
-        self.episode_length = 80
+        self.episode_length = 150
 
         self.goal_indices = jnp.array([0, 1, 2]) # Cube position
         self.completion_goal_indices = jnp.array([0, 1, 2]) # Identical
         self.state_dim = 17
 
         self.arm_noise_scale = 0
-        self.cube_noise_scale = 0.09
-        self.goal_noise_scale = 0.09
+        self.cube_noise_scale = 0.07
+        self.goal_noise_scale = 0.005
     
     def _get_initial_state(self, rng):
         rng, subkey1, subkey2 = jax.random.split(rng, 3)
