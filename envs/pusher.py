@@ -11,10 +11,9 @@ from jax import numpy as jnp
 
 
 class Pusher(PipelineEnv):
-    def __init__(self, backend='generalized', kind="easy", **kwargs):
+    def __init__(self, backend='generalized', kind="easy", dense_reward:bool=False, **kwargs):
         path = epath.resource_path('brax') / 'envs/assets/pusher.xml'
         sys = mjcf.load(path)
-
         n_frames = 5
 
         if backend in ['spring', 'positional']:
@@ -28,16 +27,17 @@ class Pusher(PipelineEnv):
         kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
-
+        
         # The tips_arm body gets fused with r_wrist_roll_link, so we use the parent
         # r_wrist_flex_link for tips_arm_idx.
         self._tips_arm_idx = self.sys.link_names.index('r_wrist_flex_link')
         self._object_idx = self.sys.link_names.index('object')
         self._goal_idx = self.sys.link_names.index('goal')
         self.kind = kind
-
+        self.dense_reward = dense_reward
         self.state_dim = 20
         self.goal_indices = jnp.array([10, 11, 12])
+        self.goal_dist = 0.1
 
     def reset(self, rng: jax.Array) -> State:
         qpos = self.sys.init_q
@@ -98,29 +98,35 @@ class Pusher(PipelineEnv):
         )
         vec_1 = x_i.pos[self._object_idx] - x_i.pos[self._tips_arm_idx]
         vec_2 = x_i.pos[self._object_idx] - x_i.pos[self._goal_idx]
-
+        
         obj_to_goal_dist = math.safe_norm(vec_2)
 
         reward_near = -math.safe_norm(vec_1)
         reward_dist = -obj_to_goal_dist
         reward_ctrl = -jnp.square(action).sum()
-        reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
 
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
-
+        
         if "steps" in state.info.keys():
             seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
-
+            
         info = {"seed": seed}
-
+        
         obs = self._get_obs(pipeline_state)
+        success = jnp.array(obj_to_goal_dist < self.goal_dist, dtype=float)
+
+        if self.dense_reward:
+            reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
+        else:
+            reward = success
+
         state.metrics.update(
             reward_near=reward_near,
             reward_dist=reward_dist,
             reward_ctrl=reward_ctrl,
-            success=jnp.array(obj_to_goal_dist < 0.1, dtype=float),
+            success=success,
             success_hard=jnp.array(obj_to_goal_dist < 0.05, dtype=float)
         )
         state.info.update(info)
