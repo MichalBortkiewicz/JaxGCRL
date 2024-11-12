@@ -4,13 +4,12 @@ from brax import base
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 import jax
-from jax import numpy as jp
+from jax import numpy as jnp
 
 # This is based on original Half Cheetah environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/half_cheetah.py
 
 class Halfcheetah(PipelineEnv):
-
     def __init__(
         self,
         forward_reward_weight=1.0,
@@ -29,7 +28,7 @@ class Halfcheetah(PipelineEnv):
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.003125})
             n_frames = 16
-            gear = jp.array([120, 90, 60, 120, 100, 100])
+            gear = jnp.array([120, 90, 60, 120, 100, 100])
             sys = sys.replace(actuator=sys.actuator.replace(gear=gear))
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
@@ -44,7 +43,7 @@ class Halfcheetah(PipelineEnv):
         )
         self.dense_reward = dense_reward
         self.state_dim = 18
-        self.goal_indices = jp.array([0])
+        self.goal_indices = jnp.array([0])
         self.goal_dist = 0.5
 
     def reset(self, rng: jax.Array) -> State:
@@ -64,7 +63,7 @@ class Halfcheetah(PipelineEnv):
         pipeline_state = self.pipeline_init(qpos, qvel)
 
         obs = self._get_obs(pipeline_state)
-        reward, done, zero = jp.zeros(3)
+        reward, done, zero = jnp.zeros(3)
         metrics = {
             "x_position": zero,
             "x_velocity": zero,
@@ -85,7 +84,7 @@ class Halfcheetah(PipelineEnv):
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
         if "steps" in state.info.keys():
-            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
+            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
         info = {"seed": seed}
@@ -94,13 +93,13 @@ class Halfcheetah(PipelineEnv):
             pipeline_state.x.pos[0, 0] - pipeline_state0.x.pos[0, 0]
         ) / self.dt
         forward_reward = self._forward_reward_weight * x_velocity
-        ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
+        ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
 
         obs = self._get_obs(pipeline_state)
 
-        dist = jp.linalg.norm(obs[:1] - obs[-1:])
-        success = jp.array(dist < self.goal_dist, dtype=float)
-        success_easy = jp.array(dist < 2., dtype=float)
+        dist = jnp.linalg.norm(obs[:1] - obs[-1:])
+        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success_easy = jnp.array(dist < 2., dtype=float)
 
         if self.dense_reward:
             reward = ctrl_cost - dist
@@ -132,11 +131,11 @@ class Halfcheetah(PipelineEnv):
         if self._exclude_current_positions_from_observation:
             position = position[1:]
 
-        return jp.concatenate((position, velocity, target_pos))
+        return jnp.concatenate((position, velocity, target_pos))
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
         """Returns a target location in a random circle slightly above xy plane."""
         rng, rng1 = jax.random.split(rng, 2)
         dist = 5
         target_x = dist
-        return rng, jp.array([target_x])
+        return rng, jnp.array([target_x])

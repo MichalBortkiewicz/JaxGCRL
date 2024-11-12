@@ -13,9 +13,11 @@ from envs.ant import Ant
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
+from envs.pusher2 import Pusher2
 from envs.ant_ball import AntBall
 from envs.ant_maze import AntMaze
 from envs.humanoid import Humanoid
+from envs.humanoid_maze import HumanoidMaze
 from envs.ant_push import AntPush
 from envs.manipulation.arm_reach import ArmReach
 from envs.manipulation.arm_grasp import ArmGrasp
@@ -82,9 +84,12 @@ def create_env(args: argparse.Namespace) -> object:
         assert args.backend == "mjx"
         env = AntPush(backend=args.backend)
     elif "maze" in env_name:
-        if "ant" in env_name:
+        if "ant" in env_name: 
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
             env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+        elif "humanoid" in env_name:
+            # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
+            env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
             env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
@@ -96,6 +101,8 @@ def create_env(args: argparse.Namespace) -> object:
         env = Pusher(backend=args.backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
         env = PusherReacher(backend=args.backend or "generalized")
+    elif env_name == "pusher2":
+        env = Pusher2(backend=args.backend or "generalized")
     elif env_name == "humanoid":
         env = Humanoid(backend=args.backend or "spring")
     elif env_name == "arm_reach":
@@ -124,10 +131,9 @@ def create_eval_env(args: argparse.Namespace) -> object:
     return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
-    legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant",
-                  "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_push_easy", 
-                  "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
-
+    legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "pusher2",
+                  "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", 
+                  "arm_push_easy", "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
     if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
 

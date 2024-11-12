@@ -5,7 +5,7 @@ from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from etils import epath
 import jax
-from jax import numpy as jp
+from jax import numpy as jnp
 
 # This is based on original Reacher environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/reacher.py
@@ -20,7 +20,7 @@ class Reacher(PipelineEnv):
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
             sys = sys.replace(
-                actuator=sys.actuator.replace(gear=jp.array([25.0, 25.0]))
+                actuator=sys.actuator.replace(gear=jnp.array([25.0, 25.0]))
             )
             n_frames = 4
 
@@ -29,7 +29,7 @@ class Reacher(PipelineEnv):
         super().__init__(sys=sys, backend=backend, **kwargs)
         self.dense_reward = dense_reward
         self.state_dim = 10
-        self.goal_indices = jp.array([4, 5, 6])
+        self.goal_indices = jnp.array([4, 5, 6])
         self.goal_dist = 0.05
 
     def reset(self, rng: jax.Array) -> State:
@@ -50,7 +50,7 @@ class Reacher(PipelineEnv):
         pipeline_state = self.pipeline_init(q, qd)
 
         obs = self._get_obs(pipeline_state)
-        reward, done, zero = jp.zeros(3)
+        reward, done, zero = jnp.zeros(3)
         metrics = {
             "reward_dist": zero,
             "reward_ctrl": zero,
@@ -66,7 +66,7 @@ class Reacher(PipelineEnv):
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
         obs = self._get_obs(pipeline_state)
         if "steps" in state.info.keys():
-            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
+            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
         else:
             seed = state.info["seed"]
         info = {"seed": seed}
@@ -75,13 +75,13 @@ class Reacher(PipelineEnv):
         target_pos = pipeline_state.x.pos[2]
         tip_pos = (
             pipeline_state.x.take(1)
-            .do(base.Transform.create(pos=jp.array([0.11, 0, 0])))
+            .do(base.Transform.create(pos=jnp.array([0.11, 0, 0])))
             .pos
         )
         tip_to_target = target_pos - tip_pos
-        dist = jp.linalg.norm(tip_to_target)
+        dist = jnp.linalg.norm(tip_to_target)
         reward_dist = -math.safe_norm(tip_to_target)
-        success = jp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_dist, dtype=float)
 
         if self.dense_reward:
             reward = reward_dist
@@ -102,19 +102,19 @@ class Reacher(PipelineEnv):
         target_pos = pipeline_state.x.pos[2]
         tip_pos = (
             pipeline_state.x.take(1)
-            .do(base.Transform.create(pos=jp.array([0.11, 0, 0])))
+            .do(base.Transform.create(pos=jnp.array([0.11, 0, 0])))
             .pos
         )
         tip_vel = (
-            base.Transform.create(pos=jp.array([0.11, 0, 0]))
+            base.Transform.create(pos=jnp.array([0.11, 0, 0]))
             .do(pipeline_state.xd.take(1))
             .vel
         )
-        return jp.concatenate(
+        return jnp.concatenate(
             [
                 # state
-                jp.cos(theta),
-                jp.sin(theta),
+                jnp.cos(theta),
+                jnp.sin(theta),
                 tip_pos,
                 tip_vel,
                 # target/goal
@@ -126,7 +126,7 @@ class Reacher(PipelineEnv):
         """Returns a target location in a random circle slightly above xy plane."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
         dist = 0.2 * jax.random.uniform(rng1)
-        ang = jp.pi * 2.0 * jax.random.uniform(rng2)
-        target_x = dist * jp.cos(ang)
-        target_y = dist * jp.sin(ang)
-        return rng, jp.array([target_x, target_y])
+        ang = jnp.pi * 2.0 * jax.random.uniform(rng2)
+        target_x = dist * jnp.cos(ang)
+        target_y = dist * jnp.sin(ang)
+        return rng, jnp.array([target_x, target_y])

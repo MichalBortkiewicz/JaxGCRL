@@ -8,7 +8,7 @@ from envs.manipulation.arm_envs import ArmEnvs
 
 """
 Grasp: Close fingers on opposite sides of a cube.
-- Observation space: 23-dim obs + 7-dim goal.
+- Observation space: 24-dim obs + 7-dim goal.
 - Action space:      5-dim, each element in [-1, 1], corresponding to target angles for joints 1, 2, 4, 6, and finger closedness.
 
 See _get_obs() and ArmEnvs._convert_action() for details.
@@ -24,11 +24,11 @@ class ArmGrasp(ArmEnvs):
     # See ArmEnvs._set_environment_attributes for descriptions of attributes
     def _set_environment_attributes(self):
         self.env_name = "arm_grasp"
-        self.episode_length = 50
+        self.episode_length = 100
 
         self.goal_indices = jnp.array([16, 17, 18, 19, 20, 21, 22]) # Left and right fingertip positions, and fingertip distance
         self.completion_goal_indices = jnp.array([16, 17, 18, 19, 20, 21, 22]) # Identical
-        self.state_dim = 23
+        self.state_dim = 24
 
         self.arm_noise_scale = 0
         self.cube_noise_scale = 0.3
@@ -99,10 +99,11 @@ class ArmGrasp(ArmEnvs):
         
     def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
-        Observation space (23-dim)
+        Observation space (24-dim)
          - q_subset (10-dim): 3-dim cube position, 7-dim joint angles
          - End-effector (6-dim): position and velocity
          - Fingertips (7-dim): 6-dim positions of fingertips, 1-dim distance between fingertips
+         - Gripper (finger) force: 1-dim
         Note q is 25-dim: 7-dim cube position/angle, 7-dim goal marker position/angle, 7-dim joint angles, 4-dim finger offsets and dummy fingertip angles
          
         Goal space (7-dim): position of left fingertip, position of right fingertip, distance between fingertips
@@ -120,7 +121,10 @@ class ArmGrasp(ArmEnvs):
         right_fingertip_x_pos = pipeline_state.x.pos[right_fingertip_index]
         fingertip_distance = jnp.linalg.norm(right_fingertip_x_pos - left_fingertip_x_pos)[None] # [None] expands dims from 0 to 1
         
-        return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [left_fingertip_x_pos] + [right_fingertip_x_pos] + [fingertip_distance] + [goal])
+        # Index -4 and -2 to get the fingers, rather than fingertips
+        gripper_force = (pipeline_state.qfrc_actuator[jnp.array([-4, -2])]).mean(keepdims=True) * 0.1 # Normalize it from range [-20, 20] to [-2, 2]
+        
+        return jnp.concatenate([q_subset] + [eef_x_pos] + [eef_xd_vel] + [left_fingertip_x_pos] + [right_fingertip_x_pos] + [fingertip_distance] + [gripper_force] + [goal])
     
     def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
         q_indices = jnp.arange(14, 21)

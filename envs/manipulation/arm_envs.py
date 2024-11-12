@@ -57,8 +57,13 @@ class ArmEnvs(PipelineEnv):
         
         # Run mujoco step
         pipeline_state0 = state.pipeline_state
-        arm_angles = self._get_arm_angles(pipeline_state0)
-        pipeline_state = self.pipeline_step(pipeline_state0, self._convert_action_to_actuator_input(action, arm_angles, delta_control=False))
+        if "EEF" in self.env_name:
+            action = self._convert_action_to_actuator_input_EEF(pipeline_state0, action)
+        else: 
+            arm_angles = self._get_arm_angles(pipeline_state0)
+            action = self._convert_action_to_actuator_input_joint_angle(action, arm_angles, delta_control=False)
+        
+        pipeline_state = self.pipeline_step(pipeline_state0, action)
         
         # Compute variables for state update, including observation and goal/reward
         timestep = state.info["timestep"] + 1 / self.episode_length
@@ -102,7 +107,7 @@ class ArmEnvs(PipelineEnv):
         pipeline_state = self._update_goal_visualization(state.pipeline_state, goal)
         return state.replace(pipeline_state=pipeline_state, info=info)
     
-    def _convert_action_to_actuator_input(self, action: jax.Array, arm_angles: jax.Array, delta_control=False) -> jax.Array:
+    def _convert_action_to_actuator_input_joint_angle(self, action: jax.Array, arm_angles: jax.Array, delta_control=False) -> jax.Array:
         """
         Converts the [-1, 1] actions to the corresponding target angle or gripper strength.
         We use the exact numbers for radians specified in the XML, even if they might be cleaner in terms of pi.
@@ -122,24 +127,38 @@ class ArmEnvs(PipelineEnv):
         # If f(x) = offset + x * multiplier, then this offset and multiplier yield f(-1) = min_value, f(1) = max_value.
         offset = (min_value + max_value) / 2 
         multiplier = (max_value - min_value) / 2
-        
+
         # Retrieve absolute angle target in [-1, 1] space from delta actions in [-1, 1]
         if delta_control:
             normalized_arm_angles = jnp.where(multiplier > 0, (arm_angles - offset) / multiplier, 0) # Convert arm angles back to [-1, 1] space
-            delta_range = 0.5 # If this number is 0.25, an action of +/- 1 targets an angle 25% of the max range away from the current angle.
+            delta_range = 0.25 # If this number is 0.25, an action of +/- 1 targets an angle 25% of the max range away from the current angle.
             arm_action = normalized_arm_angles + arm_action * delta_range
             arm_action = jnp.clip(arm_action, -1, 1)
-        
+
         # Rescale back to absolute angle space in radians
         arm_action = offset + arm_action * multiplier
         
-        # Binary gripper open-closedness: if positive, set to actuator value 0 (totally closed); if negative, set to actuator value 255 (totally open)
-        if self.env_name not in ("arm_reach", "arm_binpick_adhesion_easy"):
-            gripper_action = jnp.where(action[4] > 0, jnp.array([0, 0], dtype=float), jnp.array([255, 255], dtype=float))
+        # Gripper control
+        # Binary open-closedness: if positive, set to actuator value 0 (totally closed); if negative, set to actuator value 255 (totally open)
+        if self.env_name not in ("arm_reach"):
+            gripper_action = jnp.where(action[-1] > 0, jnp.array([0, 0], dtype=float), jnp.array([255, 255], dtype=float))
             converted_action = jnp.concatenate([arm_action] + [gripper_action])
         else:
             converted_action = arm_action
         
+        return converted_action
+    
+    def _convert_action_to_actuator_input_EEF(self, pipeline_state: base.State, action: jax.Array) -> jax.Array:
+        eef_index = 2
+        current_position = pipeline_state.x.pos[eef_index]
+        delta_range = 0.2 # Unlike arm angle control which is more complex, if this number is 0.2, an action of +/- 1 simply targets +/- 0.2 distance in position
+        arm_action = current_position + delta_range * jnp.clip(action[:3], -1, 1)
+        
+        # Gripper control
+        # Binary open-closedness: if positive, set to actuator value 0 (totally closed); if negative, set to actuator value 255 (totally open)
+        gripper_action = jnp.where(action[-1] > 0, jnp.array([0, 0], dtype=float), jnp.array([255, 255], dtype=float))
+        
+        converted_action = jnp.concatenate([arm_action] + [gripper_action])
         return converted_action
     
     # Methods to be overridden by specific environments
