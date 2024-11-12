@@ -7,6 +7,7 @@ To use these, you can mostly just specify the environment name as with all the r
 
 ## FAQ
 Q: What's going on with the "RuntimeWarning: overflow encountered in cast"?
+
 A: While it's not 100% clear, it seems benign and doesn't seem to hurt either environment stability or training performance. It seems correlated with the number of bodies that are permitted to collide with each other, or may be caused by two objects colliding initially when they shouldn't be. Some effort was expended to fix this, to no success. If you know why or know how to fix it, please let us know!
 
 ## Difficulty of environments
