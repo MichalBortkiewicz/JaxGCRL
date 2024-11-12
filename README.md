@@ -60,6 +60,13 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 > [!NOTE]  
 > If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
+## Environment documentation
+Information about most environments can be found in the paper, and information about the manipulation environments can be
+found in the markdown file in envs/manipulation. See utils.py:create_env for the environment names to specify.
+
+Documentation is somewhat sparse, so when in doubt look at the environment files and XMLs for the exact implementation. We hope 
+to improve the docs in the future (please submit a PR if you'd like to help)!
+
 ## Contributing
 Help us build JaxGCRL into the best possible tool for the GCRL community.
 Reach out and start contributing or just add an Issue/PR!
