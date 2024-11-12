@@ -17,6 +17,7 @@ def compute_energy(energy_fn, sa_repr, g_repr):
         logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
     else:
         raise ValueError(f"Unknown energy function: {energy_fn}")
+    return logits
         
 def compute_actor_energy(energy_fn, sa_repr, g_repr):
     if energy_fn == "l2":
@@ -27,6 +28,7 @@ def compute_actor_energy(energy_fn, sa_repr, g_repr):
         min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
     else:
         raise ValueError(f"Unknown energy function: {energy_fn}")
+    return min_q
         
 # Helper for compute_loss
 def log_softmax(logits, axis, resubs):
