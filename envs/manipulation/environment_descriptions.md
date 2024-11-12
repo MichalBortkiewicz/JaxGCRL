@@ -5,6 +5,10 @@ We currently support 4 categories of manipulation tasks: Reach, Grasp, Push, and
 
 To use these, you can mostly just specify the environment name as with all the rest, though you may want to adjust the episode length to what is recommended in each of the environment files (self.episode_length).
 
+## FAQ
+Q: What's going on with the "RuntimeWarning: overflow encountered in cast"?
+A: While it's not 100% clear, it seems benign and doesn't seem to hurt either environment stability or training performance. It seems correlated with the number of bodies that are permitted to collide with each other, or may be caused by two objects colliding initially when they shouldn't be. Some effort was expended to fix this, to no success. If you know why or know how to fix it, please let us know!
+
 ## Difficulty of environments
 Below is a rough approximation of how difficult each task is (BP is binpick, E is easy, H is hard). Caveats and settings below. It'd be helpful at some point for us (or anyone else) to rerun with standard settings on up-to-date versions of the environment.
 - Settings used for all other than reach and BP-E EEF (these settings may not be optimal): [256, 256] hidden layers, with layernorm, min replay size 100, max replay size 10k, unroll length = episode length, batch size 128, multiplier_num_sgd_steps = 64. **Most notably, the update to data ratio (UTD) is 1:2, rather than 1:16 by default -- it often takes a lot of gradient steps to get good performance.** All other settings are default. These environments are slightly outdated (roughly half episode length, and slightly harder for various reasons; BP-E is probably much easier in the up-to-date version since it only has one goal instead of an area of potential goals).
