@@ -11,7 +11,7 @@ from jax import numpy as jp
 
 
 class Pusher(PipelineEnv):
-  def __init__(self, backend='generalized', kind="easy", **kwargs):
+  def __init__(self, backend='generalized', kind="easy", dense_reward:bool=False, **kwargs):
     path = epath.resource_path('brax') / 'envs/assets/pusher.xml'
     sys = mjcf.load(path)
 
@@ -35,9 +35,10 @@ class Pusher(PipelineEnv):
     self._object_idx = self.sys.link_names.index('object')
     self._goal_idx = self.sys.link_names.index('goal')
     self.kind = kind
-    
+    self.dense_reward = dense_reward
     self.state_dim = 20
     self.goal_indices = jp.array([10, 11, 12])
+    self.goal_dist = 0.1
 
   def reset(self, rng: jax.Array) -> State:
     qpos = self.sys.init_q
@@ -104,7 +105,6 @@ class Pusher(PipelineEnv):
     reward_near = -math.safe_norm(vec_1)
     reward_dist = -obj_to_goal_dist
     reward_ctrl = -jp.square(action).sum()
-    reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
 
     pipeline_state = self.pipeline_step(state.pipeline_state, action)
 
@@ -116,11 +116,18 @@ class Pusher(PipelineEnv):
     info = {"seed": seed}
 
     obs = self._get_obs(pipeline_state)
+    success = jp.array(obj_to_goal_dist < self.goal_dist, dtype=float)
+
+    if self.dense_reward:
+        reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
+    else:
+        reward = success
+
     state.metrics.update(
         reward_near=reward_near,
         reward_dist=reward_dist,
         reward_ctrl=reward_ctrl,
-        success=jp.array(obj_to_goal_dist < 0.1, dtype=float),
+        success=success,
         success_hard=jp.array(obj_to_goal_dist < 0.05, dtype=float)
     )
     state.info.update(info)

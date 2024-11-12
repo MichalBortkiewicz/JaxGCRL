@@ -148,6 +148,7 @@ class AntMaze(PipelineEnv):
         backend="generalized",
         maze_layout_name="u_maze",
         maze_size_scaling=4.0,
+        dense_reward:bool=False,
         **kwargs,
     ):
         xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
@@ -195,9 +196,10 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        
+        self.dense_reward = dense_reward
         self.state_dim = 29
         self.goal_indices = jp.array([0, 1])
+        self.goal_dist = 0.5
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -271,13 +273,21 @@ class AntMaze(PipelineEnv):
         ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
         contact_cost = 0.0
 
+        old_obs = self._get_obs(pipeline_state0)
+        old_dist = jp.linalg.norm(old_obs[:2] - old_obs[-2:])
         obs = self._get_obs(pipeline_state)
+        dist = jp.linalg.norm(obs[:2] - obs[-2:])
+        vel_to_target =  (old_dist-dist) / self.dt
+        success = jp.array(dist < self.goal_dist, dtype=float)
+        success_easy = jp.array(dist < 2., dtype=float)
+
+        if self.dense_reward:
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
+        else:
+            reward = success
+
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
-        dist = jp.linalg.norm(obs[:2] - obs[-2:])
-        success = jp.array(dist < 0.5, dtype=float)
-        success_easy = jp.array(dist < 2., dtype=float)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
         state.metrics.update(
             reward_forward=forward_reward,
             reward_survive=healthy_reward,

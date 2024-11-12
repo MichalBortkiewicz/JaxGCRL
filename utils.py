@@ -1,12 +1,15 @@
 import argparse
+import os
 from collections import namedtuple
 from datetime import datetime
+
+import jax
+from brax.io import html
 
 from matplotlib import pyplot as plt
 import wandb
 
 from envs.ant import Ant
-from envs.debug_env import Debug
 from envs.half_cheetah import Halfcheetah
 from envs.reacher import Reacher
 from envs.pusher import Pusher, PusherReacher
@@ -36,14 +39,14 @@ def create_parser():
     parser.add_argument("--action_repeat", type=int, default=2, help="Number of times to repeat each action")
     parser.add_argument("--discounting", type=float, default=0.997, help="Discounting factor for rewards")
     parser.add_argument("--num_envs", type=int, default=256, help="Number of environments")
-    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for training")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
     parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument('--policy_lr', type=float, default=6e-4)
+    parser.add_argument('--policy_lr', type=float, default=3e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)
     parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
@@ -61,6 +64,8 @@ def create_parser():
     parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
     parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
+    parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
+    parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
     return parser
 
 
@@ -85,8 +90,6 @@ def create_env(args: argparse.Namespace) -> object:
             env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
-    elif env_name == "debug":
-        env = Debug(backend=args.backend or "spring")
     elif env_name == "pusher_easy":
         env = Pusher(backend=args.backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
@@ -121,7 +124,7 @@ def create_eval_env(args: argparse.Namespace) -> object:
     return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
-    legal_envs = ["debug", "reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant", 
+    legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "ant",
                   "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", "arm_push_easy", 
                   "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
 
@@ -194,3 +197,26 @@ class MetricsRecorder:
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
+
+
+def render(inf_fun_factory, params, env, exp_dir, exp_name):
+    inference_fn = inf_fun_factory(params)
+    jit_env_reset = jax.jit(env.reset)
+    jit_env_step = jax.jit(env.step)
+    jit_inference_fn = jax.jit(inference_fn)
+
+    rollout = []
+    rng = jax.random.PRNGKey(seed=1)
+    state = jit_env_reset(rng=rng)
+    for i in range(5000):
+        rollout.append(state.pipeline_state)
+        act_rng, rng = jax.random.split(rng)
+        act, _ = jit_inference_fn(state.obs, act_rng)
+        state = jit_env_step(state, act)
+        if i % 1000 == 0:
+            state = jit_env_reset(rng=rng)
+
+    url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
+    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+        file.write(url)
+    wandb.log({"render": wandb.Html(url)})

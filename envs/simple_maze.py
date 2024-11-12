@@ -198,6 +198,7 @@ class SimpleMaze(PipelineEnv):
         
         self.state_dim = 4
         self.goal_indices = jp.array([0, 1])
+        self.goal_dist = 0.5
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -275,7 +276,7 @@ class SimpleMaze(PipelineEnv):
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jp.linalg.norm(obs[:2] - obs[-2:])
-        success = jp.array(dist < 0.5, dtype=float)
+        success = jp.array(dist < self.goal_dist, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
         reward = -dist + healthy_reward - ctrl_cost - contact_cost
         state.metrics.update(

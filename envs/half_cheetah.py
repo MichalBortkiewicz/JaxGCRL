@@ -18,6 +18,7 @@ class Halfcheetah(PipelineEnv):
         reset_noise_scale=0.1,
         exclude_current_positions_from_observation=False,
         backend="mjx",
+        dense_reward: bool = False,
         **kwargs
     ):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "half_cheetah.xml")
@@ -41,9 +42,10 @@ class Halfcheetah(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        
+        self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jp.array([0])
+        self.goal_dist = 0.5
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
@@ -97,10 +99,13 @@ class Halfcheetah(PipelineEnv):
         obs = self._get_obs(pipeline_state)
 
         dist = jp.linalg.norm(obs[:1] - obs[-1:])
-        success = jp.array(dist < 0.5, dtype=float)
+        success = jp.array(dist < self.goal_dist, dtype=float)
         success_easy = jp.array(dist < 2., dtype=float)
 
-        reward = ctrl_cost - dist
+        if self.dense_reward:
+            reward = ctrl_cost - dist
+        else:
+            reward = success
 
         state.metrics.update(
             x_position=pipeline_state.x.pos[0, 0],
