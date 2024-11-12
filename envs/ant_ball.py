@@ -148,8 +148,6 @@ class AntBall(PipelineEnv):
 
         old_obs = self._get_obs(pipeline_state0)
         # Distance between goal and object
-        success = jnp.array(dist < 0.5, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
         old_dist = jnp.linalg.norm(old_obs[-2:] - old_obs[-4:-2])
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
