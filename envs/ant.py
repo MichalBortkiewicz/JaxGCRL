@@ -144,7 +144,7 @@ class Ant(PipelineEnv):
         contact_cost = 0.0
 
         old_obs = self._get_obs(pipeline_state0)
-        old_dist = jp.linalg.norm(old_obs[:2] - old_obs[-2:])
+        old_dist = jnp.linalg.norm(old_obs[:2] - old_obs[-2:])
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[:2] - obs[-2:])
         vel_to_target =  (old_dist-dist) / self.dt
