@@ -1,6 +1,10 @@
 <p align="center"><img src="imgs/grid.png" width=80%></p>
 
-# JaxGCRL: A New CRL implementation and Benchmark
+# JaxGCRL: A New CRL Implementation and Benchmark
+
+We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
+quick experimentation with goal-conditioned self-supervised reinforcement learning.
+
 
 <p align="center">
 Michał Bortkiewicz,  Władek Pałucki,  Vivek Myers,
@@ -15,7 +19,7 @@ Tadeusz Dziarmaga,  Tomasz Arczewski,
 </p>
 
 
-<p style="text-align: center;">
+<p align="center;">
     Paper: <a href="https://arxiv.org/abs/2408.11052" target="_blank">Accelerating Goal-Conditioned RL Algorithms and Research</a>
 </p>
 
@@ -26,9 +30,6 @@ Tadeusz Dziarmaga,  Tomasz Arczewski,
 <p align="center">
 Training CRL on the Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
 </p>
-
-We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
-quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
 ## Supported Environments
 
