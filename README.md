@@ -75,6 +75,7 @@ Reach out and start contributing or just add an Issue/PR!
 - [ ] Add more complex versions of Ant Sokoban.
 - [ ] Get around 70% success rate on Ant Big Maze task.
 - [ ] Integrate environments: 
+    - [x] Multi Particle Environments (MPE) [Done by Chirayu Nimonkar and Shlok Shah]
     - [ ] Overcooked 
     - [ ] Hanabi
     - [ ] Rubik's cube
