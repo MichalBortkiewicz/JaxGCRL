@@ -1,7 +1,6 @@
-# Accelerating Goal-Conditioned RL Algorithms and Research 
-
-
 <p align="center"><img src="imgs/grid.png" width=80%></p>
+
+# JaxGCRL: A New CRL implementation and Benchmark
 
 <p align="center">
 Michał Bortkiewicz,  Władek Pałucki,  Vivek Myers,
@@ -20,39 +19,39 @@ Tadeusz Dziarmaga,  Tomasz Arczewski,
     Paper: <a href="https://arxiv.org/abs/2408.11052" target="_blank">Accelerating Goal-Conditioned RL Algorithms and Research</a>
 </p>
 
+<p align="center">
+  <img src="imgs/teaser.jpg" width=100% /> 
+</p>
 
-**Abstract:** Self-supervision has the potential to transform reinforcement learning (RL),
-paralleling the breakthroughs it has enabled in other areas of machine learning. 
-While self-supervised learning in other domains aims to find patterns in a fixed dataset, 
-self-supervised goal-conditioned reinforcement learning (GCRL) agents discover new behaviors 
-by learning from the goals achieved during unstructured interaction with the environment. 
-However, these methods have failed to see similar success, both due to a lack of data from 
-slow environments as well as a lack of stable algorithms. We take a step toward addressing
-both of these issues by releasing a high-performance codebase and benchmark JaxGCRL for self-supervised GCRL,
-enabling researchers to train agents for millions of environment steps in minutes on a single GPU.
-The key to this performance is a combination of GPU-accelerated environments and a stable, batched version 
-of the contrastive reinforcement learning algorithm, based on an infoNCE objective, that effectively makes
-use of this increased data throughput. With this approach, we provide a foundation for future research 
-in self-supervised GCRL, enabling researchers to quickly iterate on new ideas and evaluate them in a diverse 
-set of challenging environments
+<p align="center">
+Training CRL on the Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
+</p>
 
-```
-@article{bortkiewicz2024accelerating,
-  title   = {Accelerating Goal-Conditioned RL Algorithms and Research},
-  author  = {Michał Bortkiewicz and Władek Pałucki and Vivek Myers and Tadeusz Dziarmaga and Tomasz Arczewski and Łukasz Kuciński and Benjamin Eysenbach},
-  year    = {2024},
-  journal = {arXiv preprint arXiv: 2408.11052}
-}
-```
+We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
+quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
+## Supported Environments
 
-## Installation
-The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
+We currently support a number of continuous control environments:
+- Locomotion: Half-Cheetah, Ant, Humanoid
+- Locomotion + task: AntMaze, AntBall (AntSoccer), AntPush, HumanoidMaze
+- Simple arm: Reacher, Pusher, Pusher 2-object
+- Manipulation: Reach, Grasp, Push (easy/hard), Binpick (easy/hard)
+
+### Environment Docs
+Information about most environments can be found in the paper, and information about the manipulation environments can be
+found in the markdown file in envs/manipulation.
+
+Documentation is somewhat sparse, so when in doubt look at the environment files and XMLs for the exact implementation. We hope 
+to improve the docs in the future (please submit a PR if you'd like to help)!
+
+## Basic Usage
+After cloning, setup the conda environment:
 ```bash
 conda env create -f environment.yml
 ```
 
-To check whether installation worked, run a test experiment using `./scripts/train.sh` file:
+Then, try out a basic experiment in Ant with the training script:
 
 ```bash
 chmod +x ./scripts/train.sh; ./scripts/train.sh
@@ -60,39 +59,35 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 > [!NOTE]  
 > If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
-## Environment documentation
-Information about most environments can be found in the paper, and information about the manipulation environments can be
-found in the markdown file in envs/manipulation. See utils.py:create_env for the environment names to specify.
+To run experiments of interest, change `scripts/train.sh`; descriptions of flags are in `utils.py:create_parser()`. Common flags you may want to change:
+- **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
+- Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
+- **--num_timesteps**: shorter or longer runs.
+- **--num_envs**: based on how many environments your GPU memory allows.
+- **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
-Documentation is somewhat sparse, so when in doubt look at the environment files and XMLs for the exact implementation. We hope 
-to improve the docs in the future (please submit a PR if you'd like to help)!
+## Code Structure
+We summarize the most important elements of the code structure, for users wanting to understand the implementation specifics or modify the code:
 
-## Contributing
-Help us build JaxGCRL into the best possible tool for the GCRL community.
-Reach out and start contributing or just add an Issue/PR!
+<pre><code>
+├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
+│   ├── <b>train.py:</b> Main file. Collects trajectories, trains networks, runs evaluations.
+│   ├── <b>losses.py:</b> Contains energy functions, and actor, critic, and alpha losses.
+│   ├── <b>networks.py:</b> Contains network definitions for policy, and encoders for the critic.
+│   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
+│   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
+├── <b>envs:</b> Environments (python files and XMLs)
+│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here
+│   ├── <b>assets:</b> Contains XMLs for environments
+│   └── <b>manipulation:</b> Contains all manipulation environments
+├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters
+├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
+└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+</code></pre>
 
-- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
-- [ ] Add more complex versions of Ant Sokoban.
-- [ ] Get around 70% success rate on Ant Big Maze task.
-- [ ] Integrate environments: 
-    - [ ] Overcooked 
-    - [ ] Hanabi
-    - [ ] Rubik's cube
-    - [ ] Sokoban
+To modify the architecture: modify `networks.py`.
 
-
-## New CRL implementation and Benchmark
-<p align="center">
-  <img src="imgs/teaser.jpg" width=100% /> 
-</p>
-
-<p align="center">
-Training CRL on Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
-</p>
-
-We provide 8 blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) and jitted framework for 
-quick experimentation with goal-conditioned self-supervised reinforcement learning.  
-
+To add new environments: add an XML to `envs/assets`, add a python environment file in `envs`, and register the environment name in `utils.py`.
 
 ## Wandb support
 All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
@@ -116,6 +111,18 @@ Besides logging the metrics, we also render final policy to `wandb` artifacts.
 
 In addition, you can find exemplary plotting utils for data downloaded by `wandb` api in notebooks.
 
+## Contributing
+Help us build JaxGCRL into the best possible tool for the GCRL community.
+Reach out and start contributing or just add an Issue/PR!
+
+- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
+- [ ] Add more complex versions of Ant Sokoban.
+- [ ] Get around 70% success rate on Ant Big Maze task.
+- [ ] Integrate environments: 
+    - [ ] Overcooked 
+    - [ ] Hanabi
+    - [ ] Rubik's cube
+    - [ ] Sokoban
  
 ## Questions?
 If you have any questions, comments, or suggestions, please reach out to Michał Bortkiewicz ([michalbortkiewicz8@gmail.com](michalbortkiewicz8@gmail.com))
@@ -138,3 +145,14 @@ JAX-native environments:
 - [XLand-MiniGrid](https://github.com/corl-team/xland-minigrid): Meta-RL gridworld environments inspired by XLand and MiniGrid.
 - [Craftax](https://github.com/MichaelTMatthews/Craftax): (Crafter + NetHack) in JAX.
 - [JaxMARL](https://github.com/FLAIROx/JaxMARL): Multi-agent RL in Jax.
+
+
+## Citation
+```
+@article{bortkiewicz2024accelerating,
+  title   = {Accelerating Goal-Conditioned RL Algorithms and Research},
+  author  = {Michał Bortkiewicz and Władek Pałucki and Vivek Myers and Tadeusz Dziarmaga and Tomasz Arczewski and Łukasz Kuciński and Benjamin Eysenbach},
+  year    = {2024},
+  journal = {arXiv preprint arXiv: 2408.11052}
+}
+```
