@@ -43,7 +43,8 @@ def main(args):
         max_replay_size=args.max_replay_size,
         min_replay_size=args.min_replay_size,
         seed=args.seed,
-        eval_env=eval_env
+        eval_env=eval_env,
+        config=config,
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
