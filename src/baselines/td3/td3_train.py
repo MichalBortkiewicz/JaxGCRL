@@ -242,7 +242,7 @@ def train(
     action_repeat: int = 1,
     num_envs: int = 1,
     num_eval_envs: int = 128,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 3e-4,
     discounting: float = 0.9,
     seed: int = 0,
     batch_size: int = 256,
@@ -264,7 +264,7 @@ def train(
     policy_delay: int = 2,
     noise_clip: int = 0.5,
     smoothing_noise: int = 0.2,
-    exploration_noise: float = 0.2,
+    exploration_noise: float = 0.4,
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
 ):
     """TD3 training."""

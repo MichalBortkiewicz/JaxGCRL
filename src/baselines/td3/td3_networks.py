@@ -20,7 +20,7 @@ class TD3Networks:
 def make_inference_fn(td3_networks: TD3Networks):
     """Creates params and inference function for the TD3 agent."""
 
-    def make_policy(params: types.PolicyParams, exploration_noise, noise_clip, deterministic=False) -> types.Policy:
+    def make_policy(params: types.PolicyParams, exploration_noise=0.0, noise_clip=0.0, deterministic=False) -> types.Policy:
         def policy(observations: types.Observation,
                    key_noise: PRNGKey) -> Tuple[types.Action, types.Extra]:
             actions = td3_networks.policy_network.apply(*params, observations)
