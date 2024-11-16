@@ -79,7 +79,7 @@ python training.py --env_name ant --num_envs 16 --batch_size 16
 ```
 
 > [!NOTE] 
-> Because of (...), `num_envs * (episode_length - 1)` must be divisible by `batch_size`
+> `num_envs * (episode_length - 1)` must be divisible by `batch_size` due to the way data is stored in replay buffer.
 
 You can customize the neural network architecture by adjusting the number of hidden layers (`n_hidden`), the width of hidden layers (`h_dim`) and the representation dimension (`repr_dim`):
 ```
