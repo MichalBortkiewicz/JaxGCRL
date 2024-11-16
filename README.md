@@ -70,7 +70,7 @@ JaxGCRL is highly flexible in terms of parameters, allowing for a wide range of 
 ```
 python training.py --env_name ant
 ```
-For a complete list of environments, refer to the [environments section](##Environments) or [source code](https://github.com/MichalBortkiewicz/JaxGCRL/blob/anonymize/utils.py#L66).
+For a complete list of environments, refer to the [environments section](##Environments) or [source code](./utils.py#L66).
 
 One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
 
@@ -90,9 +90,9 @@ JaxGCRL supports various built-in energy functions and contrastive loss function
 ```
 python training.py --env_name ant --energy_fn l2 --contrastive_loss_fn infonce_backward
 ```
-For a full list of available energy functions and contrastive losses, see: [ [energy functions](https://github.com/MichalBortkiewicz/JaxGCRL/blob/anonymize/src/losses.py#L91) | [contrastive losses](https://github.com/MichalBortkiewicz/JaxGCRL/blob/anonymize/src/losses.py#L145) ]
+For a full list of available energy functions and contrastive losses, see: [ [energy functions](./src/losses.py#L91) | [contrastive losses](./src/losses.py#L145) ]
 
-JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/anonymize/utils.py#L24).
+JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
 
 To execute multiple experiments, you can use a bash script. We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
 - `--project_name`
@@ -121,14 +121,14 @@ This section lists the available environments in the repository, along with the 
 
 | Environment | Env name | Code |
 | :- | :-: | :-: |
-| Reacher |  `reacher`  |  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/reacher.py)  |
-| Half Cheetah | `cheetah` | [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/half_cheetah.py)  |
-| Pusher | `pusher_easy` <br> `pusher_hard`|  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/pusher.py)  |
-| Ant |  `ant`  |  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/ant.py)  |
-| Ant Maze |  `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`  |  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/ant_maze.py)  |
-| Ant Soccer |  `ant_ball`  |  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/ant_ball.py)  |
-| Ant Push |  `ant_push`  |  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/ant_push.py)  |
-| Humanoid | `humanoid`|  [link](https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/envs/humanoid.py)  |
+| Reacher |  `reacher`  |  [link](./envs/reacher.py)  |
+| Half Cheetah | `cheetah` | [link](./envs/half_cheetah.py)  |
+| Pusher | `pusher_easy` <br> `pusher_hard`|  [link](./envs/pusher.py)  |
+| Ant |  `ant`  |  [link](./envs/ant.py)  |
+| Ant Maze |  `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`  |  [link](./envs/ant_maze.py)  |
+| Ant Soccer |  `ant_ball`  |  [link](./envs/ant_ball.py)  |
+| Ant Push |  `ant_push`  |  [link](./envs/ant_push.py)  |
+| Humanoid | `humanoid`|  [link](./envs/humanoid.py)  |
 
 
 ## Wandb support
