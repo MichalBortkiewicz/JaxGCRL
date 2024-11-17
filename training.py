@@ -133,7 +133,10 @@ def main(args):
             num_steps,
             {key: value for key, value in metrics.items() if key in metrics_to_collect},
         )
-        metrics_recorder.log_wandb()
+        if args.log_wandb:
+            metrics_recorder.log_wandb()
+        else:
+            metrics_recorder.log_csv(run_dir)
         metrics_recorder.print_progress()
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
