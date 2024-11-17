@@ -4,6 +4,7 @@ from datetime import datetime
 
 from matplotlib import pyplot as plt
 import wandb
+import pandas as pd
 
 from envs.ant import Ant
 from envs.debug_env import Debug
@@ -41,6 +42,7 @@ def create_parser():
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
+    parser.add_argument("--log_csv", default=True, action="store_true", help="Whether to log to csv")
     parser.add_argument('--policy_lr', type=float, default=6e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)
@@ -261,6 +263,7 @@ class MetricsRecorder:
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
+        self.data_frame = pd.DataFrame()
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -282,6 +285,14 @@ class MetricsRecorder:
             data_to_log[key] = value[-1]
         data_to_log["step"] = self.x_data[-1]
         wandb.log(data_to_log, step=self.x_data[-1])
+
+    def log_csv(self, dir):
+        data_to_log = {}
+        for key, value in self.y_data.items():
+            data_to_log[key] = value[-1]
+        data_to_log["step"] = self.x_data[-1]
+        self.data_frame = self.data_frame._append(data_to_log, ignore_index=True)
+        self.data_frame.to_csv(dir + '/logs.csv')
 
     def plot_progress(self):
         num_plots = len(self.y_data)
