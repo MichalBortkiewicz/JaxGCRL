@@ -130,9 +130,11 @@ This section lists the available environments in the repository, along with the 
 | Ant Push |  `ant_push`  |  [link](./envs/ant_push.py)  |
 | Humanoid | `humanoid`|  [link](./envs/humanoid.py)  |
 
+To add a new environment, register its name in `utils.py` under the `get_env_config` function.
 
 ## Wandb support
 All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
+Logging to W&B occurs when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.
 
 1. Run exemplary [`sweep`](https://docs.wandb.ai/guides/sweeps):
 ```bash

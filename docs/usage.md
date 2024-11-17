@@ -54,6 +54,7 @@ done
 !!! note annotate "Wandb account"  
     If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
+Logging to W&B occurs when the `--log_wandb` flag is used.
 
 All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
 
@@ -69,7 +70,7 @@ wandb agent <previous_command_output>
 
 Besides logging the metrics, we also render final policy to `wandb` artifacts. 
 
+
 <p align="center">
-  <img src="imgs/wandb.png" width=55% />
-  <img src="imgs/push.gif" width=40%  /> 
+  <img src="../imgs/wandb.jpg" width=100% />
 </p>
