@@ -42,7 +42,6 @@ def create_parser():
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument("--log_csv", default=True, action="store_true", help="Whether to log to csv")
     parser.add_argument('--policy_lr', type=float, default=6e-4)
     parser.add_argument('--alpha_lr', type=float, default=3e-4)
     parser.add_argument('--critic_lr', type=float, default=3e-4)

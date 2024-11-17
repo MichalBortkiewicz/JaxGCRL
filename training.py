@@ -133,8 +133,9 @@ def main(args):
             num_steps,
             {key: value for key, value in metrics.items() if key in metrics_to_collect},
         )
-        metrics_recorder.log_wandb()
-        if args.log_csv:
+        if args.log_wandb:
+            metrics_recorder.log_wandb()
+        else:
             metrics_recorder.log_csv(run_dir)
         metrics_recorder.print_progress()
 
