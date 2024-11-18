@@ -51,16 +51,16 @@ The codebase is organized into several key files and directories. Below is an ov
 
 This section lists the available environments in the repository, along with the environment names and the corresponding code links
 
-| Environment | Env name | Code | Image | 
-| :- | :-: | :-: | :-: |
-| Reacher |  `reacher`  |  [link](./envs/reacher.py)  | |
-| Half Cheetah | `cheetah` | [link](./envs/half_cheetah.py)  | |
-| Pusher | `pusher_easy` <br> `pusher_hard`|  [link](./envs/pusher.py)  | |
-| Ant |  `ant`  |  [link](./envs/ant.py)  | |
-| Ant Maze |  `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`  |  [link](./envs/ant_maze.py)  | |
-| Ant Soccer |  `ant_ball`  |  [link](./envs/ant_ball.py)  | |
-| Ant Push |  `ant_push`  |  [link](./envs/ant_push.py)  | |
-| Humanoid | `humanoid`|  [link](./envs/humanoid.py)  | |
+| Environment | Env name | Code |
+| :- | :-: | :-: |
+| Reacher |  `reacher`  |  [link](./envs/reacher.py)  |
+| Half Cheetah | `cheetah` | [link](./envs/half_cheetah.py)  |
+| Pusher | `pusher_easy` <br> `pusher_hard`|  [link](./envs/pusher.py)  |
+| Ant |  `ant`  |  [link](./envs/ant.py)  |
+| Ant Maze |  `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`  |  [link](./envs/ant_maze.py)  |
+| Ant Soccer |  `ant_ball`  |  [link](./envs/ant_ball.py)  |
+| Ant Push |  `ant_push`  |  [link](./envs/ant_push.py)  |
+| Humanoid | `humanoid`|  [link](./envs/humanoid.py)  |
 
 
 ### Adding new environments
