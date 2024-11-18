@@ -71,9 +71,7 @@ The XML file contains information about geometries, placements, properties, and 
 > In our experience XML files that worked with standard MuJoCo require some tuning for MJX. In particular, the number of solver iterations should be carefully adjusted, so that the environment is fast but still stable.
 
 
-The Python file contains the logic of the environment, a description of how the environment is initialized, restored, and how one environment step looks. The class describing the environment should inherit from BRAX's [`PipelineEnv`](https://github.com/google/brax/blob/f43727eeebf21c031faf861ee00e98919c892140/brax/envs/base.py#L75) class. All environment logic should be JIT-able with JAX, which requires some care in using certain Python instructions like `if` and `for`. The observation returned by the `step` function of the environment should be a state of the environment concatenated with the current environment goal. Each environment class should also provide 2 additional properties:
-* `self.state_dim` - The size of the state of the environment (that is observation without the goal).
-* `self.goal_indices` - Array with state indices that make the goal. For example, in the `Ant` environment the goal is specified as the x and y coordinates of the torso. Thus we specify `self.goal_indices = jnp.array([0, 1])`, since the x and y coordinates of the torso are at positions 0 and 1 in the state of the environment.
+The Python file contains the logic of the environment, a description of how the environment is initialized, restored, and how one environment step looks. The class describing the environment should inherit from BRAX's [`PipelineEnv`](https://github.com/google/brax/blob/f43727eeebf21c031faf861ee00e98919c892140/brax/envs/base.py#L75) class. All environment logic should be JIT-able with JAX, which requires some care in using certain Python instructions like `if` and `for`. The observation returned by the `step` function of the environment should be a state of the environment concatenated with the current environment goal. 
 
 To use the new environment it should be added to the `create_env` function in `utils.py`.
 
