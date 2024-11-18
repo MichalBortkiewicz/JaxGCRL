@@ -63,6 +63,22 @@ This section lists the available environments in the repository, along with the 
 | Humanoid | `humanoid`|  [link](./envs/humanoid.py)  |
 
 
+### Adding new environments
+Each environment implementation has 2 main parts: an XML file and a Python file. 
+
+The XML file contains information about geometries, placements, properties and movements of objects in the environment. Depending on the Brax pipeline used, the xml file may vary slightly, but generally it should follow [MuJoCo XML reference](https://mujoco.readthedocs.io/en/stable/XMLreference.html). Since all environments are vectorized and compiled with JAX, the information in [MJX guide](https://mujoco.readthedocs.io/en/stable/mjx.html) should also be taken into consideration, particularly the [feature parity](https://mujoco.readthedocs.io/en/stable/mjx.html#feature-parity) section and [performance tuning](https://mujoco.readthedocs.io/en/stable/mjx.html#performance-tuning) section.
+> [!NOTE]  
+> In our experience XML files that worked with standard MuJoCo require some tuning for MJX. In particular the number of solver iterations should be carefully adjusted, so that the environment is fast, but still stable.
+
+
+The Python file contains the logic of the environment, description of how is the environment initialized, restared and how does one environment step look. The class describing the environment should inherit from BRAX's [`PipelineEnv`](https://github.com/google/brax/blob/f43727eeebf21c031faf861ee00e98919c892140/brax/envs/base.py#L75) class. All environment logic should be JIT-able with JAX, which requires some care in using certain python instructions like `if` and `for`. The observation returned by `step` function of the environment should be a state of the environment concatenated with current environment goal. Each environment class should also provide 2 additional properties:
+* `self.state_dim` - The size of the state of the environment (that is observation without the goal).
+* `self.goal_indices` - Array with state indices that make the goal. For example in the `Ant` environment the goal is specified as x and y coordinates of the torso. Thus we specify `self.goal_indices = jnp.array([0, 1])`, since the x and y coordinates of the torso are at positions 0 and 1 in the state of the environment.
+
+To use the new environment it should be added to `create_env` function in `utils.py`.
+
+
+
 ## Paper: Accelerating Goal-Conditioned RL Algorithms and Research
 
 
