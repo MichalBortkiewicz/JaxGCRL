@@ -18,10 +18,16 @@ BALL = B = 'b'
 
 
 U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, G, B, 1],
+          [1, R, 0, B, 1],
           [1, 1, 1, G, 1],
-          [1, G, G, G, 1],
+          [1, 0, 0, 0, 1],
           [1, 1, 1, 1, 1]]
+
+U_MAZE_EASY = [[1, 1, 1, 1, 1],
+               [1, R, B, G, 1],
+               [1, 1, 1, G, 1],
+               [1, 0, 0, 0, 1],
+               [1, 1, 1, 1, 1]]
 
 
 
@@ -54,6 +60,8 @@ def find(structure, size_scaling, obj):
 def make_maze(maze_layout_name, maze_size_scaling):
     if maze_layout_name == "u_maze":
         maze_layout = U_MAZE
+    elif maze_layout_name == "u_maze_easy":
+        maze_layout = U_MAZE_EASY
     elif maze_layout_name == "big_maze":
         maze_layout = BIG_MAZE
     else:
@@ -162,7 +170,7 @@ class AntBallMaze(PipelineEnv):
         self.dense_reward = dense_reward
 
         self.state_dim = 31
-        self.goal_indices = jnp.array([28, 29])
+        self.goal_indices = jnp.array([29, 30])
         self.goal_dist = 0.5
         
         if self._use_contact_forces:
