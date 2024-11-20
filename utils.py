@@ -25,6 +25,7 @@ from envs.manipulation.arm_push_easy import ArmPushEasy
 from envs.manipulation.arm_push_hard import ArmPushHard
 from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
 from envs.manipulation.arm_binpick_hard import ArmBinpickHard
+from envs.ant_ball_maze import AntBallMaze
 from envs.simple_maze import SimpleMaze
 
 
@@ -84,7 +85,9 @@ def create_env(args: argparse.Namespace) -> object:
         assert args.backend == "mjx"
         env = AntPush(backend=args.backend)
     elif "maze" in env_name:
-        if "ant" in env_name: 
+        if "ant_ball" in env_name:
+            env = AntBallMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+        elif "ant" in env_name:
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
             env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
         elif "humanoid" in env_name:
