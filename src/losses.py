@@ -102,7 +102,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
         elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
@@ -110,7 +110,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
         elif energy_fn == "mrn_pot_shuf":
             ga_repr = sa_encoder.apply(
@@ -119,7 +119,7 @@ def make_losses(
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")
@@ -329,7 +329,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr, ga_repr)
+            dist = losses_utils.mrn_distance(sa_repr, ga_repr)
             min_q = -dist
         elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
@@ -337,7 +337,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             min_q = -dist
         elif energy_fn == "mrn_pot_shuf":
             ga_repr = sa_encoder.apply(
@@ -346,7 +346,7 @@ def make_losses(
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
-            dist = utils.mrn_distance(sa_repr, ga_repr)
+            dist = losses_utils.mrn_distance(sa_repr, ga_repr)
             min_q = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")

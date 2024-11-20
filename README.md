@@ -103,7 +103,7 @@ To execute multiple experiments, you can use a bash script. We highly recommend 
 
 For example, the script below runs experiments to test the performance of different contrastive losses:
 ```bash
-for c_loss in binary infonce flatnce fb dp; do
+for c_loss in binary infonce flatnce fb; do
 	for seed in 1 2 3 4 5; do
 		python training.py --project_name crl --group_name contrastive_loss_experiments \
 		--exp_name c_loss --seed ${seed} --num_timesteps 10000000 --num_evals 50 \
