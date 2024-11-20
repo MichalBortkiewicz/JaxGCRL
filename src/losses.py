@@ -27,7 +27,42 @@ def make_losses(
     use_c_target: bool = False,
     exploration_coef: float = 0.0,
 ):
-    """Creates the CRL losses."""
+    """
+    This module contains the make_losses function which is used to create loss functions
+    for training contrastive reinforcement learning models. The make_losses function
+    generates three primary loss functions: alpha_loss, critic_loss and actor_loss.
+
+    Alpha loss is based on the SAC paper for tuning the entropy coefficient to control
+    the policy's entropy. CRL Critic Loss calculates the loss for the critic network in
+    contrastive reinforcement learning. It supports different energy functions and
+    contrastive loss functions as specified by the arguments.
+
+    Attributes:
+        target_entropy (float): Target entropy value for policy.
+        policy_network (object): The policy network from crl_network.
+        parametric_action_distribution (object): Action distribution from crl_network.
+        sa_encoder (object): State-action encoder from crl_network.
+        g_encoder (object): Goal encoder from crl_network.
+        obs_dim (int): Dimension of the environment's state.
+
+    Arguments:
+        config (NamedTuple): Configuration parameters.
+        env (object): Environment object.
+        contrastive_loss_fn (str): Type of contrastive loss function to use.
+        energy_fn (str): Energy function to use.
+        logsumexp_penalty (float): Penalty parameter for logsumexp.
+        l2_penalty (float): Penalty parameter for L2 regularization.
+        resubs (bool): Whether to use resubstitution strategy.
+        crl_network (crl_networks.CRLNetworks): Object containing the neural networks.
+        action_size (int): Size of the action space.
+        use_c_target (bool, optional): Whether to use C target. Defaults to False.
+        exploration_coef (float, optional): Exploration coefficient. Defaults to 0.0.
+
+    Function:
+        alpha_loss: Computes the alpha loss for tuning the entropy coefficient.
+        crl_critic_loss: Computes the critic loss for contrastive reinforcement learning.
+        actor_loss: Computes the actor loss for contrastive reinforcement learning.
+    """
 
     target_entropy = -0.5 * action_size
     policy_network = crl_network.policy_network
