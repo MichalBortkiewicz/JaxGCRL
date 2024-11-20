@@ -2,8 +2,10 @@ import argparse
 import os
 from collections import namedtuple
 from datetime import datetime
+from typing import List
 
 import jax
+import math
 from brax.io import html
 
 from matplotlib import pyplot as plt
@@ -30,6 +32,18 @@ from envs.simple_maze import SimpleMaze
 
 
 def create_parser():
+    """
+    Create an argument parser for training script.
+
+    This function sets up an argument parser to handle various training
+    parameters for a RL experiment.
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+
+    Args:
+        None
+    """
     parser = argparse.ArgumentParser(description="Training script arguments")
     parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
     parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
@@ -49,18 +63,18 @@ def create_parser():
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument('--policy_lr', type=float, default=3e-4)
-    parser.add_argument('--alpha_lr', type=float, default=3e-4)
-    parser.add_argument('--critic_lr', type=float, default=3e-4)
-    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
-    parser.add_argument('--energy_fn', type=str, default='l2')
-    parser.add_argument('--backend', type=str, default=None)
+    parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")
+    parser.add_argument('--alpha_lr', type=float, default=3e-4, help="Learning rate for entropy coefficient (alpha)")
+    parser.add_argument('--critic_lr', type=float, default=3e-4, help="Learning rate for critic network")
+    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce', help="Name of the contrastive loss function")
+    parser.add_argument('--energy_fn', type=str, default='l2', help="Function to calculate energy")
+    parser.add_argument('--backend', type=str, default=None, help="Backend to be used for the environment")
     parser.add_argument('--no_resubs', default=False, action='store_true', help="Not use resubstitution (diagonal) for logsumexp in contrastive cross entropy")
     parser.add_argument('--use_ln', default=False, action='store_true', help="Whether to use layer normalization for preactivations in hidden layers")
     parser.add_argument('--use_c_target', default=False, action='store_true', help="Use learnable c_target param in contrastive loss")
-    parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
-    parser.add_argument('--l2_penalty', type=float, default=0.0)
-    parser.add_argument('--exploration_coef', type=float, default=0.0)
+    parser.add_argument('--logsumexp_penalty', type=float, default=0.0, help="Penalty for logsumexp in contrastive loss")
+    parser.add_argument('--l2_penalty', type=float, default=0.0, help="L2 penalty for regularization")
+    parser.add_argument('--exploration_coef', type=float, default=0.0, help="Coefficient for exploration in policy update")
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
@@ -73,6 +87,19 @@ def create_parser():
 
 
 def create_env(args: argparse.Namespace) -> object:
+    """
+    This function creates and returns an appropriate environment object based on the specified environment name and
+    backend.
+
+    Args:
+        args (argparse.Namespace): The arguments namespace containing environment name and backend information.
+
+    Returns:
+        object: The instantiated environment object.
+
+    Raises:
+        ValueError: If the specified environment name is unknown.
+    """
     env_name = args.env_name
     if env_name == "reacher":
         env = Reacher(backend=args.backend or "generalized")
@@ -126,6 +153,20 @@ def create_env(args: argparse.Namespace) -> object:
 
 
 def create_eval_env(args: argparse.Namespace) -> object:
+    """
+    Creates an evaluation environment based on the provided arguments.
+
+    This function generates a new environment specifically for evaluation based on
+    args.eval_env. If args.eval_env is not specified, the function returns None.
+
+    Args:
+        args (argparse.Namespace): The arguments containing configuration for the
+                                   environment, including eval_env.
+
+    Returns:
+        object: The created evaluation environment, or None if args.eval_env is not
+                specified.
+    """
     if not args.eval_env:
         return None
     
@@ -134,8 +175,31 @@ def create_eval_env(args: argparse.Namespace) -> object:
     return create_env(eval_arg)
 
 def get_env_config(args: argparse.Namespace):
+    """
+    Generate and validate environment configuration based on input arguments.
+
+    This function takes an argparse.Namespace object, validates the specified environment name
+    against a list of legal environments, and returns a configuration named tuple constructed
+    from the input arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The input arguments containing the environment name and other configuration settings.
+
+    Returns
+    -------
+    Config
+        A named tuple containing the configuration derived from the input arguments.
+
+    Raises
+    ------
+    ValueError
+        If the specified environment name is not in the list of legal environments or does not
+        contain the word 'maze'.
+    """
     legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "pusher2",
-                  "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", 
+                  "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp",
                   "arm_push_easy", "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
     if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
@@ -148,11 +212,20 @@ def get_env_config(args: argparse.Namespace):
 
 
 class MetricsRecorder:
-    def __init__(self, num_timesteps):
+    """
+    Initialize the MetricsRecorder with the specified number of timesteps
+    and the metrics to be collected.
+
+    Parameters:
+    num_timesteps (int): The maximum number of timesteps for recording metrics.
+    metrics_to_collect (List[str]): List of metric names that are to be collected.
+    """
+    def __init__(self, num_timesteps: int, metrics_to_collect: List[str]):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
+        self.metrics_to_collect = metrics_to_collect
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -206,9 +279,53 @@ class MetricsRecorder:
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
+        
+    def progress(self, num_steps, metrics):
+        for key in self.metrics_to_collect:
+            self.ensure_metric(metrics, key)
+        self.record(
+            num_steps,
+            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
+        )
+        self.log_wandb()
+        self.print_progress()
+    
+    @staticmethod
+    def ensure_metric(metrics, key):
+        if key not in metrics:
+            metrics[key] = 0
+        else:
+            if math.isnan(metrics[key]):
+                raise Exception(f"Metric: {key} is Nan")
+
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name):
+    """
+    Renders a given environment over a series of steps and stores the resulting
+    HTML file to a specified directory. Logs the rendered HTML using wandb.
+
+    This function initializes the environment and the inference function, then
+    runs the environment for a fixed number of steps, periodically resetting.
+    It collects the state of the environment at each step, renders the HTML,
+    stores the result, and logs it.
+
+    Parameters:
+    inf_fun_factory : Callable
+        A factory function that returns an inference function when provided with
+        'params'.
+    params : any
+        Parameters for the 'inf_fun_factory'.
+    env : object
+        The environment object with 'reset', 'step', and 'sys.tree_replace' methods.
+    exp_dir : str
+        The directory where the rendered HTML file will be saved.
+    exp_name : str
+        The file name to be used for the saved HTML (without extension).
+
+    Returns:
+    None
+    """
     inference_fn = inf_fun_factory(params)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
