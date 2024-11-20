@@ -5,6 +5,7 @@ python training.py --env_name ant
 ```
 For a complete list of environments, refer to the [environments section](##Environments) or [source code](./utils.py#L66).
 
+### Number of environments 
 One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
 
 ```
@@ -13,6 +14,8 @@ python training.py --env_name ant --num_envs 16 --batch_size 16
 
 !!! note annotate "Replay buffer"
     `num_envs * (episode_length - 1)` must be divisible by `batch_size` due to the way data is stored in replay buffer.
+
+## Training hyperparameters
 
 You can customize the neural network architecture by adjusting the number of hidden layers (`n_hidden`), the width of hidden layers (`h_dim`) and the representation dimension (`repr_dim`):
 ```
@@ -27,23 +30,21 @@ For a full list of available energy functions and contrastive losses, see: [ [en
 
 JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
 
-To execute multiple experiments, you can use a bash script. We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
-- `--project_name`
-- `--group_name`
-- `--exp_name`
+You can also find additional information about main arguments and hyperparameters by running:
+
+```python training.py --help```
 
 
-
+To execute multiple experiments, you can use a bash script.
 For example, the script below runs experiments to test the performance of different contrastive losses:
 ```bash
 for c_loss in binary infonce flatnce fb dp; do
 	for seed in 1 2 3 4 5; do
-		python training.py --project_name crl --group_name contrastive_loss_experiments \
-		--exp_name c_loss --seed ${seed} --num_timesteps 10000000 --num_evals 50 \
-		--batch_size 256 --num_envs 512 --discounting 0.99 --action_repeat 1 \
-		--episode_length 1000 --unroll_length 62  --min_replay_size 1000 \
-		--max_replay_size 10000 --contrastive_loss_fn ${c_loss} --energy_fn l2 \
-		--multiplier_num_sgd_steps 1 --log_wandb
+		python training.py --seed ${seed} \
+		--project_name crl --group_name contrastive_loss_experiments \ 
+		--exp_name ${c_loss} \
+		--contrastive_loss_fn ${c_loss} --energy_fn l2 \
+        --log_wandb
 	done
 done
 ```
@@ -54,7 +55,11 @@ done
 !!! note annotate "Wandb account"  
     If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
-Logging to W&B occurs when the `--log_wandb` flag is used.
+ We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
+- `--project_name`
+- `--group_name`
+- `--exp_name`
+
 
 All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
 

@@ -1,4 +1,4 @@
-site_name: My Docs
+site_name: JaxGCRL
 site_url: https://mydomain.org/mysite
 theme:
   name: material
@@ -7,14 +7,18 @@ theme:
     primary: deep orange
   features:
     - content.code.copy
+    - navigation.sections
 
 plugins:
   - search
 
 nav:
   - Overview: index.md
-  - Installation: install.md
-  - Basic Usage: usage.md
+  - Get Started:
+    - Installation: install.md
+    - Basic Usage: usage.md
+    - Methods: methods.md
+    - Environments: environments.md
 
 markdown_extensions:
   - admonition
