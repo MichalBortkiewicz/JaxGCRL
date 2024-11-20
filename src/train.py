@@ -56,8 +56,7 @@ def _init_training_state(
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """
-    Initializes the training state for a reinforcement learning model with a cross-representation learning
-    (CRL) component. This function sets up the initial states for various components including the policy
+    Initializes the training state for a contrastive reinforcement learning model. This function sets up the initial states for various components including the policy
     network, CRL networks, and optimizers. All parameters are initialized and replicated across the specified
     number of local devices.
 

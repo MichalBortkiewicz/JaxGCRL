@@ -30,7 +30,7 @@ def make_losses(
     """
     This module contains the make_losses function which is used to create loss functions
     for training contrastive reinforcement learning models. The make_losses function
-    generates two primary loss functions: alpha_loss and crl_critic_loss.
+    generates three primary loss functions: alpha_loss, critic_loss and actor_loss.
 
     Alpha loss is based on the SAC paper for tuning the entropy coefficient to control
     the policy's entropy. CRL Critic Loss calculates the loss for the critic network in
@@ -61,6 +61,7 @@ def make_losses(
     Function:
         alpha_loss: Computes the alpha loss for tuning the entropy coefficient.
         crl_critic_loss: Computes the critic loss for contrastive reinforcement learning.
+        actor_loss: Computes the actor loss for contrastive reinforcement learning.
     """
 
     target_entropy = -0.5 * action_size
