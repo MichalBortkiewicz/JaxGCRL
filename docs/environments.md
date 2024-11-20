@@ -2,17 +2,16 @@ We provide 8 blazingly fast goal-conditioned environments based on [MJX](https:/
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
 
-| Environment  |                         Env name                         |  Code  |                             Documentation                             |
-|:-------------|:--------------------------------------------------------:|:------:|:---------------------------------------------------------------------:|
-| Reacher      |                        `reacher`                         | [LINK] |   [link](https://gymnasium.farama.org/environments/mujoco/reacher/)   |
-| Half Cheetah |                        `cheetah`                         | [LINK] | [link](https://gymnasium.farama.org/environments/mujoco/half_cheetah/) |
-| Pusher       |             `pusher_easy` <br> `pusher_hard`             | [LINK] |    [link](https://gymnasium.farama.org/environments/mujoco/pusher/)   |
-| Ant          |                          `ant`                           | [LINK] |     [link](https://gymnasium.farama.org/environments/mujoco/ant/)     |
-| Ant Maze     | `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze` | [LINK] |
-| Ant Soccer   |                        `ant_ball`                        | [LINK] |
-| Ant Push     |                        `ant_push`                        | [LINK] |
-| Humanoid     |                        `humanoid`                        | [LINK] |  [link](https://gymnasium.farama.org/environments/mujoco/humanoid/)   |
-
+| Environment | Env name | Code |
+| :- | :-: | :-: |
+| Reacher |  `reacher`  |  [link](./envs/reacher.py)  |
+| Half Cheetah | `cheetah` | [link](./envs/half_cheetah.py)  |
+| Pusher | `pusher_easy` <br> `pusher_hard`|  [link](./envs/pusher.py)  |
+| Ant |  `ant`  |  [link](./envs/ant.py)  |
+| Ant Maze |  `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`  |  [link](./envs/ant_maze.py)  |
+| Ant Soccer |  `ant_ball`  |  [link](./envs/ant_ball.py)  |
+| Ant Push |  `ant_push`  |  [link](./envs/ant_push.py)  |
+| Humanoid | `humanoid`|  [link](./envs/humanoid.py)  |
 
 ### Adding new environments
 Each environment implementation has 2 main parts: an XML file and a Python file. 
