@@ -94,13 +94,8 @@ For a full list of available energy functions and contrastive losses, see: [ [en
 
 JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
 
-To execute multiple experiments, you can use a bash script. We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
-- `--project_name`
-- `--group_name`
-- `--exp_name`
 
-
-
+To execute multiple experiments, you can use a bash script.
 For example, the script below runs experiments to test the performance of different contrastive losses:
 ```bash
 for c_loss in binary infonce flatnce fb dp; do
@@ -132,6 +127,11 @@ This section lists the available environments in the repository, along with the 
 To add a new environment, register its name in `utils.py` under the `get_env_config` function.
 
 ## Wandb support
+We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
+- `--project_name`
+- `--group_name`
+- `--exp_name`
+
 All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
 Logging to W&B occurs when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.
 
