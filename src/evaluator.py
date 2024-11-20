@@ -5,10 +5,20 @@ from brax.training import acting
 from brax.training.types import Metrics
 from brax.training.types import PolicyParams
 
-# This is an evaluator that behaves in the exact same way as brax Evaluator,
-# but additionally it aggregates metrics with max, min.
-# It also logs in how many episodes there was any success.
 class CrlEvaluator(acting.Evaluator):
+    """
+    CrlEvaluator class for running evaluation epochs in a training process.
+
+    This class extends the base acting.Evaluator and is designed to evaluate the
+    performance of policies based on given parameters and training metrics.
+    It provides detailed evaluations by aggregating various metrics over episodes
+    and calculating statistical summaries such as mean, standard deviation,
+    maximum, and minimum values.
+
+    This is an evaluator that behaves in the exact same way as brax Evaluator,
+    but additionally it aggregates metrics with max, min.
+    It also logs in how many episodes there was any success.
+    """
     def run_evaluation(
         self,
         policy_params: PolicyParams,

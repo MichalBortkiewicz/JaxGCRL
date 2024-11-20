@@ -12,7 +12,23 @@ from utils import MetricsRecorder, create_env, create_eval_env, create_parser, r
 
 
 def main(args):
+    """
+    Main function orchestrating the overall setup, initialization, and execution
+    of training and evaluation processes. This function performs the following:
+    1. Environment setup
+    2. Directory creation for logging and checkpoints
+    3. Training function creation
+    4. Metrics recording
+    5. Progress logging and monitoring
+    6. Model saving and inference
 
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments specifying configuration parameters for the
+        training and evaluation processes.
+
+    """
     env = create_env(args)
     eval_env = create_eval_env(args)
 

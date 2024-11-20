@@ -191,7 +191,7 @@ def train(
     n_hidden: int = 2,
 ):
     """
-    Trains a reinforcement learning agent using the specified environment and parameters.
+    Trains a contrastive reinforcement learning agent using the specified environment and parameters.
 
     This function initializes and manages the training process, including the setup of
     environments, networks, optimizers, replay buffers, and loss functions. It also
@@ -232,7 +232,7 @@ def train(
         exploration_coef: float, optional
             Coefficient for the exploration term in the loss function. Default is 0.0.
         resubs: bool, optional
-            Whether to use resubsampling. Default is True.
+            Whether to use resubstitution in losses.py. Default is True.
         num_evals: int, optional
             Number of evaluation runs. Default is 1.
         normalize_observations: bool, optional

@@ -20,7 +20,35 @@ class CRLNetworks:
     g_encoder: networks.FeedForwardNetwork
 
 class MLP(linen.Module):
-    """MLP module."""
+    """
+    MLP class to build a Multi-Layer Perceptron.
+
+    This class constructs a fully connected neural network given layer sizes, activation function, and other properties.
+    Supports optional layer normalization, initialization, and activation on the final layer.
+
+    Attributes:
+        layer_sizes (Sequence[int]): A sequence of integers where each integer represents
+                                     the number of neurons in that particular layer.
+        activation (ActivationFn): Activation function to be applied after each hidden layer.
+                                      Default is `linen.relu`.
+        kernel_init (Initializer): Initializer function for the Dense layer's kernel.
+                                   Defaults to `jax.nn.initializers.lecun_uniform()`.
+        activate_final (bool): A flag to determine if activation should also be applied to
+                               the final layer. Defaults to `False`.
+        bias (bool): Whether to use bias in the Dense layers. Defaults to `True`.
+        use_layer_norm (bool): Flag to determine if Layer Normalization should be used.
+                               Defaults to `False`.
+
+    Methods:
+        __call__(data: jnp.ndarray) -> jnp.ndarray
+            Forward pass through the network.
+
+            Parameters:
+            data (jnp.ndarray): Input data to the MLP.
+
+            Returns:
+            jnp.ndarray: Output of the MLP after passing through all layers and activation functions.
+    """
 
     layer_sizes: Sequence[int]
     activation: ActivationFn = linen.relu
