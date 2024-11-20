@@ -172,24 +172,29 @@ def make_losses(
             logits = logits * c_target
 
         if contrastive_loss_fn == "binary":
+            # From "Noise Contrastive Estimation and Negative Sampling for Conditional Models:
+            # Consistency and Statistical Efficiency" https://arxiv.org/abs/1809.01812
             loss = jnp.mean(
                 sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
             )  # shape[0] - is a batch size
             l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
+        elif contrastive_loss_fn == "infonce":
+            # From "Improved Deep Metric Learning with Multi-class N-pair Loss Objective"
+            # https://dl.acm.org/doi/10.5555/3157096.3157304
+            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
+        elif contrastive_loss_fn == "infonce_backward":
+            l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "symmetric_infonce":
             l_align1, l_unify1 = log_softmax(logits, axis=1, resubs=resubs)
             l_align2, l_unify2 = log_softmax(logits, axis=0, resubs=resubs)
             l_align = l_align1 + l_align2
             l_unif = l_unify1 + l_unify2
             loss = -jnp.mean(jnp.diag(l_align1 + l_unify1) + jnp.diag(l_align2 + l_unify2))
-        elif contrastive_loss_fn == "infonce":
-            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unif))
-        elif contrastive_loss_fn == "infonce_backward":
-            l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "flatnce":
-            # from https://arxiv.org/pdf/2107.01152
+            # From "Simpler, Faster, Stronger: Breaking The log-K Curse
+            # On Contrastive Learners With FlatNCE" https://arxiv.org/pdf/2107.01152
             logits_flat = logits - jnp.diag(logits)[:, None]
             clogits = jax.nn.logsumexp(logits_flat, axis=1)
             l_align = clogits
@@ -204,25 +209,29 @@ def make_losses(
             loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
         elif contrastive_loss_fn == "fb":
             # This is a Monte Carlo version of the loss from "Does Zero-Shot Reinforcement Learning Exist?"
+            # https://arxiv.org/abs/2209.14935
             batch_size = logits.shape[0]
             I = jnp.eye(batch_size)
             l_align = -jnp.diag(logits)  # shape = (batch_size,)
             l_unif = 0.5 * jnp.sum(logits**2 * (1 - I) / (batch_size - 1), axis=-1)  # shape = (batch_size,)
             loss = (l_align + l_unif).mean()  # shape = ()
         elif contrastive_loss_fn == "dpo":
-            # This is based on DPO loss
+            # Based on "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+            # https://arxiv.org/pdf/2305.18290
             # It aims to drive positive and negative logits further away from each other
             positive = jnp.diag(logits)
             diffs = positive[:, None] - logits
             loss = -jnp.mean(jax.nn.log_sigmoid(diffs))
         elif contrastive_loss_fn == "ipo":
-            # This is based on IPO loss
+            # Based on "A General Theoretical Paradigm to Understand Learning from
+            # Human Preferences" https://arxiv.org/pdf/2310.12036
             # It aims to have difference between positive and negative logits == 1
             positive = jnp.diag(logits)
             diffs = positive[:, None] - logits
             loss = jnp.mean((diffs - 1) ** 2)
         elif contrastive_loss_fn == "sppo":
-            # This is based on SPPO loss
+            # Base on "Self-Play Preference Optimization for Language Model Alignment"
+            # https://arxiv.org/pdf/2405.00675
             # It aims to have positive logits == 1 and negative == -1
             batch_size = logits.shape[0]
             target = -jnp.ones(batch_size) + 2* jnp.eye(batch_size)
