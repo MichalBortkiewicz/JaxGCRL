@@ -3,20 +3,21 @@ import json
 import os
 import pickle
 
+import jax
 import wandb
-import math
 from brax.io import model
+from brax.io import html
 from pyinstrument import Profiler
 
-from src.baselines.td3.td3_train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
+from src.baselines.ppo import train
+from utils import MetricsRecorder, create_env, create_eval_env, create_parser, render
 
 
 def main(args):
 
     env = create_env(args)
     eval_env = create_eval_env(args)
-    config = get_env_config(args)
+
 
     os.makedirs('./runs', exist_ok=True)
     run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
@@ -26,6 +27,13 @@ def main(args):
     with open(run_dir + '/args.pkl', 'wb') as f:
         pickle.dump(args, f)
 
+
+    # We want ratio of sgd steps to env steps to be roughly equal to 1:16
+    num_minibatches = 16 #(16 * args.num_envs) // (args.batch_size * args.unroll_length * args.action_repeat)
+    print(f"Num_minibatches {num_minibatches}")
+    sgd_to_env_step_ratio = args.num_envs / (args.batch_size * args.unroll_length * num_minibatches * args.action_repeat)
+    print(f"SGD to ENV step ratio: {sgd_to_env_step_ratio}")
+
     train_fn = functools.partial(
         train,
         num_timesteps=args.num_timesteps,
@@ -34,17 +42,18 @@ def main(args):
         episode_length=args.episode_length,
         normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
+        unroll_length=args.unroll_length,
         discounting=args.discounting,
         learning_rate=args.critic_lr,
         num_envs=args.num_envs,
         batch_size=args.batch_size,
-        unroll_length=args.unroll_length,
+        num_minibatches=num_minibatches,
+        num_updates_per_batch=1,
+        clipping_epsilon=0.3,
+        gae_lambda=0.95,
         max_devices_per_host=1,
-        max_replay_size=args.max_replay_size,
-        min_replay_size=args.min_replay_size,
         seed=args.seed,
-        eval_env=eval_env,
-        config=config,
+        eval_env=eval_env
     )
 
     metrics_recorder = MetricsRecorder(args.num_timesteps)
@@ -52,9 +61,6 @@ def main(args):
     def ensure_metric(metrics, key):
         if key not in metrics:
             metrics[key] = 0
-        else:
-            if math.isnan(metrics[key]):
-                raise Exception(f"Metric: {key} is Nan")
 
     metrics_to_collect = [
         "eval/episode_reward",
@@ -88,8 +94,9 @@ def main(args):
 
     make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
 
-    model.save_params(ckpt_dir + '/final', params)
-    render(make_inference_fn, params, env, run_dir, args.exp_name)
+    os.makedirs("./params", exist_ok=True)
+    model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
+    render(make_inference_fn, params, env, "./renders", args.exp_name)
 
 if __name__ == "__main__":
     parser = create_parser()
@@ -101,15 +108,6 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
-    sgd_to_env = (
-        args.num_envs
-        * args.episode_length
-        * args.multiplier_num_sgd_steps
-        / args.batch_size
-    ) / (args.num_envs * args.unroll_length)
-    print(f"SGD steps per env steps: {sgd_to_env}")
-    args.sgd_to_env = sgd_to_env
-
     wandb.init(
         project=args.project_name,
         group=args.group_name,
