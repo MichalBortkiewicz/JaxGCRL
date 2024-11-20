@@ -32,11 +32,6 @@ def make_losses(
     for training contrastive reinforcement learning models. The make_losses function
     generates three primary loss functions: alpha_loss, critic_loss and actor_loss.
 
-    Alpha loss is based on the SAC paper for tuning the entropy coefficient to control
-    the policy's entropy. CRL Critic Loss calculates the loss for the critic network in
-    contrastive reinforcement learning. It supports different energy functions and
-    contrastive loss functions as specified by the arguments.
-
     Attributes:
         target_entropy (float): Target entropy value for policy.
         policy_network (object): The policy network from crl_network.
@@ -101,14 +96,10 @@ def make_losses(
             crl_critic_params["c"],
         )
 
-        # key1, key2 = jax.random.split(key, 2)
         obs = transitions.observation[:, :obs_dim]
         action = transitions.action
         future_action = transitions.extras["future_action"]
         future_action_shuf = jax.random.permutation(key, future_action)
-        # goal = transitions.observation[:, obs_dim:]
-        # obs_shuf = jax.random.permutation(key2, obs)
-        # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
         goal_pad = transitions.extras["future_state"]
 
         sa_repr = sa_encoder.apply(
@@ -265,7 +256,6 @@ def make_losses(
             loss += l2_loss
         else:
             l2_loss = 0
-
 
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)

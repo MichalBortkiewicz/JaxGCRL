@@ -17,6 +17,26 @@ To easily compare CRL to other well-known RL algorithms we have implemented seve
 While reward shaping was not our main priority, since CRL algorithm doesn't use reward, most environments can provide both sparse and dense rewards, by using `--use_dense_reward` flag.
 
 ## Adding new methods and algorithms
-The primary purpose of our work is to enable easy and rapid research on Goal-Conditioned Reinforcement Learning. Thus adding new losses, and energy functions, or changing other aspects of the algorithm can be easily done, by modifying `src/losses.py` and/or `src/networks.py`, which are easily readable and accessible.
+The primary purpose of our work is to enable easy and rapid research on Self-Supervised Goal-Conditioned Reinforcement Learning. Thus adding new losses, and energy functions, or changing other aspects of the algorithm can be easily done, by modifying `src/losses.py` and/or `src/networks.py`, which are easily readable and accessible.
+
+
+### Adding new contrastive objective
+For instance, to register a new contrastive objective ("`your_loss`") for CRL, you need to:
+1. Register new `contrastive_loss_fn` in `crl_critic_loss` function (`src/losses.py` file):
+```python
+...
+if contrastive_loss_fn == "your_loss":
+    loss = ...
+...
+```
+2. Run training with your new contrastive objective, to check if algorithm learns properly:
+```shell
+python training.py --contrastive_loss_fn "your_loss"
+```
+### Using a custom model architecture.
+
+To integrate a custom model architecture for CRL algorithm, you need to define and register your architecture within the `src/cnetworks.py` file: 
+1. Critic: extend or modify the `MLP` class or create a new model used for contrastive embeddings. 
+2. Actor: provide appropriate `make_policy_network` function that defines actor architecture.    
 
 Algorithms, that differ from CRL (or one of the other implemented baselines) in a more fundamental way (e.g. non-standard replay buffer, not relaying on actor and critic as a main paradigm) can also be implemented, but will usually require modification of `src/train.py`, which requires some technical knowledge on JAX, especially how JIT mechanism works.

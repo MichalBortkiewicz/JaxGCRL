@@ -81,7 +81,28 @@ def make_embedder(
     use_ln: bool = False
 ) -> networks.FeedForwardNetwork:
 
-    """Creates a model."""
+    """
+    Constructs a FeedForwardNetwork to embed observations using a specified Multi-Layer Perceptron (MLP).
+
+    Summary:
+    The `make_embedder` function creates a feedforward neural network given the layer sizes of the MLP.
+
+    Args:
+        layer_sizes (Sequence[int]): A sequence of integers indicating the sizes of the layers in the MLP.
+        obs_size (int): An integer representing the size of the observation input.
+        activation (Callable[[jnp.ndarray], jnp.ndarray]):
+            A callable activation function applied to each layer of the MLP.
+            Default is linen.swish.
+        preprocess_observations_fn (types.PreprocessObservationFn):
+            An optional function for preprocessing observations before embedding.
+            Default is `types`.
+        use_ln (bool): A boolean indicating whether to use layer normalization.
+            Default is False.
+
+    Returns:
+        networks.FeedForwardNetwork: An instance of `FeedForwardNetwork` configured with the specified MLP.
+
+    """
     dummy_obs = jnp.zeros((1, obs_size))
     module = MLP(layer_sizes=layer_sizes, activation=activation, use_layer_norm=use_ln)
 
@@ -94,7 +115,21 @@ def make_embedder(
     return model
 
 def make_inference_fn(crl_networks: CRLNetworks):
-    """Creates params and inference function for the CRL agent."""
+    """
+    Creates and returns a policy function using a given CRL network.
+
+    This function generates a policy function that will be used for making action
+    predictions based on observations.
+
+    Args:
+        crl_networks (CRLNetworks): The CRL network used for creating the policy
+            function.
+
+    Returns:
+        Callable: A function that creates the policy based on the provided
+            parameters and observation.
+
+    """
     def make_policy(params: types.PolicyParams, deterministic: bool = False) -> types.Policy:
         def policy(obs: types.Observation, key_sample: PRNGKey) -> Tuple[types.Action, types.Extra]:
             logits = crl_networks.policy_network.apply(*params[:2], obs)
@@ -117,7 +152,28 @@ def make_crl_networks(
     activation: networks.ActivationFn = linen.relu,
     use_ln: bool= False
 ) -> CRLNetworks:
-    """Make CRL networks."""
+    """
+    Creates a set of CRL networks for a given
+    environment configuration and observation-action setup.
+
+    Parameters:
+        config (NamedTuple): Configuration object containing 'repr_dim' attribute.
+        env (object): The environment object must have 'state_dim' and 'goal_indices'
+            attributes.
+        observation_size (int): The size of the observation space.
+        action_size (int): The size of the action space.
+        preprocess_observations_fn (types.PreprocessObservationFn, optional): Function
+            used to preprocess observations. Defaults to `types.identity_observation_preprocessor`.
+        hidden_layer_sizes (Sequence[int], optional): Sizes of the hidden layers for the
+            networks. Defaults to (256, 256).
+        activation (networks.ActivationFn, optional): Activation function to use in the
+            networks. Defaults to `linen.relu`.
+        use_ln (bool, optional): Whether to use Layer Normalization. Defaults to False.
+
+    Returns:
+        CRLNetworks: An instance of the CRLNetworks containing policy network, parametric
+            action distribution, state-action encoder, and goal encoder.
+    """
     parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
     
     policy_network = networks.make_policy_network(
