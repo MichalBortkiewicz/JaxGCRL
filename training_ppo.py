@@ -3,10 +3,8 @@ import json
 import os
 import pickle
 
-import jax
 import wandb
 from brax.io import model
-from brax.io import html
 from pyinstrument import Profiler
 
 from src.baselines.ppo import train
@@ -56,12 +54,6 @@ def main(args):
         eval_env=eval_env
     )
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps)
-
-    def ensure_metric(metrics, key):
-        if key not in metrics:
-            metrics[key] = 0
-
     metrics_to_collect = [
         "eval/episode_reward",
         "eval/episode_success",
@@ -81,18 +73,9 @@ def main(args):
         "training/alpha_loss",
         "training/entropy",
     ]
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
 
-    def progress(num_steps, metrics):
-        for key in metrics_to_collect:
-            ensure_metric(metrics, key)
-        metrics_recorder.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in metrics_to_collect},
-        )
-        metrics_recorder.log_wandb()
-        metrics_recorder.print_progress()
-
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
+    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
 
     os.makedirs("./params", exist_ok=True)
     model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)

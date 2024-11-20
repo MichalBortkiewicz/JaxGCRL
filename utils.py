@@ -2,8 +2,10 @@ import argparse
 import os
 from collections import namedtuple
 from datetime import datetime
+from typing import List
 
 import jax
+import math
 from brax.io import html
 
 from matplotlib import pyplot as plt
@@ -30,6 +32,18 @@ from envs.simple_maze import SimpleMaze
 
 
 def create_parser():
+    """
+    Create an argument parser for training script.
+
+    This function sets up an argument parser to handle various training
+    parameters for a RL experiment.
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+
+    Args:
+        None
+    """
     parser = argparse.ArgumentParser(description="Training script arguments")
     parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
     parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
@@ -73,6 +87,19 @@ def create_parser():
 
 
 def create_env(args: argparse.Namespace) -> object:
+    """
+    This function creates and returns an appropriate environment object based on the specified environment name and
+    backend.
+
+    Args:
+        args (argparse.Namespace): The arguments namespace containing environment name and backend information.
+
+    Returns:
+        object: The instantiated environment object.
+
+    Raises:
+        ValueError: If the specified environment name is unknown.
+    """
     env_name = args.env_name
     if env_name == "reacher":
         env = Reacher(backend=args.backend or "generalized")
@@ -148,11 +175,12 @@ def get_env_config(args: argparse.Namespace):
 
 
 class MetricsRecorder:
-    def __init__(self, num_timesteps):
+    def __init__(self, num_timesteps: int, metrics_to_collect: List[str]):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
+        self.metrics_to_collect = metrics_to_collect
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -206,6 +234,25 @@ class MetricsRecorder:
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
+        
+    def progress(self, num_steps, metrics):
+        for key in self.metrics_to_collect:
+            self.ensure_metric(metrics, key)
+        self.record(
+            num_steps,
+            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
+        )
+        self.log_wandb()
+        self.print_progress()
+    
+    @staticmethod
+    def ensure_metric(metrics, key):
+        if key not in metrics:
+            metrics[key] = 0
+        else:
+            if math.isnan(metrics[key]):
+                raise Exception(f"Metric: {key} is Nan")
+
 
 
 def render(inf_fun_factory, params, env, exp_dir, exp_name):

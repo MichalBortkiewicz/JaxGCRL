@@ -7,34 +7,15 @@ import wandb
 from brax.io import model
 from pyinstrument import Profiler
 
-
-from src.train import train
+from src.baselines.td3.td3_train import train
 from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
 
 
 def main(args):
-    """
-    Main function orchestrating the overall setup, initialization, and execution
-    of training and evaluation processes. This function performs the following:
-    1. Environment setup
-    2. Directory creation for logging and checkpoints
-    3. Training function creation
-    4. Metrics recording
-    5. Progress logging and monitoring
-    6. Model saving and inference
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments specifying configuration parameters for the
-        training and evaluation processes.
-
-    """
 
     env = create_env(args)
     eval_env = create_eval_env(args)
     config = get_env_config(args)
-
 
     os.makedirs('./runs', exist_ok=True)
     run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
@@ -47,61 +28,42 @@ def main(args):
     train_fn = functools.partial(
         train,
         num_timesteps=args.num_timesteps,
-        max_replay_size=args.max_replay_size,
-        min_replay_size=args.min_replay_size,
         num_evals=args.num_evals,
+        reward_scaling=1,
         episode_length=args.episode_length,
         normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
-        policy_lr=args.policy_lr,
-        critic_lr=args.critic_lr,
-        alpha_lr=args.alpha_lr,
-        contrastive_loss_fn=args.contrastive_loss_fn,
-        energy_fn=args.energy_fn,
-        logsumexp_penalty=args.logsumexp_penalty,
-        l2_penalty=args.l2_penalty,
-        resubs=not args.no_resubs,
+        discounting=args.discounting,
+        learning_rate=args.critic_lr,
         num_envs=args.num_envs,
         batch_size=args.batch_size,
-        seed=args.seed,
         unroll_length=args.unroll_length,
-        multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
-        config=config,
-        checkpoint_logdir=ckpt_dir,
+        max_devices_per_host=1,
+        max_replay_size=args.max_replay_size,
+        min_replay_size=args.min_replay_size,
+        seed=args.seed,
         eval_env=eval_env,
-        use_c_target=args.use_c_target,
-        exploration_coef=args.exploration_coef,
-        use_ln=args.use_ln,
-        h_dim=args.h_dim,
-        n_hidden=args.n_hidden,
+        config=config,
     )
 
     metrics_to_collect = [
+        "eval/episode_reward",
         "eval/episode_success",
         "eval/episode_success_any",
         "eval/episode_success_hard",
         "eval/episode_success_easy",
+        "eval/episode_reward_dist",
+        "eval/episode_reward_near",
+        "eval/episode_reward_ctrl",
         "eval/episode_dist",
         "eval/episode_reward_survive",
-        "training/crl_critic_loss",
         "training/actor_loss",
-        "training/binary_accuracy",
-        "training/categorical_accuracy",
-        "training/logits_pos",
-        "training/logits_neg",
-        "training/logsumexp",
+        "training/critic_loss",
         "training/sps",
         "training/entropy",
         "training/alpha",
         "training/alpha_loss",
         "training/entropy",
-        "training/sa_repr_mean",
-        "training/g_repr_mean",
-        "training/sa_repr_std",
-        "training/g_repr_std",
-        "training/c_target",
-        "training/l_align",
-        "training/l_unif",
     ]
 
     metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
