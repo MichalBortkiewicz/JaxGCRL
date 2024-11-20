@@ -55,7 +55,27 @@ def _init_training_state(
     policy_optimizer: optax.GradientTransformation,
     crl_critics_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
-    """Inits the training state and replicates it over devices."""
+    """
+    Initializes the training state for a reinforcement learning model with a cross-representation learning
+    (CRL) component. This function sets up the initial states for various components including the policy
+    network, CRL networks, and optimizers. All parameters are initialized and replicated across the specified
+    number of local devices.
+
+    Args:
+        key (PRNGKey): A pseudorandom number generator key used for initializing various network parameters.
+        obs_size (int): The size (number of elements) of the observations from the environment.
+        local_devices_to_use (int): The number of local devices to utilize for training.
+        crl_network (crl_networks.CRLNetworks): The CRL network components that include the policy network,
+            state-action (SA) encoder, and goal (G) encoder.
+        alpha_optimizer (optax.GradientTransformation): An optimizer for the 'log alpha' parameter.
+        policy_optimizer (optax.GradientTransformation): An optimizer for the policy network parameters.
+        crl_critics_optimizer (optax.GradientTransformation): An optimizer for the CRL critic parameters.
+
+    Returns:
+        TrainingState: An initialized TrainingState object that contains the initial states of the
+        policy network parameters, CRL critic parameters, their respective optimizer states, alpha parameter,
+        and normalization parameters.
+    """
     key_policy, key_sa_enc, key_g_enc = jax.random.split(key, 3)
     log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
     alpha_optimizer_state = alpha_optimizer.init(log_alpha)
@@ -93,7 +113,30 @@ def actor_step(
     key: PRNGKey,
     extra_fields: Sequence[str] = (),
 ) -> Tuple[State, Transition]:
-    """Collect data."""
+    """
+    Executes one step of an actor in the environment by selecting an action based on the
+    policy, stepping the environment, and returning the updated state and transition data.
+
+    Parameters
+    ----------
+    env : Env
+        The environment in which the actor operates.
+    env_state : State
+        The current state of the environment.
+    policy : Policy
+        The policy used to select the action.
+    key : PRNGKey
+        A random key for stochastic policy decisions.
+    extra_fields : Sequence[str], optional
+        A sequence of extra fields to be extracted from the environment state.
+
+    Returns
+    -------
+    Tuple[State, Transition]
+        A tuple containing the new state after taking the action and the transition data
+        encompassing observation, action, reward, discount, and extra information.
+
+    """
     actions, policy_extras = policy(env_state.obs, key)
     nstate = env.step(env_state, actions)
     state_extras = {x: nstate.info[x] for x in extra_fields}
@@ -147,7 +190,95 @@ def train(
     h_dim: int = 256,
     n_hidden: int = 2,
 ):
-    """CRL training."""
+    """
+    Trains a reinforcement learning agent using the specified environment and parameters.
+
+    This function initializes and manages the training process, including the setup of
+    environments, networks, optimizers, replay buffers, and loss functions. It also
+    handles the distribution of computation across multiple devices if available and
+    configures the training loop to evaluate the agent's performance periodically.
+
+    Parameters:
+        environment: Union[envs_v1.Env, envs.Env]
+            The environment in which the agent will be trained.
+        num_timesteps: int
+            Total number of timesteps for which the agent will be trained.
+        episode_length: int
+            Maximum length of an episode.
+        action_repeat: int, optional
+            Number of times each action is repeated. Default is 1.
+        num_envs: int, optional
+            Number of parallel environments. Default is 1.
+        num_eval_envs: int, optional
+            Number of environments for evaluation. Default is 128.
+        policy_lr: float, optional
+            Learning rate for the policy network. Default is 1e-4.
+        alpha_lr: float, optional
+            Learning rate for the alpha parameter. Default is 1e-4.
+        critic_lr: float, optional
+            Learning rate for the critic network. Default is 1e-4.
+        seed: int, optional
+            Random seed for reproducibility. Default is 0.
+        batch_size: int, optional
+            Batch size for training. Default is 256.
+        contrastive_loss_fn: str, optional
+            Type of contrastive loss function. Default is "binary".
+        energy_fn: str, optional
+            Type of energy function. Default is "l2".
+        logsumexp_penalty: float, optional
+            Penalty for the log-sum-exp term in the loss function. Default is 0.0.
+        l2_penalty: float, optional
+            L2 regularization penalty. Default is 0.0.
+        exploration_coef: float, optional
+            Coefficient for the exploration term in the loss function. Default is 0.0.
+        resubs: bool, optional
+            Whether to use resubsampling. Default is True.
+        num_evals: int, optional
+            Number of evaluation runs. Default is 1.
+        normalize_observations: bool, optional
+            If True, normalize observations. Default is False.
+        max_devices_per_host: Optional[int], optional
+            Maximum number of devices to use per host. Default is None.
+        min_replay_size: int, optional
+            Minimum replay buffer size before starting training. Default is 0.
+        max_replay_size: Optional[int], optional
+            Maximum replay buffer size. Default is None.
+        deterministic_eval: bool, optional
+            If True, evaluation is deterministic. Default is False.
+        network_factory: types.NetworkFactory[crl_networks.CRLNetworks], optional
+            Factory function for creating the network. Default is crl_networks.make_crl_networks.
+        progress_fn: Callable[[int, Metrics], None], optional
+            Function to call to report progress. Default is a no-op lambda.
+        checkpoint_logdir: Optional[str], optional
+            Directory to save checkpoints. Default is None.
+        eval_env: Optional[envs.Env], optional
+            Evaluation environment. Default is None.
+        randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]], optional
+            Function for environment randomization. Default is None.
+        unroll_length: int, optional
+            Length of time to unroll the environment. Default is 50.
+        multiplier_num_sgd_steps: int, optional
+            Number of SGD steps multiplier. Default is 1.
+        use_c_target: bool, optional
+            If True, use C target in the training process. Default is False.
+        config: NamedTuple, optional
+            Configuration settings. Default is None.
+        use_ln: bool, optional
+            If True, use layer normalization. Default is False.
+        h_dim: int, optional
+            Dimension of the hidden layers. Default is 256.
+        n_hidden: int, optional
+            Number of hidden layers. Default is 2.
+
+    Raises:
+        ValueError
+            If the minimum replay size is greater than or equal to the number of timesteps.
+
+    Returns:
+        None
+
+    """
+
     process_id = jax.process_index()
     local_devices_to_use = jax.local_device_count()
     if max_devices_per_host is not None:
