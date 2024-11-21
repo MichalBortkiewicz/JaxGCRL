@@ -70,7 +70,7 @@ JaxGCRL is highly flexible in terms of parameters, allowing for a wide range of 
 ```
 python training.py --env_name ant
 ```
-For a complete list of environments, refer to the [environments section](##Environments) or [source code](./utils.py#L66).
+For a complete list of environments, refer to the [environments section](#Environments) or [source code](./utils.py#L104).
 
 One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
 
@@ -90,9 +90,9 @@ JaxGCRL supports various built-in energy functions and contrastive loss function
 ```
 python training.py --env_name ant --energy_fn l2 --contrastive_loss_fn infonce_backward
 ```
-For a full list of available energy functions and contrastive losses, see: [ [energy functions](./src/losses.py#L91) | [contrastive losses](./src/losses.py#L145) ]
+For a full list of available energy functions and contrastive losses, see: [ [energy functions](./src/losses.py#L111) | [contrastive losses](./src/losses.py#L145) ]
 
-JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
+JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L47).
 
 
 To execute multiple experiments, you can use a bash script.
