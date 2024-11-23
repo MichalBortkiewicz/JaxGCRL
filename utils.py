@@ -25,6 +25,8 @@ from envs.manipulation.arm_push_easy import ArmPushEasy
 from envs.manipulation.arm_push_hard import ArmPushHard
 from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
 from envs.manipulation.arm_binpick_hard import ArmBinpickHard
+from envs.manipulation.arm_binpick_easy_EEF import ArmBinpickEasyEEF
+from envs.manipulation.arm_multi_pickplace_EEF import ArmMultiPickplaceEEF
 from envs.simple_maze import SimpleMaze
 
 
@@ -117,6 +119,10 @@ def create_env(args: argparse.Namespace) -> object:
         env = ArmBinpickEasy(backend=args.backend or "mjx")
     elif env_name == "arm_binpick_hard":
         env = ArmBinpickHard(backend=args.backend or "mjx")
+    elif env_name == "arm_binpick_easy_EEF":
+        env = ArmBinpickEasyEEF(backend=args.backend or "mjx")
+    elif env_name == "arm_multi_pickplace_EEF":
+        env = ArmMultiPickplaceEEF(backend=args.backend or "mjx")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -133,7 +139,8 @@ def create_eval_env(args: argparse.Namespace) -> object:
 def get_env_config(args: argparse.Namespace):
     legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "pusher2",
                   "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", 
-                  "arm_push_easy", "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
+                  "arm_push_easy", "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard",
+                  "arm_binpick_easy_EEF", "arm_multi_pickplace_EEF"]
     if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
 
