@@ -46,6 +46,7 @@ def main(args):
         l2_penalty=args.l2_penalty,
         resubs=not args.no_resubs,
         num_envs=args.num_envs,
+        num_eval_envs=args.num_eval_envs,
         batch_size=args.batch_size,
         seed=args.seed,
         unroll_length=args.unroll_length,
