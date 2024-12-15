@@ -4,11 +4,10 @@ import os
 import pickle
 
 import wandb
-import math
 from brax.io import model
 from pyinstrument import Profiler
 
-from src.baselines.sac import train
+from src.baselines.td3.td3_train import train
 from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
 
 
@@ -55,23 +54,13 @@ def main(args):
         num_envs=args.num_envs,
         batch_size=args.batch_size,
         unroll_length=args.unroll_length,
-        multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
-        config=config,
         max_devices_per_host=1,
         max_replay_size=args.max_replay_size,
         min_replay_size=args.min_replay_size,
         seed=args.seed,
-        eval_env=eval_env
+        eval_env=eval_env,
+        config=config,
     )
-
-    metrics_recorder = MetricsRecorder(args.num_timesteps)
-
-    def ensure_metric(metrics, key):
-        if key not in metrics:
-            metrics[key] = 0
-        else:
-            if math.isnan(metrics[key]):
-                raise Exception(f"Metric: {key} is Nan")
 
     metrics_to_collect = [
         "eval/episode_reward",
@@ -93,17 +82,9 @@ def main(args):
         "training/entropy",
     ]
 
-    def progress(num_steps, metrics):
-        for key in metrics_to_collect:
-            ensure_metric(metrics, key)
-        metrics_recorder.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in metrics_to_collect},
-        )
-        metrics_recorder.log_wandb()
-        metrics_recorder.print_progress()
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
+    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
 
     model.save_params(ckpt_dir + '/final', params)
     render(make_inference_fn, params, env, run_dir, args.exp_name)

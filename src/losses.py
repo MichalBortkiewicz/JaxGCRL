@@ -27,7 +27,37 @@ def make_losses(
     use_c_target: bool = False,
     exploration_coef: float = 0.0,
 ):
-    """Creates the CRL losses."""
+    """
+    This module contains the make_losses function which is used to create loss functions
+    for training contrastive reinforcement learning models. The make_losses function
+    generates three primary loss functions: alpha_loss, critic_loss and actor_loss.
+
+    Attributes:
+        target_entropy (float): Target entropy value for policy.
+        policy_network (object): The policy network from crl_network.
+        parametric_action_distribution (object): Action distribution from crl_network.
+        sa_encoder (object): State-action encoder from crl_network.
+        g_encoder (object): Goal encoder from crl_network.
+        obs_dim (int): Dimension of the environment's state.
+
+    Arguments:
+        config (NamedTuple): Configuration parameters.
+        env (object): Environment object.
+        contrastive_loss_fn (str): Type of contrastive loss function to use.
+        energy_fn (str): Energy function to use.
+        logsumexp_penalty (float): Penalty parameter for logsumexp.
+        l2_penalty (float): Penalty parameter for L2 regularization.
+        resubs (bool): Whether to use resubstitution strategy.
+        crl_network (crl_networks.CRLNetworks): Object containing the neural networks.
+        action_size (int): Size of the action space.
+        use_c_target (bool, optional): Whether to use C target. Defaults to False.
+        exploration_coef (float, optional): Exploration coefficient. Defaults to 0.0.
+
+    Function:
+        alpha_loss: Computes the alpha loss for tuning the entropy coefficient.
+        crl_critic_loss: Computes the critic loss for contrastive reinforcement learning.
+        actor_loss: Computes the actor loss for contrastive reinforcement learning.
+    """
 
     target_entropy = -0.5 * action_size
     policy_network = crl_network.policy_network
@@ -66,14 +96,10 @@ def make_losses(
             crl_critic_params["c"],
         )
 
-        # key1, key2 = jax.random.split(key, 2)
         obs = transitions.observation[:, :obs_dim]
         action = transitions.action
         future_action = transitions.extras["future_action"]
         future_action_shuf = jax.random.permutation(key, future_action)
-        # goal = transitions.observation[:, obs_dim:]
-        # obs_shuf = jax.random.permutation(key2, obs)
-        # goal_pad = jax.lax.dynamic_update_slice_in_dim(obs_shuf, goal, 0, -1)
         goal_pad = transitions.extras["future_state"]
 
         sa_repr = sa_encoder.apply(
@@ -102,7 +128,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
         elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
@@ -110,7 +136,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = -dist
         elif energy_fn == "mrn_pot_shuf":
             ga_repr = sa_encoder.apply(
@@ -119,7 +145,7 @@ def make_losses(
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             logits = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")
@@ -137,24 +163,29 @@ def make_losses(
             logits = logits * c_target
 
         if contrastive_loss_fn == "binary":
+            # From "Noise Contrastive Estimation and Negative Sampling for Conditional Models:
+            # Consistency and Statistical Efficiency" https://arxiv.org/abs/1809.01812
             loss = jnp.mean(
                 sigmoid_binary_cross_entropy(logits, labels=jnp.eye(logits.shape[0]))
             )  # shape[0] - is a batch size
             l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
+        elif contrastive_loss_fn == "infonce":
+            # From "Improved Deep Metric Learning with Multi-class N-pair Loss Objective"
+            # https://dl.acm.org/doi/10.5555/3157096.3157304
+            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
+        elif contrastive_loss_fn == "infonce_backward":
+            l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
+            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "symmetric_infonce":
             l_align1, l_unify1 = log_softmax(logits, axis=1, resubs=resubs)
             l_align2, l_unify2 = log_softmax(logits, axis=0, resubs=resubs)
             l_align = l_align1 + l_align2
             l_unif = l_unify1 + l_unify2
             loss = -jnp.mean(jnp.diag(l_align1 + l_unify1) + jnp.diag(l_align2 + l_unify2))
-        elif contrastive_loss_fn == "infonce":
-            l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unif))
-        elif contrastive_loss_fn == "infonce_backward":
-            l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
-            loss = -jnp.mean(jnp.diag(l_align + l_unif))
         elif contrastive_loss_fn == "flatnce":
-            # from https://arxiv.org/pdf/2107.01152
+            # From "Simpler, Faster, Stronger: Breaking The log-K Curse
+            # On Contrastive Learners With FlatNCE" https://arxiv.org/pdf/2107.01152
             logits_flat = logits - jnp.diag(logits)[:, None]
             clogits = jax.nn.logsumexp(logits_flat, axis=1)
             l_align = clogits
@@ -169,25 +200,29 @@ def make_losses(
             loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
         elif contrastive_loss_fn == "fb":
             # This is a Monte Carlo version of the loss from "Does Zero-Shot Reinforcement Learning Exist?"
+            # https://arxiv.org/abs/2209.14935
             batch_size = logits.shape[0]
             I = jnp.eye(batch_size)
             l_align = -jnp.diag(logits)  # shape = (batch_size,)
             l_unif = 0.5 * jnp.sum(logits**2 * (1 - I) / (batch_size - 1), axis=-1)  # shape = (batch_size,)
             loss = (l_align + l_unif).mean()  # shape = ()
         elif contrastive_loss_fn == "dpo":
-            # This is based on DPO loss
+            # Based on "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+            # https://arxiv.org/pdf/2305.18290
             # It aims to drive positive and negative logits further away from each other
             positive = jnp.diag(logits)
             diffs = positive[:, None] - logits
             loss = -jnp.mean(jax.nn.log_sigmoid(diffs))
         elif contrastive_loss_fn == "ipo":
-            # This is based on IPO loss
+            # Based on "A General Theoretical Paradigm to Understand Learning from
+            # Human Preferences" https://arxiv.org/pdf/2310.12036
             # It aims to have difference between positive and negative logits == 1
             positive = jnp.diag(logits)
             diffs = positive[:, None] - logits
             loss = jnp.mean((diffs - 1) ** 2)
         elif contrastive_loss_fn == "sppo":
-            # This is based on SPPO loss
+            # Base on "Self-Play Preference Optimization for Language Model Alignment"
+            # https://arxiv.org/pdf/2405.00675
             # It aims to have positive logits == 1 and negative == -1
             batch_size = logits.shape[0]
             target = -jnp.ones(batch_size) + 2* jnp.eye(batch_size)
@@ -221,7 +256,6 @@ def make_losses(
             loss += l2_loss
         else:
             l2_loss = 0
-
 
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
@@ -329,7 +363,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr, ga_repr)
+            dist = losses_utils.mrn_distance(sa_repr, ga_repr)
             min_q = -dist
         elif energy_fn == "mrn_shuf":
             ga_repr = sa_encoder.apply(
@@ -337,7 +371,7 @@ def make_losses(
                 sa_encoder_params,
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
-            dist = utils.mrn_distance(sa_repr[:, None], ga_repr[None])
+            dist = losses_utils.mrn_distance(sa_repr[:, None], ga_repr[None])
             min_q = -dist
         elif energy_fn == "mrn_pot_shuf":
             ga_repr = sa_encoder.apply(
@@ -346,7 +380,7 @@ def make_losses(
                 jnp.concatenate([goal_pad, future_action_shuf], axis=-1),
             )
             g_potential = jnp.mean(g_repr, axis=-1)
-            dist = utils.mrn_distance(sa_repr, ga_repr)
+            dist = losses_utils.mrn_distance(sa_repr, ga_repr)
             min_q = g_potential - dist
         else:
             raise ValueError(f"Unknown energy function: {energy_fn}")

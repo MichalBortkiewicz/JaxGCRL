@@ -3,7 +3,6 @@ import json
 import os
 import pickle
 
-import math
 import wandb
 from brax.io import model
 from pyinstrument import Profiler
@@ -14,6 +13,23 @@ from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, 
 
 
 def main(args):
+    """
+    Main function orchestrating the overall setup, initialization, and execution
+    of training and evaluation processes. This function performs the following:
+    1. Environment setup
+    2. Directory creation for logging and checkpoints
+    3. Training function creation
+    4. Metrics recording
+    5. Progress logging and monitoring
+    6. Model saving and inference
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments specifying configuration parameters for the
+        training and evaluation processes.
+
+    """
 
     env = create_env(args)
     eval_env = create_eval_env(args)
@@ -61,15 +77,6 @@ def main(args):
         n_hidden=args.n_hidden,
     )
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps)
-
-    def ensure_metric(metrics, key):
-        if key not in metrics:
-            metrics[key] = 0
-        else:
-            if math.isnan(metrics[key]):
-                raise Exception(f"Metric: {key} is Nan")
-
     metrics_to_collect = [
         "eval/episode_success",
         "eval/episode_success_any",
@@ -98,17 +105,9 @@ def main(args):
         "training/l_unif",
     ]
 
-    def progress(num_steps, metrics):
-        for key in metrics_to_collect:
-            ensure_metric(metrics, key)
-        metrics_recorder.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in metrics_to_collect},
-        )
-        metrics_recorder.log_wandb()
-        metrics_recorder.print_progress()
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
+    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
 
     model.save_params(ckpt_dir + '/final', params)
     render(make_inference_fn, params, env, run_dir, args.exp_name)
