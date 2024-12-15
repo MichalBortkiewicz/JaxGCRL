@@ -6,6 +6,8 @@
         <img src="https://img.shields.io/badge/arXiv-2311.10090-b31b1b.svg" /></a>
     <a href= "https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/LICENSE">
         <img src="https://img.shields.io/badge/license-Apache2.0-blue.svg" /></a>
+    <a href= "https://michalbortkiewicz.github.io/JaxGCRL/">
+        <img src="https://img.shields.io/badge/docs-green" /></a>
 </p>
 
 
