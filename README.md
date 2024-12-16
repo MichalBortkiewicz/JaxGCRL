@@ -1,4 +1,4 @@
-<h1 align="center"> <span style="color: orange;">JaxGCRL</span></h1>
+<h1 align="center"> JaxGCRL</h1>
 
 
 <p align="center">
@@ -13,10 +13,13 @@
 
 <p align="center"><img src="imgs/grid.png" width=80%></p>
 
+[**Installation**](#Installation) | [**Quick Start**](#start) | [**Environments**](#envs) | [**Baselines**](#baselines) | [**Citation**](#cite)
+---
 
-JaxGCRL is a high-performance library and benchmark for self-supervised goal-conditioned reinforcement learning. 
-Leveraging efficient GPU acceleration, the framework enables researchers to train agents for millions of environment 
-steps within minutes on a single GPU.
+## Accelerating Goal-Conditioned RL Algorithms and Research
+
+We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
+quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
 - **Blazing Fast Training** - Train 10 million environment steps in 10 
   minutes on a single GPU, up to 22$\times$ faster than prior implementations.
@@ -25,13 +28,13 @@ steps within minutes on a single GPU.
   allowing for easy modification of algorithms.
 
 
-
-
-## Installation
+## Installation 📂
 The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
 ```bash
 conda env create -f environment.yml
 ```
+
+<h3 name="start" id="start">Quick Start 🚀 </h3>
 
 To check whether installation worked, run a test experiment using `./scripts/train.sh` file:
 
@@ -41,102 +44,20 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 > [!NOTE]  
 > If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
-## New CRL implementation and Benchmark
-<p align="center">
-  <img src="imgs/teaser.jpg" width=100% /> 
-</p>
+To run experiments of interest, change `scripts/train.sh`; descriptions of flags are in `utils.py:create_parser()`. Common flags you may want to change:
+- **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
+- Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
+- **--num_timesteps**: shorter or longer runs.
+- **--num_envs**: based on how many environments your GPU memory allows.
+- **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
-<p align="center">
-Training CRL on Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
-</p>
-
-We provide 10+ blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) and jitted framework for 
-quick experimentation with goal-conditioned self-supervised reinforcement learning.  
-
-## Structure of the Code
-The codebase is organized into several key files and directories. Below is an overview of the structure and most important files:
-
-```
-├── training.py
-├── src 
-│ ├── train.py
-│ ├── networks.py
-│ ├── losses.py
-│ └── ...
-├── envs
-│ └── ...
-├── utils.py
-└── ...
-```
-**`training.py`** - The main entry point for running training. It initializes essential components such as the environment, configuration, logging, and starts the training loop.
-
-**`src/train.py`** - Implements the training loop for a GCRL agent.
-
-**`src/networks.py`** - Defines the neural network architectures.
-
-**`src/losses.py`** - Provides customizable loss functions.
-
-**`envs`** - Contains implementations of various environments.
-
-**`utils.py`** - Provides utility functions and classes to support training, including argument parsing, environment creation, configuration management, and metrics logging.
-
-## Experiments
-JaxGCRL is highly flexible in terms of parameters, allowing for a wide range of experimental setups. To run a basic experiment, you can start with:
-```
-python training.py --env_name ant
-```
-For a complete list of environments, refer to the [environments section](#Environments) or [source code](./utils.py#L104).
-
-One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
-
-```
-python training.py --env_name ant --num_envs 16 --batch_size 16
-```
-
-To execute multiple experiments, you can use a bash script.
-For example, the script below runs experiments to test the performance of different contrastive losses:
-```bash
-for c_loss in binary infonce flatnce fb dp; do
-	for seed in 1 2 3 4 5; do
-		python training.py --seed ${seed} \
-		--project_name crl --group_name contrastive_loss_experiments \ 
-		--exp_name ${c_loss} \
-		--contrastive_loss_fn ${c_loss} --energy_fn l2 \
-        --log_wandb
-	done
-done
-```
-
-## Environments
-
-This section lists the available environments in the repository, along with the environment names and the corresponding code links
-
-| Environment   |                                Env name                                |                      Code                       |
-|:--------------|:----------------------------------------------------------------------:|:-----------------------------------------------:|
-| Reacher       |                               `reacher`                                |            [link](./envs/reacher.py)            |
-| Half Cheetah  |                               `cheetah`                                |         [link](./envs/half_cheetah.py)          |
-| Pusher        |                    `pusher_easy` <br> `pusher_hard`                    |            [link](./envs/pusher.py)             |
-| Ant           |                                 `ant`                                  |              [link](./envs/ant.py)              |
-| Ant Maze      |        `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`        |           [link](./envs/ant_maze.py)            |
-| Ant Soccer    |                               `ant_ball`                               |           [link](./envs/ant_ball.py)            |
-| Ant Push      |                               `ant_push`                               |           [link](./envs/ant_push.py)            |
-| Humanoid      |                               `humanoid`                               |           [link](./envs/humanoid.py)            |
-| Humanoid Maze | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze` |         [link](./envs/humanoid_maze.py)         |
-| Arm Reach     |                              `arm_reach`                               |    [link](./envs/manipulation/arm_reach.py)     |
-| Arm Grasp     |                              `arm_grasp`                               |    [link](./envs/manipulation/arm_grasp.py)     |
-| Arm Push      |                  `arm_push_easy` <br> `arm_push_hard`                  |  [link](./envs/manipulation/arm_push_easy.py)   |
-| Arm Binpick   |             `arm_binpick_easy` <br> `arm_binpickpush_hard`             | [link](./envs/manipulation/arm_binpick_easy.py) |
-
-To add a new environment, register its name in `utils.py` under the `get_env_config` function.
-
-## Wandb support
+### Wandb support 📈
 We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
 - `--project_name`
 - `--group_name`
 - `--exp_name`
 
-All of the metric runs are logged into `wandb`. We recommend using it as a tool for running sweep over hyperparameters.
-Logging to W&B occurs when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.
+Logging to W&B happens when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.
 
 1. Run exemplary [`sweep`](https://docs.wandb.ai/guides/sweeps):
 ```bash
@@ -155,9 +76,84 @@ Besides logging the metrics, we also render final policy to `wandb` artifacts.
   <img src="imgs/push.gif" width=40%  /> 
 </p>
 
-In addition, you can find exemplary plotting utils for data downloaded by `wandb` api in notebooks.
+<h2 name="envs" id="envs">Environments 🌎</h2>
 
-## Citing JaxGCRL
+We currently support a number of continuous control environments:
+- Locomotion: Half-Cheetah, Ant, Humanoid
+- Locomotion + task: AntMaze, AntBall (AntSoccer), AntPush, HumanoidMaze
+- Simple arm: Reacher, Pusher, Pusher 2-object
+- Manipulation: Reach, Grasp, Push (easy/hard), Binpick (easy/hard)
+
+
+| Environment   |                                Env name                                |                      Code                       |
+|:--------------|:----------------------------------------------------------------------:|:-----------------------------------------------:|
+| Reacher       |                               `reacher`                                |            [link](./envs/reacher.py)            |
+| Half Cheetah  |                               `cheetah`                                |         [link](./envs/half_cheetah.py)          |
+| Pusher        |                    `pusher_easy` <br> `pusher_hard`                    |            [link](./envs/pusher.py)             |
+| Ant           |                                 `ant`                                  |              [link](./envs/ant.py)              |
+| Ant Maze      |        `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`        |           [link](./envs/ant_maze.py)            |
+| Ant Soccer    |                               `ant_ball`                               |           [link](./envs/ant_ball.py)            |
+| Ant Push      |                               `ant_push`                               |           [link](./envs/ant_push.py)            |
+| Humanoid      |                               `humanoid`                               |           [link](./envs/humanoid.py)            |
+| Humanoid Maze | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze` |         [link](./envs/humanoid_maze.py)         |
+| Arm Reach     |                              `arm_reach`                               |    [link](./envs/manipulation/arm_reach.py)     |
+| Arm Grasp     |                              `arm_grasp`                               |    [link](./envs/manipulation/arm_grasp.py)     |
+| Arm Push      |                  `arm_push_easy` <br> `arm_push_hard`                  |  [link](./envs/manipulation/arm_push_easy.py)   |
+| Arm Binpick   |             `arm_binpick_easy` <br> `arm_binpickpush_hard`             | [link](./envs/manipulation/arm_binpick_easy.py) |
+
+To add new environments: add an XML to `envs/assets`, add a python environment file in `envs`, and register the environment name in `utils.py`.
+
+<h2 name="baselines" id="baselines">Baselines 🤖</h2>
+
+We currently support following algorithms:
+
+| Algorithm                                     | How to run                             | Code                                     |
+|-----------------------------------------------|----------------------------------------|------------------------------------------|
+| [CRL](https://arxiv.org/abs/2206.07568)       | `python training.py ...`               | [link](./src/train.py)                   |
+| [SAC](https://arxiv.org/abs/1801.01290)       | `python training_sac.py ...`           | [link](./src/baselines/sac.py)           |
+| [SAC + HER](https://arxiv.org/abs/1707.01495) | `python training_sac.py ... --use_her` | [link](./src/baselines/sac.py)           |
+| [TD3](https://arxiv.org/pdf/1802.09477)       | `python training_td3.py ...`           | [link](./src/baselines/td3/td3_train.py) |
+| [TD3 + HER](https://arxiv.org/abs/1707.01495) | `python training_td3.py ... --use_her` | [link](./src/baselines/td3/td3_train.py) |
+| [PPO](https://arxiv.org/abs/1707.06347)       | `python training_ppo.py ...`           | [link](./src/baselines/ppo.py)           |
+
+
+## Code Structure 📝
+We summarize the most important elements of the code structure, for users wanting to understand the implementation specifics or modify the code:
+
+<pre><code>
+├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
+│   ├── <b>train.py:</b> Main file. Collects trajectories, trains networks, runs evaluations.
+│   ├── <b>losses.py:</b> Contains energy functions, and actor, critic, and alpha losses.
+│   ├── <b>networks.py:</b> Contains network definitions for policy, and encoders for the critic.
+│   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
+│   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
+├── <b>envs:</b> Environments (python files and XMLs)
+│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here
+│   ├── <b>assets:</b> Contains XMLs for environments
+│   └── <b>manipulation:</b> Contains all manipulation environments
+├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters
+├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
+└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+</code></pre>
+
+To modify the architecture: modify `networks.py`.
+
+
+## Contributing 🏗️
+Help us build JaxGCRL into the best possible tool for the GCRL community.
+Reach out and start contributing or just add an Issue/PR!
+
+- [x] Add Franka robot arm environments. [Done by SimpleGeometry]
+- [x] Get around 70% success rate on Ant Big Maze task. [Done by RajGhugare19]
+- [ ] Add more complex versions of Ant Sokoban.
+- [ ] Integrate environments: 
+    - [ ] Overcooked 
+    - [ ] Hanabi
+    - [ ] Rubik's cube
+    - [ ] Sokoban
+ 
+
+<h2 name="cite" id="cite">Citing JaxGCRL 📜 </h2>
 If you use JaxGCRL in your work, please cite us as follows:
 
 ```
@@ -169,9 +165,8 @@ If you use JaxGCRL in your work, please cite us as follows:
 }
 ```
 
-
-## Questions?
-If you have any questions, comments, or suggestions, please reach out to Michał Bortkiewicz ([michalbortkiewicz8@gmail.com](michalbortkiewicz8@gmail.com))
+## Questions ❓
+If you have any questions, comments, or suggestions, please reach out to Michał Bortkiewicz ([michalbortkiewicz8@gmail.com](michalbortkiewicz8@gmail.com)).
 
 
 ## See Also 🙌

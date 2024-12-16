@@ -70,8 +70,6 @@ def main(args):
         config=config,
         checkpoint_logdir=ckpt_dir,
         eval_env=eval_env,
-        use_c_target=args.use_c_target,
-        exploration_coef=args.exploration_coef,
         use_ln=args.use_ln,
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
@@ -100,7 +98,6 @@ def main(args):
         "training/g_repr_mean",
         "training/sa_repr_std",
         "training/g_repr_std",
-        "training/c_target",
         "training/l_align",
         "training/l_unif",
     ]
