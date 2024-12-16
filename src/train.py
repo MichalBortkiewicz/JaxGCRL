@@ -168,7 +168,6 @@ def train(
     energy_fn: str = "l2",
     logsumexp_penalty: float = 0.0,
     l2_penalty: float = 0.0,
-    exploration_coef: float = 0.0,
     resubs: bool = True,
     num_evals: int = 1,
     normalize_observations: bool = False,
@@ -183,7 +182,6 @@ def train(
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
     unroll_length: int = 50,
     multiplier_num_sgd_steps: int = 1,
-    use_c_target: bool = False,
     config: NamedTuple = None,
     use_ln: bool = False,
     h_dim: int = 256,
@@ -228,8 +226,6 @@ def train(
             Penalty for the log-sum-exp term in the loss function. Default is 0.0.
         l2_penalty: float, optional
             L2 regularization penalty. Default is 0.0.
-        exploration_coef: float, optional
-            Coefficient for the exploration term in the loss function. Default is 0.0.
         resubs: bool, optional
             Whether to use resubstitution in losses.py. Default is True.
         num_evals: int, optional
@@ -258,8 +254,6 @@ def train(
             Length of time to unroll the environment. Default is 50.
         multiplier_num_sgd_steps: int, optional
             Number of SGD steps multiplier. Default is 1.
-        use_c_target: bool, optional
-            If True, use C target in the training process. Default is False.
         config: NamedTuple, optional
             Configuration settings. Default is None.
         use_ln: bool, optional
@@ -385,11 +379,9 @@ def train(
         energy_fn=energy_fn,
         logsumexp_penalty=logsumexp_penalty,
         l2_penalty=l2_penalty,
-        exploration_coef=exploration_coef,
         resubs=resubs,
         crl_network=crl_network,
         action_size=action_size,
-        use_c_target=use_c_target,
     )
     alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME

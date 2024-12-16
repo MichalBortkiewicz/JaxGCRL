@@ -21,14 +21,14 @@ def compute_energy(energy_fn, sa_repr, g_repr):
         
 def compute_actor_energy(energy_fn, sa_repr, g_repr):
     if energy_fn == "l2":
-        min_q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
+        q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
     elif energy_fn == "l1":
-        min_q = -jnp.sum(jnp.abs(sa_repr - g_repr), axis=-1)
+        q = -jnp.sum(jnp.abs(sa_repr - g_repr), axis=-1)
     elif energy_fn == "dot":
-        min_q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
+        q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
     else:
         raise ValueError(f"Unknown energy function: {energy_fn}")
-    return min_q
+    return q
         
 # Helper for compute_loss
 def log_softmax(logits, axis, resubs):
@@ -63,11 +63,20 @@ def compute_loss(contrastive_loss_fn, logits, resubs):
         l_align = clogits
         l_unif = jnp.sum(logits_flat, axis=-1)
         loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
+    elif contrastive_loss_fn == "dpo":
+            # Based on "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+            # https://arxiv.org/pdf/2305.18290
+            # It aims to drive positive and negative logits further away from each other
+            positive = jnp.diag(logits)
+            diffs = positive[:, None] - logits
+            loss = -jnp.mean(jax.nn.log_sigmoid(diffs))
+            l_align = 0
+            l_unif = 0
     else:
         raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
     return loss, l_align, l_unif
 
-def compute_metrics(logits, sa_repr, g_repr, l2_loss, c_target, l_align, l_unif):
+def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
     I = jnp.eye(logits.shape[0])
     correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
     logits_pos = jnp.sum(logits * I) / jnp.sum(I)
@@ -94,7 +103,6 @@ def compute_metrics(logits, sa_repr, g_repr, l2_loss, c_target, l_align, l_unif)
         "g_repr_std": jnp.std(g_repr_l2),
         "logsumexp": logsumexp.mean(),
         "l2_penalty": l2_loss,
-        "c_target": c_target,
         "l_align": l_align_log,
         "l_unif": l_unif_log,
     }
@@ -110,8 +118,6 @@ def make_losses(
     resubs: bool,
     crl_network: crl_networks.CRLNetworks,
     action_size: int,
-    use_c_target: bool = False,
-    exploration_coef: float = 0.0,
 ):
     """Creates the CRL losses."""
     def alpha_loss(log_alpha: jnp.ndarray, policy_params: Params, normalizer_params: Any, transitions: Transition, key: PRNGKey) -> jnp.ndarray:
@@ -129,7 +135,6 @@ def make_losses(
     def crl_critic_loss(crl_critic_params: Params, normalizer_params: Any, transitions: Transition, key: PRNGKey):
         sa_encoder_params = crl_critic_params["sa_encoder"]
         g_encoder_params = crl_critic_params["g_encoder"]
-        c_target = crl_critic_params["c"]
 
         # Compute representations
         sa = jnp.concatenate([transitions.observation[:, :env.state_dim], transitions.action], axis=-1)
@@ -139,8 +144,6 @@ def make_losses(
         
         # Compute energy and loss
         logits = compute_energy(energy_fn, sa_repr, g_repr)
-        if use_c_target:
-            logits *= c_target
         loss, l_align, l_unif = compute_loss(contrastive_loss_fn, logits, resubs)
 
         # Modify loss (logsumexp, L2 penalty)
@@ -165,7 +168,7 @@ def make_losses(
             l2_loss = 0
 
         # Compute metrics
-        metrics = compute_metrics(logits, sa_repr, g_repr, l2_loss, c_target, l_align, l_unif)
+        metrics = compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif)
         return loss, metrics
 
     def actor_loss(policy_params: Params, normalizer_params: Any, crl_critic_params: Params, 
@@ -199,21 +202,13 @@ def make_losses(
         g_repr = crl_network.g_encoder.apply(normalizer_params, g_encoder_params, goal)
 
         # Compute energy and loss
-        min_q = compute_actor_energy(energy_fn, sa_repr, g_repr)
-        actor_loss = -jnp.mean(min_q)
+        q = compute_actor_energy(energy_fn, sa_repr, g_repr)
+        actor_loss = -jnp.mean(q)
 
         # Modify loss (actor entropy and exploration coefficient)
         if not config.disable_entropy_actor:
             actor_loss += alpha * log_prob
 
-        if exploration_coef != 0:
-            if energy_fn == "l2":
-                actor_loss -= exploration_coef * jnp.mean(jnp.sqrt(jnp.sum(sa_repr**2, axis=-1)))
-            elif energy_fn == "dot":
-                actor_loss += exploration_coef * jnp.mean(jnp.sqrt(jnp.sum(sa_repr**2, axis=-1)))
-            else:
-                raise ValueError(f"Unknown exploration_coef for energy function: {energy_fn}")
-        
         # Compute metrics
         metrics = {"entropy": entropy.mean()}
         return jnp.mean(actor_loss), metrics
