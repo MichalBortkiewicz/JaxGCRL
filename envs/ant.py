@@ -3,6 +3,7 @@ from typing import Tuple
 
 from brax import base
 from brax import math
+from brax.envs import Wrapper
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 import jax
@@ -11,6 +12,25 @@ import mujoco
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
+
+class TrajectoryIdWrapper(Wrapper):
+    def __init__(self, env: PipelineEnv):
+        super().__init__(env)
+
+    def reset(self, rng: jax.Array) -> State:
+        state = self.env.reset(rng)
+        state.info['seed'] = jnp.zeros(rng.shape[:-1])
+        return state
+
+    def step(self, state: State, action: jax.Array) -> State:
+        if "steps" in state.info.keys():
+            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
+        else:
+            seed = state.info["seed"]
+        state = self.env.step(state, action)
+        state.info['seed'] = seed
+        return state
+
 
 class Ant(PipelineEnv):
     def __init__(
@@ -113,9 +133,9 @@ class Ant(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        info = {"seed": 0}
+        # info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
+        # state.info.update(info)
         return state
 
     # Todo rename seed to traj_id
@@ -124,11 +144,11 @@ class Ant(PipelineEnv):
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
+        # if "steps" in state.info.keys():
+        #     seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
+        # else:
+        #     seed = state.info["seed"]
+        # info = {"seed": seed}
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -172,7 +192,7 @@ class Ant(PipelineEnv):
             success=success,
             success_easy=success_easy
         )
-        state.info.update(info)
+        # state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )

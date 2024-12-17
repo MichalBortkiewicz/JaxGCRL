@@ -19,6 +19,7 @@ from brax.training.types import Params
 from brax.v1 import envs as envs_v1
 from jax import numpy as jnp
 
+from envs.ant import TrajectoryIdWrapper
 from src import losses as crl_losses
 from src import networks as crl_networks
 from src.evaluator import CrlEvaluator
@@ -319,12 +320,14 @@ def train(
             randomization_fn,
             rng=jax.random.split(key, num_envs // jax.process_count() // local_devices_to_use),
         )
+    env = TrajectoryIdWrapper(env)
     env = wrap_for_training(
         env,
         episode_length=episode_length,
         action_repeat=action_repeat,
         randomization_fn=v_randomization_fn,
     )
+
 
     obs_size = env.observation_size
     action_size = env.action_size
@@ -667,6 +670,7 @@ def train(
         eval_env = environment
     if randomization_fn is not None:
         v_randomization_fn = functools.partial(randomization_fn, rng=jax.random.split(eval_key, num_eval_envs))
+    eval_env = TrajectoryIdWrapper(eval_env)
     eval_env = wrap_for_training(
         eval_env,
         episode_length=episode_length,
