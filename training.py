@@ -73,6 +73,7 @@ def main(args):
         use_ln=args.use_ln,
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
+        repr_dim=args.repr_dim,
     )
 
     metrics_to_collect = [
