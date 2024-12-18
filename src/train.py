@@ -19,7 +19,7 @@ from brax.training.types import Params
 from brax.v1 import envs as envs_v1
 from jax import numpy as jnp
 
-from envs.ant import TrajectoryIdWrapper
+from envs.wrappers import TrajectoryIdWrapper
 from src import losses as crl_losses
 from src import networks as crl_networks
 from src.evaluator import CrlEvaluator
