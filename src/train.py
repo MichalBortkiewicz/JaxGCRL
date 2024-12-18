@@ -360,7 +360,7 @@ def train(
         extras={
             "state_extras": {
                 "truncation": 0.0,
-                "seed": 0.0,
+                "traj_id": 0.0,
             },
             "policy_extras": {},
         },
@@ -477,7 +477,7 @@ def train(
                 current_key,
                 extra_fields=(
                     "truncation",
-                    "seed",
+                    "traj_id",
                 ),
             )
             return (env_state, next_key), transition
