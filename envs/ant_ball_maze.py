@@ -208,21 +208,13 @@ class AntBallMaze(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
-
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -267,7 +259,6 @@ class AntBallMaze(PipelineEnv):
             success=success,
             success_easy=success_easy
         )
-        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )

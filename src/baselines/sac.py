@@ -141,7 +141,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             arrangement = jnp.arange(seq_len)
             is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
             single_trajectories = jnp.concatenate(
-                [transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0
+                [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len, axis=0
             )
 
             # final_step_mask.shape == (seq_len, seq_len)
@@ -341,7 +341,7 @@ def train(
         extras={
             "state_extras": {
                 "truncation": 0.0,
-                "seed": 0.0,
+                "traj_id": 0.0,
             },
             "policy_extras": {},
         },
@@ -454,7 +454,7 @@ def train(
                 current_key,
                 extra_fields=(
                     "truncation",
-                    "seed",
+                    "traj_id",
                 ),
             )
             return (env_state, next_key), transition

@@ -175,7 +175,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
         discount = config.discounting ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
         probs = is_future_mask * discount
         single_trajectories = jnp.concatenate(
-            [transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0
+            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len, axis=0
         )
         probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
 
@@ -191,7 +191,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
             "policy_extras": {},
             "state_extras": {
                 "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
-                "seed": jnp.squeeze(transition.extras["state_extras"]["seed"][:-1]),
+                "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
             },
             "state": state,
             "future_state": future_state,
