@@ -28,7 +28,7 @@ quick experimentation with goal-conditioned self-supervised reinforcement learni
   allowing for easy modification of algorithms.
 
 
-### Installation 📂
+## Installation 📂
 The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
 ```bash
 conda env create -f environment.yml
@@ -51,7 +51,7 @@ To run experiments of interest, change `scripts/train.sh`; descriptions of flags
 - **--num_envs**: based on how many environments your GPU memory allows.
 - **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
-## Environment Interaction
+### Environment Interaction
 
 This section demonstrates how to interact with the environment using the `reset` and `step` functions. The environment returns a state object, which is a dataclass containing the following fields:
 
