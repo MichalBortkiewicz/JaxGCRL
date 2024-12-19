@@ -28,7 +28,7 @@ quick experimentation with goal-conditioned self-supervised reinforcement learni
   allowing for easy modification of algorithms.
 
 
-## Installation 📂
+### Installation 📂
 The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
 ```bash
 conda env create -f environment.yml
