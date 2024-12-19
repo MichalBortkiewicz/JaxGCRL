@@ -51,6 +51,48 @@ To run experiments of interest, change `scripts/train.sh`; descriptions of flags
 - **--num_envs**: based on how many environments your GPU memory allows.
 - **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
+## Environment Interaction
+
+This section demonstrates how to interact with the environment using the `reset` and `step` functions. The environment returns a state object, which is a dataclass containing the following fields:
+
+`state.pipeline_state`: current, internal state of the environment\
+`state.obs`: current observation\
+`state.done`: flag indicating if the agent reached the goal\
+`state.metrics`: agent performance metrics\
+`state.info`: additional info
+
+The following code demonstrates how to interact with the environment:
+
+```python
+import argparse
+import jax
+from utils import create_env
+
+key = jax.random.PRNGKey(0)
+
+# Initialize the environment
+args = argparse.Namespace(env_name='ant', backend=None)
+env = create_env(args)
+
+# Use JIT compilation to make environment's reset and step functions execute faster
+jit_env_reset = jax.jit(env.reset)
+jit_env_step = jax.jit(env.step)
+
+NUM_STEPS = 1000
+
+# Reset the environment and obtain the initial state
+state = jit_env_reset(key)
+
+# Simulate the environment for a fixed number of steps
+for _ in range(NUM_STEPS):
+    # Generate a random action
+    key, key_act = jax.random.split(key, 2)
+    random_action = jax.random.uniform(key_act, shape=(8,), minval=-1, maxval=1)
+    
+    # Perform an environment step with the generated action
+    state = jit_env_step(state, random_action)
+```
+
 ### Wandb support 📈
 We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
 - `--project_name`
