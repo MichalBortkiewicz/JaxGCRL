@@ -279,13 +279,13 @@ class MetricsRecorder:
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
         
-    def progress(self, num_steps, metrics):
+    def progress(self, num_steps, metrics, make_policy, params, env, exp_dir, exp_name):
         for key in self.metrics_to_collect:
             self.ensure_metric(metrics, key)
-        self.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
-        )
+        
+        render(make_policy, params, env, exp_dir, exp_name, num_steps)
+        
+        self.record(num_steps, {key: value for key, value in metrics.items() if key in self.metrics_to_collect})
         self.log_wandb()
         self.print_progress()
     
@@ -297,9 +297,7 @@ class MetricsRecorder:
             if math.isnan(metrics[key]):
                 raise Exception(f"Metric: {key} is Nan")
 
-
-
-def render(inf_fun_factory, params, env, exp_dir, exp_name):
+def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     """
     Renders a given environment over a series of steps and stores the resulting
     HTML file to a specified directory. Logs the rendered HTML using wandb.
@@ -321,27 +319,31 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
         The directory where the rendered HTML file will be saved.
     exp_name : str
         The file name to be used for the saved HTML (without extension).
+    num_steps : int
+        The number of environment steps taken so far (used for naming the file).
 
     Returns:
     None
     """
-    inference_fn = inf_fun_factory(params)
+    policy = make_policy(params)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
-    jit_inference_fn = jax.jit(inference_fn)
+    jit_policy = jax.jit(policy)
 
     rollout = []
-    rng = jax.random.PRNGKey(seed=1)
-    state = jit_env_reset(rng=rng)
+    key = jax.random.PRNGKey(seed=1)
+    state = jit_env_reset(rng=key)
     for i in range(5000):
         rollout.append(state.pipeline_state)
-        act_rng, rng = jax.random.split(rng)
-        act, _ = jit_inference_fn(state.obs, act_rng)
-        state = jit_env_step(state, act)
+        key, subkey = jax.random.split(key)
+        action, _ = jit_policy(state.obs, subkey)
+        print(state.shape, action.shape)
+        state = jit_env_step(state, action)
         if i % 1000 == 0:
-            state = jit_env_reset(rng=rng)
+            key, subkey = jax.random.split(key)
+            state = jit_env_reset(rng=subkey)
 
     url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
-    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+    with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})

@@ -74,6 +74,8 @@ def main(args):
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
         repr_dim=args.repr_dim,
+        exp_dir=run_dir,
+        exp_name=args.exp_name,
     )
 
     metrics_to_collect = [
@@ -105,10 +107,11 @@ def main(args):
 
     metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
-
+    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)
-    render(make_inference_fn, params, env, run_dir, args.exp_name)
+    
+    actor_params = params[0]
+    render(make_policy, actor_params, env, run_dir, args.exp_name)
 
 if __name__ == "__main__":
     parser = create_parser()
