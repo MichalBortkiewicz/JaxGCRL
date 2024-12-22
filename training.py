@@ -109,9 +109,6 @@ def main(args):
 
     make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)
-    
-    actor_params = params[0]
-    render(make_policy, actor_params, env, run_dir, args.exp_name)
 
 if __name__ == "__main__":
     parser = create_parser()

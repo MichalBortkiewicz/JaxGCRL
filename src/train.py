@@ -11,7 +11,7 @@ import optax
 from absl import logging
 import brax
 from brax import base, envs
-from brax.training import gradients, distribution, types
+from brax.training import gradients, distribution, types, pmap
 from brax.training.replay_buffers_test import jit_wrap
 
 from src.evaluator import CrlEvaluator
@@ -23,14 +23,15 @@ State = envs.State
 _PMAP_AXIS_NAME = "i"
 
 # The SAEncoder, GoalEncoder, and Actor all use the same function. Output size for SA/Goal encoders should be representation size, and for Actor should be 2 * action_size.
+# To keep parity with the existing architecture, by default we only use one residual block of depth 2, hence effectively not using the residual connections.
 class Net(nn.Module):
     """
     MLP with residual connections: residual blocks have $block_size layers. Uses swish activation, optionally uses layernorm.
     """
     output_size: int
     width: int = 1024
-    num_blocks: int = 5
-    block_size: int = 4
+    num_blocks: int = 1
+    block_size: int = 2
     use_ln: bool = True
     @nn.compact
     def __call__(self, sa):
@@ -503,6 +504,7 @@ def train(
     rng = jax.random.PRNGKey(seed)
     rng, key = jax.random.split(rng)
     env = wrap_for_training(env, episode_length=episode_length, action_repeat=action_repeat)
+    unwrapped_env = environment
 
     obs_size = env.observation_size
     action_size = env.action_size
@@ -522,7 +524,7 @@ def train(
     replay_buffer = jit_wrap(replay_buffer)
     
     # Network functions
-    block_size = 4 # Maybe make this a hyperparameter
+    block_size = 2 # Maybe make this a hyperparameter
     num_blocks = max(1, n_hidden // block_size)
     actor = Net(action_size * 2, h_dim, num_blocks, block_size, use_ln)
     sa_encoder = Net(repr_dim, h_dim, num_blocks, block_size, use_ln)
@@ -716,7 +718,7 @@ def train(
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics={})
         logging.info(metrics)
-        progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), env, exp_dir, exp_name)
+        progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, exp_dir, exp_name)
 
     # Collect/train/eval loop
     current_step = 0
@@ -740,7 +742,7 @@ def train(
             ## Run evals
             metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics)
             logging.info(metrics)
-            progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), env, exp_dir, exp_name)
+            progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, exp_dir, exp_name)
 
     # Final validity checks
     ## Verify number of steps is sufficient
@@ -749,8 +751,8 @@ def train(
     assert total_steps >= num_timesteps
 
     ## If there was no mistakes the training_state should still be identical on all devices
-    brax.training.pmap.assert_is_replicated(training_state)
-    brax.training.pmap.synchronize_hosts()
+    pmap.assert_is_replicated(training_state)
+    pmap.synchronize_hosts()
     
     params = _unpmap((training_state.actor_state.params, training_state.critic_state.params))
     return (make_policy, params, metrics)

@@ -332,12 +332,13 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
 
     rollout = []
     key = jax.random.PRNGKey(seed=1)
-    state = jit_env_reset(rng=key)
+    key, subkey = jax.random.split(key)
+    state = jit_env_reset(rng=subkey)
     for i in range(5000):
         rollout.append(state.pipeline_state)
         key, subkey = jax.random.split(key)
-        action, _ = jit_policy(state.obs, subkey)
-        print(state.shape, action.shape)
+        action, _ = jit_policy(state.obs[None], subkey) # Policy requires batched dimension
+        action = action[0] # Remove batch dimension
         state = jit_env_step(state, action)
         if i % 1000 == 0:
             key, subkey = jax.random.split(key)
