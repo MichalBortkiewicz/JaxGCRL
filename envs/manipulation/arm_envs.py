@@ -40,7 +40,6 @@ class ArmEnvs(PipelineEnv):
         goal = self._get_initial_goal(pipeline_state, subkey1)
         pipeline_state = self._update_goal_visualization(pipeline_state, goal)
         info = {
-            "seed": 0, # Seed is required, but fill it with a dummy value
             "goal": goal,
             "timestep": 0.0, 
             "postexplore_timestep": jax.random.uniform(subkey2) # Assumes timestep is normalized between 0 and 1

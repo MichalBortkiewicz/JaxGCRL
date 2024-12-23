@@ -14,6 +14,7 @@ from brax import base, envs
 from brax.training import gradients, distribution, types, pmap
 from brax.training.replay_buffers_test import jit_wrap
 
+from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
 from src.replay_buffer import ReplayBufferState, Transition, TrajectoryUniformSamplingQueue
 
@@ -503,15 +504,17 @@ def train(
 
     rng = jax.random.PRNGKey(seed)
     rng, key = jax.random.split(rng)
+    env = TrajectoryIdWrapper(env)
     env = wrap_for_training(env, episode_length=episode_length, action_repeat=action_repeat)
     unwrapped_env = environment
+
 
     obs_size = env.observation_size
     action_size = env.action_size
 
     dummy_obs = jnp.zeros((obs_size,))
     dummy_action = jnp.zeros((action_size,))
-    dummy_extras = {"state_extras": {"truncation": 0.0, "seed": 0.0}, "policy_extras": {}}
+    dummy_extras = {"state_extras": {"truncation": 0.0, "traj_id": 0.0}, "policy_extras": {}}
     dummy_transition = Transition(observation=dummy_obs, action=dummy_action, reward=0.0, discount=0.0, extras=dummy_extras)
     
     replay_buffer = TrajectoryUniformSamplingQueue(
@@ -584,7 +587,7 @@ def train(
         def f(carry, unused_t):
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
-            env_state, transition = actor_step(env, env_state, actor, parametric_action_distribution, actor_params, current_key, extra_fields=("truncation", "seed"))
+            env_state, transition = actor_step(env, env_state, actor, parametric_action_distribution, actor_params, current_key, extra_fields=("truncation", "traj_id"))
             return (env_state, next_key), transition
 
         (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=unroll_length)
@@ -709,6 +712,7 @@ def train(
     make_policy = functools.partial(make_policy, actor, parametric_action_distribution)
     if not eval_env:
         eval_env = environment
+    eval_env = TrajectoryIdWrapper(eval_env)
     eval_env = wrap_for_training(eval_env, episode_length=episode_length, action_repeat=action_repeat)
     evaluator = CrlEvaluator(eval_env, functools.partial(make_policy, deterministic=deterministic_eval), num_eval_envs=num_eval_envs,
                              episode_length=episode_length, action_repeat=action_repeat, key=eval_key)
