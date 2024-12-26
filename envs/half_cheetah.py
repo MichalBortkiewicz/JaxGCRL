@@ -12,35 +12,24 @@ from jax import numpy as jnp
 class Halfcheetah(PipelineEnv):
     def __init__(
         self,
-        forward_reward_weight=1.0,
         ctrl_cost_weight=0.1,
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=False,
         backend="mjx",
         dense_reward: bool = False,
         **kwargs
     ):
+        assert backend in ["mjx"]
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "half_cheetah.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
 
-        if backend in ["spring", "positional"]:
-            sys = sys.tree_replace({"opt.timestep": 0.003125})
-            n_frames = 16
-            gear = jnp.array([120, 90, 60, 120, 100, 100])
-            sys = sys.replace(actuator=sys.actuator.replace(gear=gear))
-
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
 
-        self._forward_reward_weight = forward_reward_weight
         self._ctrl_cost_weight = ctrl_cost_weight
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
         self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jnp.array([0])
@@ -48,16 +37,16 @@ class Halfcheetah(PipelineEnv):
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
-        rng, rng1, rng2 = jax.random.split(rng, 3)
+        rng, rng1 = jax.random.split(rng, 2)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
         qpos = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
+            rng, (self.sys.q_size(),), minval=low, maxval=hi
         )
-        qvel = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+        qvel = hi * jax.random.normal(rng1, (self.sys.qd_size(),))
 
-        _, target = self._random_target(rng)
-        qpos = qpos.at[-1:].set(target)
+        # Since this is mostly test/debug env the target is fixed
+        qpos = qpos.at[-1:].set(5)
         qvel = qvel.at[-1:].set(0)
 
         pipeline_state = self.pipeline_init(qpos, qvel)
@@ -68,7 +57,7 @@ class Halfcheetah(PipelineEnv):
             "x_position": zero,
             "x_velocity": zero,
             "reward_ctrl": zero,
-            "reward_run": zero,
+            "reward": zero,
             "dist": zero,
             "success": zero,
             "success_easy": zero
@@ -84,7 +73,6 @@ class Halfcheetah(PipelineEnv):
         x_velocity = (
             pipeline_state.x.pos[0, 0] - pipeline_state0.x.pos[0, 0]
         ) / self.dt
-        forward_reward = self._forward_reward_weight * x_velocity
         ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
 
         obs = self._get_obs(pipeline_state)
@@ -101,7 +89,7 @@ class Halfcheetah(PipelineEnv):
         state.metrics.update(
             x_position=pipeline_state.x.pos[0, 0],
             x_velocity=x_velocity,
-            reward_run=forward_reward,
+            reward=reward,
             reward_ctrl=-ctrl_cost,
             dist=dist,
             success=success,
@@ -116,17 +104,6 @@ class Halfcheetah(PipelineEnv):
         """Returns the environment observations."""
         position = pipeline_state.q[:-1]
         velocity = pipeline_state.qd[:-1]
-
         target_pos = pipeline_state.x.pos[-1][:1]
 
-        if self._exclude_current_positions_from_observation:
-            position = position[1:]
-
         return jnp.concatenate((position, velocity, target_pos))
-
-    def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target location in a random circle slightly above xy plane."""
-        rng, rng1 = jax.random.split(rng, 2)
-        dist = 5
-        target_x = dist
-        return rng, jnp.array([target_x])

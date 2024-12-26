@@ -170,18 +170,15 @@ class PusherReacher(PipelineEnv):
     def reset(self, rng: jax.Array) -> State:
         qpos = self.sys.init_q
 
-        rng, rng1, rng2, rng3, rng4 = jax.random.split(rng, 5)
+        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         # randomly orient the object
-        cylinder_pos = jnp.concatenate([
-            jnp.array([1.0]),
-            jnp.array([1.0]),
-        ])
+        cylinder_pos = jnp.array([1.0, 1.0])
 
         # randomly place the goal depending on env kind
         goal_pos = jnp.concatenate([
-            jax.random.uniform(rng2, (1,), minval=-0.3, maxval=-1e-6),
-            jax.random.uniform(rng3, (1,), minval=-0.2, maxval=0.2),
+            jax.random.uniform(rng1, (1,), minval=-0.3, maxval=-1e-6),
+            jax.random.uniform(rng2, (1,), minval=-0.2, maxval=0.2),
         ])
 
         # constrain minimum distance of object to goal
@@ -191,7 +188,7 @@ class PusherReacher(PipelineEnv):
         qpos = qpos.at[-4:].set(jnp.concatenate([cylinder_pos, goal_pos]))
 
         qvel = jax.random.uniform(
-            rng4, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
+            rng3, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
         )
         qvel = qvel.at[-4:].set(0.0)
 
@@ -216,8 +213,6 @@ class PusherReacher(PipelineEnv):
         x_i = state.pipeline_state.x.vmap().do(
             base.Transform.create(pos=self.sys.link.inertia.transform.pos)
         )
-        vec_1 = x_i.pos[self._object_idx] - x_i.pos[self._tips_arm_idx]
-        vec_2 = x_i.pos[self._object_idx] - x_i.pos[self._goal_idx]
 
         arm_to_goal_dist = math.safe_norm(x_i.pos[self._goal_idx] - x_i.pos[self._tips_arm_idx])
 

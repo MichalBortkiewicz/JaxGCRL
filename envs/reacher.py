@@ -6,6 +6,7 @@ from brax.io import mjcf
 from etils import epath
 import jax
 from jax import numpy as jnp
+from common import sample_disk
 
 # This is based on original Reacher environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/reacher.py
@@ -36,14 +37,14 @@ class Reacher(PipelineEnv):
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
         q = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=-0.1, maxval=0.1
+            rng, (self.sys.q_size(),), minval=-0.1, maxval=0.1
         )
         qd = jax.random.uniform(
-            rng2, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
+            rng1, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
         )
 
         # set the target q, qd
-        _, target = self._random_target(rng)
+        target = sample_disk(rng2, min_radius=0.0, max_radius=0.2)
         q = q.at[2:].set(target)
         qd = qd.at[2:].set(0)
 
@@ -113,11 +114,3 @@ class Reacher(PipelineEnv):
             ]
         )
 
-    def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target location in a random circle slightly above xy plane."""
-        rng, rng1, rng2 = jax.random.split(rng, 3)
-        dist = 0.2 * jax.random.uniform(rng1)
-        ang = jnp.pi * 2.0 * jax.random.uniform(rng2)
-        target_x = dist * jnp.cos(ang)
-        target_y = dist * jnp.sin(ang)
-        return rng, jnp.array([target_x, target_y])
