@@ -6,7 +6,7 @@ from brax.io import mjcf
 from etils import epath
 import jax
 from jax import numpy as jnp
-from common import sample_disk
+from envs.common import sample_disk
 
 # This is based on original Reacher environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/reacher.py

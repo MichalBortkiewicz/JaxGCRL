@@ -6,7 +6,7 @@ import jax
 from jax import numpy as jnp
 import mujoco
 import os
-from common import sample_disk
+from envs.common import sample_disk
 
 # This is based on original Humanoid environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/humanoid.py

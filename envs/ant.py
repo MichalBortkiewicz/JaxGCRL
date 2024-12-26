@@ -8,7 +8,7 @@ from brax.io import mjcf
 import jax
 from jax import numpy as jnp
 import mujoco
-from common import sample_circle
+from envs.common import sample_circle
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
