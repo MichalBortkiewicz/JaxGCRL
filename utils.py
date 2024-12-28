@@ -92,7 +92,7 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
 
     Args:
         env_name (str): Name of the environment.
-        backend (str): Backend to be used for the environment
+        backend (str): Backend to be used for the environment.
 
     Returns:
         object: The instantiated environment object.
@@ -171,7 +171,7 @@ def create_eval_env(args: argparse.Namespace) -> object:
     
     eval_arg = argparse.Namespace(**vars(args))
     eval_arg.env_name = args.eval_env
-    return create_env(**vars(args))
+    return create_env(**vars(eval_arg))
 
 def get_env_config(args: argparse.Namespace):
     """
