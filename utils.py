@@ -73,6 +73,10 @@ def create_parser():
 
 def create_env(args: argparse.Namespace) -> object:
     env_name = args.env_name
+
+    if ((args.episode_length - 1) * args.num_envs) % args.batch_size != 0:
+        raise ValueError("(episode_length - 1) * num_envs must be divisible by batch_size")
+
     if env_name == "reacher":
         env = Reacher(backend=args.backend or "generalized")
     elif env_name == "ant":
