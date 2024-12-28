@@ -64,15 +64,13 @@ This section demonstrates how to interact with the environment using the `reset`
 The following code demonstrates how to interact with the environment:
 
 ```python
-import argparse
 import jax
 from utils import create_env
 
 key = jax.random.PRNGKey(0)
 
 # Initialize the environment
-args = argparse.Namespace(env_name='ant', backend=None)
-env = create_env(args)
+env = create_env('ant')
 
 # Use JIT compilation to make environment's reset and step functions execute faster
 jit_env_reset = jax.jit(env.reset)
