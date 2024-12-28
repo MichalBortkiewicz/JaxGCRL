@@ -108,8 +108,8 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         env = AntBall(backend=backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
-        assert backend == "mjx"
-        env = AntPush(backend=backend)
+        assert backend == "mjx" or backend is None
+        env = AntPush(backend=backend or "mjx")
     elif "maze" in env_name:
         if "ant_ball" in env_name:
             env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
