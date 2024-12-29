@@ -35,12 +35,11 @@ class Net(nn.Module):
     block_size: int = 2
     use_ln: bool = True
     @nn.compact
-    def __call__(self, sa):
+    def __call__(self, x):
         lecun_uniform = nn.initializers.variance_scaling(1/3, "fan_in", "uniform")
         normalize = nn.LayerNorm() if self.use_ln else (lambda x: x)
         
         # Start of net
-        x = sa
         residual_stream = jnp.zeros((x.shape[0], self.width))
         
         # Main body
@@ -54,7 +53,6 @@ class Net(nn.Module):
         x = nn.Dense(self.output_size, kernel_init=lecun_uniform)(x)
         return x
 
-# Need to refactor to remove this: evaluator and render (using the return value of train) still use this
 # The brax version of this does not take in the actor and action_distribution arguments; before we pass it to brax evaluator or return it from train(), we do a partial application.
 def make_policy(actor, parametric_action_distribution, params, deterministic=False):
     def policy(obs, key_sample):
@@ -112,14 +110,6 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
     training_state = jax.device_put_replicated(training_state, jax.local_devices()[:num_local_devices_to_use])
     return training_state
 
-# Problem: we have made this a single file, but the abstraction is bad. Users will have a difficult time understanding the
-# high-level structure of the algorithm, as many methods get called by other methods which get called by other methods.
-# Multiple files may be fine if we absolutely need it (and import just the lowest-level
-# functions), but prefer simplifying the loss functions if possible. E.g. remove log_softmax (either force resubs or no resubs),
-# merge compute_energy and compute_actor_energy if possible, and shorten loss functions. CleanJaxGCRL is shorter: can we borrow ideas?
-#
-# Otherwise importing everything other than the actor/critic/alpha losses may be sufficient, with brief comments accompanying
-# functions like compute_loss (e.g. "converts energy to loss, via infoNCE, flatNCE, etc.")
 def compute_energy(energy_fn, sa_repr, g_repr):
     if energy_fn == "l2":
         logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))
@@ -465,12 +455,7 @@ def train(
         None
 
     """
-    # Main goal for clarifying this section: distill down to "bookkeeping" and "collect/train/eval loop", where
-    # it's easy to tell the high-level structure of the collect/train, so people can quickly trace a relevant
-    # component to swap or understand. E.g. replace losses, replace training, replace architectures, how to
-    # interact with the environment (and what the function call exactly looks like).
-    
-    # This mostly seems like bookkeeping, wonder if we could find a clean summary of what bookkeeping is happening?
+    # Reproducibility preparation for (optional) multi-GPU training
     process_id = jax.process_index()
     num_local_devices_to_use = jax.local_device_count()
     device_count = num_local_devices_to_use * jax.process_count()
@@ -549,9 +534,6 @@ def train(
         training_state, key = carry
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
-        # Multi-lining here may be better, but the user likely doesn't care about each argument. If the better way to think about this
-        # is just "pass in all the necessary bookkeeping info", maybe prefer keeping all bookkeeping info in a config that we always 
-        # pass around, similar to args from cleanJaxGCRL. This shortens the function call and is a good abstraction (?)
         alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(training_state.alpha_state.params, actor, parametric_action_distribution, training_state, transitions, action_size,
                                                                        key_alpha, optimizer_state=training_state.alpha_state.opt_state)
         alpha = jnp.exp(alpha_params["log_alpha"])
@@ -616,14 +598,6 @@ def train(
     
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
-    # Should we rename the below functions? Additional_sgds seems to be "train enough for one replay buffer sample", scan_additional_sgds 
-    # seems to be "update multiple times if sgd_multiplier > 1", but the naming is unintuitive.
-    #
-    # Also, wonder whether we could remove some of these functions and flatten the function calls, starting from training_epoch_with_timing. 
-    # Tracing the functions down all the way to actor_step is opaque for a first-timer.
-    # - Intuitively, it feels like it should be something like "train and collect epoch" (with timing, implicitly) at the top level, then
-    #   "train step" (which is actually additional_sgds/scan_additional_sgds or maybe even sgd_step) and "collect experience" on the next level below.
-    # - Feels like we could remove the prefill_replay_buffer function, by just doing the "collect experience" part + scan.
     def additional_sgds(training_state, buffer_state, key):
         # Sample, process, shuffle, then train
         ## Sample from buffer
@@ -687,9 +661,6 @@ def train(
         return (training_state, env_state, buffer_state, metrics)
 
     # Initialization and setup
-    # - (This seems opaque/hard to understand for users right now, but maybe important to understand? If not important, we could also hide it in a function,
-    #    but maybe prefer clarity improvement.)
-    
     ## Env init
     local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
     env_keys = jax.random.split(env_key, num_envs // jax.process_count())
@@ -754,7 +725,7 @@ def train(
     logging.info("total steps: %s", total_steps)
     assert total_steps >= num_timesteps
 
-    ## If there was no mistakes the training_state should still be identical on all devices
+    ## If there were no mistakes the training_state should still be identical on all devices
     pmap.assert_is_replicated(training_state)
     pmap.synchronize_hosts()
     
