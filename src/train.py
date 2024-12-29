@@ -10,7 +10,7 @@ from jax import numpy as jnp
 import optax
 from absl import logging
 import brax
-from brax import base, envs
+from brax import envs
 from brax.training import gradients, distribution, types, pmap
 from brax.training.replay_buffers_test import jit_wrap
 
@@ -82,7 +82,15 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
 
     Args:
         key (PRNGKey): A pseudorandom number generator key used for initializing various network parameters.
-        state_dim (int): The size (number of elements) of the observations from the environment, not including goals.
+        actor (function): The flax function for the actor network.
+        sa_encoder (function): The flax function for the state-action encoder network.
+        g_encoder (function): The flax function for the goal encoder network.
+        state_dim (int): The dimension of the observations from the environment, not including goals.
+        goal_dim (int): The dimension of the goals in the environment.
+        action_dim (int): The dimension of the action that the actor should pass into the environment in env.step.
+        actor_lr (float): The learning rate for the actor network.
+        critic_lr (float): The learning rate for the state-action and goal encoder networks.
+        alpha_lr (float): The learning rate for the entropy coefficient (alpha).
         num_local_devices_to_use (int): The number of local devices to utilize for training.
 
     Returns:
@@ -312,8 +320,12 @@ def actor_step(env, env_state, actor, parametric_action_distribution, actor_para
         The environment in which the actor operates.
     env_state : State
         The current state of the environment.
-    policy : brax.training.types.Policy
+    actor : brax.training.types.Policy
         The policy used to select the action.
+    parametric_action_distribution : brax.training.distribution.ParametricDistribution
+        A tanh normal distribution, used to map the actor's output to an action vector with elements between [-1, 1].
+    actor_params : Any
+        Parameters for the actor network.
     key : PRNGKey
         A random key for stochastic policy decisions.
     extra_fields : Sequence[str], optional
@@ -326,7 +338,6 @@ def actor_step(env, env_state, actor, parametric_action_distribution, actor_para
         encompassing observation, action, reward, discount, and extra information.
 
     """
-    
     action_mean_and_SD = actor.apply(actor_params, env_state.obs)
     action = parametric_action_distribution.sample(action_mean_and_SD, key)
     nstate = env.step(env_state, action)
@@ -360,7 +371,6 @@ def train(
     l2_penalty: float = 0.0,
     resubs: bool = True,
     num_evals: int = 1,
-    normalize_observations: bool = False,
     min_replay_size: int = 0,
     max_replay_size: Optional[int] = None,
     deterministic_eval: bool = False,
@@ -373,8 +383,8 @@ def train(
     use_ln: bool = False,
     h_dim: int = 256,
     n_hidden: int = 2,
-    repr_dim: int = 256,
-    visualization_frequency: int = 5,
+    repr_dim: int = 64,
+    visualization_interval: int = 5,
 ):
     """
     Trains a contrastive reinforcement learning agent using the specified environment and parameters.
@@ -419,8 +429,6 @@ def train(
             Whether to use resubstitution in losses.py. Default is True.
         num_evals: int, optional
             Number of evaluation runs. Default is 1.
-        normalize_observations: bool, optional
-            If True, normalize observations. Default is False.
         min_replay_size: int, optional
             Minimum replay buffer size before starting training. Default is 0.
         max_replay_size: Optional[int], optional
@@ -445,6 +453,11 @@ def train(
             Dimension of the hidden layers. Default is 256.
         n_hidden: int, optional
             Number of hidden layers. Default is 2.
+        repr_dim: int, optional
+            Dimension of the representation from the state-action and goal encoders. Default is 64.
+        visualization_interval: int, optional
+            Number of evals between each visualization of trajectories. Default is 5.
+
 
     Raises:
         ValueError
@@ -716,7 +729,7 @@ def train(
             ## Run evals
             metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics)
             logging.info(metrics)
-            do_render = (eval_epoch_num % visualization_frequency) == 0
+            do_render = (eval_epoch_num % visualization_interval) == 0
             progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, do_render)
 
     # Final validity checks

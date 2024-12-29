@@ -62,7 +62,6 @@ def create_parser():
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
     parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")
     parser.add_argument('--alpha_lr', type=float, default=3e-4, help="Learning rate for entropy coefficient (alpha)")
@@ -82,7 +81,7 @@ def create_parser():
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
     parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
-    parser.add_argument('--visualization_frequency', type=int, default=5, help="How often trajectories are rendered for visualization")
+    parser.add_argument('--visualization_interval', type=int, default=5, help="Number of evals between each visualization of trajectories")
     return parser
 
 
@@ -219,6 +218,8 @@ class MetricsRecorder:
     Parameters:
     num_timesteps (int): The maximum number of timesteps for recording metrics.
     metrics_to_collect (List[str]): List of metric names that are to be collected.
+    exp_dir (str): Directory to save renders to.
+    exp_name (str): Experiment name for naming rendered trajectory visualizations.
     """
     def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []

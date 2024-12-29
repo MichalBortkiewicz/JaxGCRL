@@ -51,7 +51,6 @@ def main(args):
         min_replay_size=args.min_replay_size,
         num_evals=args.num_evals,
         episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
         policy_lr=args.policy_lr,
         critic_lr=args.critic_lr,
@@ -74,7 +73,7 @@ def main(args):
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
         repr_dim=args.repr_dim,
-        visualization_frequency=args.visualization_frequency,
+        visualization_interval=args.visualization_interval,
     )
 
     metrics_to_collect = [
