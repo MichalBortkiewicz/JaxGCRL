@@ -99,7 +99,7 @@ We currently support a number of continuous control environments:
 | Arm Reach     |                              `arm_reach`                               |    [link](./envs/manipulation/arm_reach.py)     |
 | Arm Grasp     |                              `arm_grasp`                               |    [link](./envs/manipulation/arm_grasp.py)     |
 | Arm Push      |                  `arm_push_easy` <br> `arm_push_hard`                  |  [link](./envs/manipulation/arm_push_easy.py)   |
-| Arm Binpick   |             `arm_binpick_easy` <br> `arm_binpickpush_hard`             | [link](./envs/manipulation/arm_binpick_easy.py) |
+| Arm Binpick   |             `arm_binpick_easy` <br> `arm_binpick_hard`             | [link](./envs/manipulation/arm_binpick_easy.py) |
 
 To add new environments: add an XML to `envs/assets`, add a python environment file in `envs`, and register the environment name in `utils.py`.
 

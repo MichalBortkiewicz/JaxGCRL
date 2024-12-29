@@ -51,7 +51,6 @@ def main(args):
         min_replay_size=args.min_replay_size,
         num_evals=args.num_evals,
         episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
         action_repeat=args.action_repeat,
         policy_lr=args.policy_lr,
         critic_lr=args.critic_lr,
@@ -73,6 +72,8 @@ def main(args):
         use_ln=args.use_ln,
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
+        repr_dim=args.repr_dim,
+        visualization_interval=args.visualization_interval,
     )
 
     metrics_to_collect = [
@@ -102,12 +103,10 @@ def main(args):
         "training/l_unif",
     ]
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
-
+    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)
-    render(make_inference_fn, params, env, run_dir, args.exp_name)
 
 if __name__ == "__main__":
     parser = create_parser()

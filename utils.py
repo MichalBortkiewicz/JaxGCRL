@@ -62,7 +62,6 @@ def create_parser():
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
     parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")
     parser.add_argument('--alpha_lr', type=float, default=3e-4, help="Learning rate for entropy coefficient (alpha)")
@@ -82,6 +81,7 @@ def create_parser():
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
     parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
+    parser.add_argument('--visualization_interval', type=int, default=5, help="Number of evals between each visualization of trajectories")
     return parser
 
 
@@ -218,13 +218,17 @@ class MetricsRecorder:
     Parameters:
     num_timesteps (int): The maximum number of timesteps for recording metrics.
     metrics_to_collect (List[str]): List of metric names that are to be collected.
+    exp_dir (str): Directory to save renders to.
+    exp_name (str): Experiment name for naming rendered trajectory visualizations.
     """
-    def __init__(self, num_timesteps: int, metrics_to_collect: List[str]):
+    def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
         self.metrics_to_collect = metrics_to_collect
+        self.exp_dir = exp_dir
+        self.exp_name = exp_name
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -279,13 +283,14 @@ class MetricsRecorder:
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
         
-    def progress(self, num_steps, metrics):
+    def progress(self, num_steps, metrics, make_policy, params, env, do_render=True):
         for key in self.metrics_to_collect:
             self.ensure_metric(metrics, key)
-        self.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
-        )
+        
+        if do_render:
+            render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
+        
+        self.record(num_steps, {key: value for key, value in metrics.items() if key in self.metrics_to_collect})
         self.log_wandb()
         self.print_progress()
     
@@ -297,9 +302,7 @@ class MetricsRecorder:
             if math.isnan(metrics[key]):
                 raise Exception(f"Metric: {key} is Nan")
 
-
-
-def render(inf_fun_factory, params, env, exp_dir, exp_name):
+def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     """
     Renders a given environment over a series of steps and stores the resulting
     HTML file to a specified directory. Logs the rendered HTML using wandb.
@@ -321,27 +324,32 @@ def render(inf_fun_factory, params, env, exp_dir, exp_name):
         The directory where the rendered HTML file will be saved.
     exp_name : str
         The file name to be used for the saved HTML (without extension).
+    num_steps : int
+        The number of environment steps taken so far (used for naming the file).
 
     Returns:
     None
     """
-    inference_fn = inf_fun_factory(params)
+    policy = make_policy(params)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
-    jit_inference_fn = jax.jit(inference_fn)
+    jit_policy = jax.jit(policy)
 
     rollout = []
-    rng = jax.random.PRNGKey(seed=1)
-    state = jit_env_reset(rng=rng)
+    key = jax.random.PRNGKey(seed=1)
+    key, subkey = jax.random.split(key)
+    state = jit_env_reset(rng=subkey)
     for i in range(5000):
         rollout.append(state.pipeline_state)
-        act_rng, rng = jax.random.split(rng)
-        act, _ = jit_inference_fn(state.obs, act_rng)
-        state = jit_env_step(state, act)
+        key, subkey = jax.random.split(key)
+        action, _ = jit_policy(state.obs[None], subkey) # Policy requires batched dimension
+        action = action[0] # Remove batch dimension
+        state = jit_env_step(state, action)
         if i % 1000 == 0:
-            state = jit_env_reset(rng=rng)
+            key, subkey = jax.random.split(key)
+            state = jit_env_reset(rng=subkey)
 
     url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
-    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+    with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})
