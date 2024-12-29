@@ -82,6 +82,7 @@ def create_parser():
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
     parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
+    parser.add_argument('--visualization_frequency', type=int, default=5, help="How often trajectories are rendered for visualization")
     return parser
 
 
@@ -219,12 +220,14 @@ class MetricsRecorder:
     num_timesteps (int): The maximum number of timesteps for recording metrics.
     metrics_to_collect (List[str]): List of metric names that are to be collected.
     """
-    def __init__(self, num_timesteps: int, metrics_to_collect: List[str]):
+    def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
         self.metrics_to_collect = metrics_to_collect
+        self.exp_dir = exp_dir
+        self.exp_name = exp_name
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -279,11 +282,12 @@ class MetricsRecorder:
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
         
-    def progress(self, num_steps, metrics, make_policy, params, env, exp_dir, exp_name):
+    def progress(self, num_steps, metrics, make_policy, params, env, do_render=True):
         for key in self.metrics_to_collect:
             self.ensure_metric(metrics, key)
         
-        render(make_policy, params, env, exp_dir, exp_name, num_steps)
+        if do_render:
+            render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
         
         self.record(num_steps, {key: value for key, value in metrics.items() if key in self.metrics_to_collect})
         self.log_wandb()

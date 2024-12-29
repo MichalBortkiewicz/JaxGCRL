@@ -74,8 +74,7 @@ def main(args):
         h_dim=args.h_dim,
         n_hidden=args.n_hidden,
         repr_dim=args.repr_dim,
-        exp_dir=run_dir,
-        exp_name=args.exp_name,
+        visualization_frequency=args.visualization_frequency,
     )
 
     metrics_to_collect = [
@@ -105,7 +104,7 @@ def main(args):
         "training/l_unif",
     ]
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
 
     make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)

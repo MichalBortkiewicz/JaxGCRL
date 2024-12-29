@@ -374,8 +374,7 @@ def train(
     h_dim: int = 256,
     n_hidden: int = 2,
     repr_dim: int = 256,
-    exp_dir: str = "exp_dir",
-    exp_name: str = "exp_name"
+    visualization_frequency: int = 5,
 ):
     """
     Trains a contrastive reinforcement learning agent using the specified environment and parameters.
@@ -693,11 +692,11 @@ def train(
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics={})
         logging.info(metrics)
-        progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, exp_dir, exp_name)
+        progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env)
 
     # Collect/train/eval loop
     current_step = 0
-    for _ in range(num_evals_after_init):
+    for eval_epoch_num in range(num_evals_after_init):
         logging.info("step %s", current_step)
 
         # Collect data and train
@@ -717,7 +716,8 @@ def train(
             ## Run evals
             metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics)
             logging.info(metrics)
-            progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, exp_dir, exp_name)
+            do_render = (eval_epoch_num % visualization_frequency) == 0
+            progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, do_render)
 
     # Final validity checks
     ## Verify number of steps is sufficient
