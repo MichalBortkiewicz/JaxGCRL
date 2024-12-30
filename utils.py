@@ -85,13 +85,14 @@ def create_parser():
     return parser
 
 
-def create_env(args: argparse.Namespace) -> object:
+def create_env(env_name: str, backend: str = None, **kwargs) -> object:
     """
     This function creates and returns an appropriate environment object based on the specified environment name and
     backend.
 
     Args:
-        args (argparse.Namespace): The arguments namespace containing environment name and backend information.
+        env_name (str): Name of the environment.
+        backend (str): Backend to be used for the environment.
 
     Returns:
         object: The instantiated environment object.
@@ -99,53 +100,52 @@ def create_env(args: argparse.Namespace) -> object:
     Raises:
         ValueError: If the specified environment name is unknown.
     """
-    env_name = args.env_name
     if env_name == "reacher":
-        env = Reacher(backend=args.backend or "generalized")
+        env = Reacher(backend=backend or "generalized")
     elif env_name == "ant":
-        env = Ant(backend=args.backend or "spring")
+        env = Ant(backend=backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(backend=args.backend or "spring")
+        env = AntBall(backend=backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
-        assert args.backend == "mjx" or args.backend is None
-        env = AntPush(backend=args.backend or "mjx")
+        assert backend == "mjx" or backend is None
+        env = AntPush(backend=backend or "mjx")
     elif "maze" in env_name:
         if "ant_ball" in env_name:
-            env = AntBallMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+            env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         elif "ant" in env_name:
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-            env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+            env = AntMaze(backend=backend or "spring", maze_layout_name=env_name[4:])
         elif "humanoid" in env_name:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
-            env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+            env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
-            env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
-        env = Pusher(backend=args.backend or "generalized", kind="easy")
+        env = Pusher(backend=backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
-        env = Pusher(backend=args.backend or "generalized", kind="hard")
+        env = Pusher(backend=backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
-        env = PusherReacher(backend=args.backend or "generalized")
+        env = PusherReacher(backend=backend or "generalized")
     elif env_name == "pusher2":
-        env = Pusher2(backend=args.backend or "generalized")
+        env = Pusher2(backend=backend or "generalized")
     elif env_name == "humanoid":
-        env = Humanoid(backend=args.backend or "spring")
+        env = Humanoid(backend=backend or "spring")
     elif env_name == "arm_reach":
-        env = ArmReach(backend=args.backend or "mjx")
+        env = ArmReach(backend=backend or "mjx")
     elif env_name == "arm_grasp":
-        env = ArmGrasp(backend=args.backend or "mjx")
+        env = ArmGrasp(backend=backend or "mjx")
     elif env_name == "arm_push_easy":
-        env = ArmPushEasy(backend=args.backend or "mjx")
+        env = ArmPushEasy(backend=backend or "mjx")
     elif env_name == "arm_push_hard":
-        env = ArmPushHard(backend=args.backend or "mjx")
+        env = ArmPushHard(backend=backend or "mjx")
     elif env_name == "arm_binpick_easy":
-        env = ArmBinpickEasy(backend=args.backend or "mjx")
+        env = ArmBinpickEasy(backend=backend or "mjx")
     elif env_name == "arm_binpick_hard":
-        env = ArmBinpickHard(backend=args.backend or "mjx")
+        env = ArmBinpickHard(backend=backend or "mjx")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
@@ -171,7 +171,7 @@ def create_eval_env(args: argparse.Namespace) -> object:
     
     eval_arg = argparse.Namespace(**vars(args))
     eval_arg.env_name = args.eval_env
-    return create_env(eval_arg)
+    return create_env(**vars(eval_arg))
 
 def get_env_config(args: argparse.Namespace):
     """

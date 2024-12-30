@@ -31,7 +31,7 @@ def main(args):
 
     """
 
-    env = create_env(args)
+    env = create_env(**vars(args))
     eval_env = create_eval_env(args)
     config = get_env_config(args)
 
