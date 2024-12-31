@@ -218,21 +218,12 @@ class HumanoidMaze(PipelineEnv):
             "success_easy": zero,
         }
     
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
 
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         """Runs one timestep of the environment's dynamics."""
-
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
-
         # Scale action from [-1,1] to actuator limits
         action_min = self.sys.actuator.ctrl_range[:, 0]
         action_max = self.sys.actuator.ctrl_range[:, 1]
@@ -277,7 +268,6 @@ class HumanoidMaze(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )

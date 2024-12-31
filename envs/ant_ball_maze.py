@@ -1,99 +1,69 @@
 import os
 from typing import Tuple
-
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 import jax
-from jax import numpy as jp
+from jax import numpy as jnp
 import mujoco
 import xml.etree.ElementTree as ET
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
-# Maze creation dapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
 
 RESET = R = 'r'
 GOAL = G = 'g'
+BALL = B = 'b'
 
 
 U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, G, G, 1],
+          [1, R, G, B, 1],
           [1, 1, 1, G, 1],
           [1, G, G, G, 1],
           [1, 1, 1, 1, 1]]
 
-U_MAZE_EVAL = [[1, 1, 1, 1, 1],
-               [1, R, 0, 0, 1],
-               [1, 1, 1, 0, 1],
-               [1, G, G, G, 1],
-               [1, 1, 1, 1, 1]]
+
 
 BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
-            [1, R, G, 1, 1, G, G, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, 1, G, G, G, 1, 1, 1],
+            [1, R, 0, 1, 1, G, G, 1],
+            [1, 0, 0, 1, G, G, G, 1],
+            [1, 1, B, G, B, 1, 1, 1],
             [1, G, G, 1, G, G, G, 1],
             [1, G, 1, G, G, 1, G, 1],
             [1, G, G, G, 1, G, G, 1],
             [1, 1, 1, 1, 1, 1, 1, 1]]
 
-BIG_MAZE_EVAL = [[1, 1, 1, 1, 1, 1, 1, 1],
-                 [1, R, 0, 1, 1, G, G, 1],
-                 [1, 0, 0, 1, 0, G, G, 1],
-                 [1, 1, 0, 0, 0, 1, 1, 1],
-                 [1, 0, 0, 1, 0, 0, 0, 1],
-                 [1, 0, 1, G, 0, 1, G, 1],
-                 [1, 0, G, G, 1, G, G, 1],
-                 [1, 1, 1, 1, 1, 1, 1, 1]]
 
-HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, R, G, G, G, 1, G, G, G, G, G, 1],
-                [1, G, 1, 1, G, 1, G, 1, G, 1, G, 1],
-                [1, G, G, G, G, G, G, 1, G, G, G, 1],
-                [1, G, 1, 1, 1, 1, G, 1, 1, 1, G, 1],
-                [1, G, G, 1, G, 1, G, G, G, G, G, 1],
-                [1, 1, G, 1, G, 1, G, 1, G, 1, 1, 1],
-                [1, G, G, 1, G, G, G, 1, G, G, G, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
+
 
 MAZE_HEIGHT = 0.5
 
-def find_robot(structure, size_scaling):
-    for i in range(len(structure)):
-        for j in range(len(structure[0])):
-            if structure[i][j] == RESET:
-                return i * size_scaling, j * size_scaling
-            
-def find_goals(structure, size_scaling):
-    goals = []
-    for i in range(len(structure)):
-        for j in range(len(structure[0])):
-            if structure[i][j] == GOAL:
-                goals.append([i * size_scaling, j * size_scaling])
 
-    return jp.array(goals)
+def find(structure, size_scaling, obj):
+    objects = []
+    for i in range(len(structure)):
+        for j in range(len(structure[0])):
+            if structure[i][j] == obj:
+                objects.append([i * size_scaling, j * size_scaling])
+
+    return jnp.array(objects)
+
 
 # Create a xml with maze and a list of possible goal positions
 def make_maze(maze_layout_name, maze_size_scaling):
     if maze_layout_name == "u_maze":
         maze_layout = U_MAZE
-    elif maze_layout_name == "u_maze_eval":
-        maze_layout = U_MAZE_EVAL
     elif maze_layout_name == "big_maze":
         maze_layout = BIG_MAZE
-    elif maze_layout_name == "big_maze_eval":
-        maze_layout = BIG_MAZE_EVAL
-    elif maze_layout_name == "hardest_maze":
-        maze_layout = HARDEST_MAZE
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
     
-    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_maze.xml")
+    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_ball.xml")
 
-    robot_x, robot_y = find_robot(maze_layout, maze_size_scaling)
-    possible_goals = find_goals(maze_layout, maze_size_scaling)
+    possible_starts = find(maze_layout, maze_size_scaling, RESET)
+    possible_goals = find(maze_layout, maze_size_scaling, GOAL)
+    possible_balls = find(maze_layout, maze_size_scaling, BALL)
 
     tree = ET.parse(xml_path)
     worldbody = tree.find(".//worldbody")
@@ -118,17 +88,13 @@ def make_maze(maze_layout_name, maze_size_scaling):
                     rgba="0.7 0.5 0.3 1.0",
                 )
 
-    
-    torso = tree.find(".//numeric[@name='init_qpos']")
-    data = torso.get("data")
-    torso.set("data", f"{robot_x} {robot_y} " + data) 
-
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
     
-    return xml_string, possible_goals
+    return xml_string, possible_starts, possible_goals, possible_balls
 
-class AntMaze(PipelineEnv):
+
+class AntBallMaze(PipelineEnv):
     def __init__(
         self,
         ctrl_cost_weight=0.5,
@@ -139,21 +105,24 @@ class AntMaze(PipelineEnv):
         healthy_z_range=(0.2, 1.0),
         contact_force_range=(-1.0, 1.0),
         reset_noise_scale=0.1,
-        exclude_current_positions_from_observation=True,
-        backend="generalized",
-        maze_layout_name="u_maze",
+        exclude_current_positions_from_observation=False,
+        backend="spring",
+        maze_layout_name="big_maze",
         maze_size_scaling=4.0,
+        dense_reward: bool = False,
         **kwargs,
     ):
-        xml_string, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals, possible_balls = make_maze(maze_layout_name, maze_size_scaling)
 
         sys = mjcf.loads(xml_string)
+        self.possible_starts = possible_starts
         self.possible_goals = possible_goals
+        self.possible_balls = possible_balls
 
         n_frames = 5
 
         if backend in ["spring", "positional"]:
-            sys = sys.replace(dt=0.005)
+            sys = sys.tree_replace({"opt.timestep": 0.005})
             n_frames = 10
 
         if backend == "mjx":
@@ -170,7 +139,7 @@ class AntMaze(PipelineEnv):
             # TODO: does the same actuator strength work as in spring
             sys = sys.replace(
                 actuator=sys.actuator.replace(
-                    gear=200 * jp.ones_like(sys.actuator.gear)
+                    gear=200 * jnp.ones_like(sys.actuator.gear)
                 )
             )
 
@@ -189,14 +158,20 @@ class AntMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
+        self._object_idx = self.sys.link_names.index('object')
+        self.dense_reward = dense_reward
 
+        self.state_dim = 31
+        self.goal_indices = jnp.array([28, 29])
+        self.goal_dist = 0.5
+        
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
 
-        rng, rng1, rng2 = jax.random.split(rng, 3)
+        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
         q = self.sys.init_q + jax.random.uniform(
@@ -204,15 +179,20 @@ class AntMaze(PipelineEnv):
         )
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
-        # set the target q, qd
-        _, target = self._random_target(rng)
-        q = q.at[-2:].set(target)
-        qd = qd.at[-2:].set(0)
+        start = self._random_start(rng2)
+        q = q.at[:2].set(start)
+
+        target = self._random_target(rng)
+        obj = self._random_ball(rng)
+
+        q = q.at[-4:].set(jnp.concatenate([obj, target]))
+
+        qd = qd.at[-4:].set(0)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
 
-        reward, done, zero = jp.zeros(3)
+        reward, done, zero = jnp.zeros(3)
         metrics = {
             "reward_forward": zero,
             "reward_survive": zero,
@@ -228,45 +208,44 @@ class AntMaze(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
         return state
 
-    # Todo rename seed to traj_id
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
-
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
 
         min_z, max_z = self._healthy_z_range
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
-        is_healthy = jp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
+        is_healthy = jnp.where(pipeline_state.x.pos[0, 2] < min_z, 0.0, 1.0)
+        is_healthy = jnp.where(pipeline_state.x.pos[0, 2] > max_z, 0.0, is_healthy)
         if self._terminate_when_unhealthy:
             healthy_reward = self._healthy_reward
         else:
             healthy_reward = self._healthy_reward * is_healthy
-        ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
+        ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
         contact_cost = 0.0
 
+        old_obs = self._get_obs(pipeline_state0)
+        # Distance between goal and object
+        old_dist = jnp.linalg.norm(old_obs[-2:] - old_obs[-4:-2])
         obs = self._get_obs(pipeline_state)
+        dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
+        vel_to_target = (old_dist - dist) / self.dt
+        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success_easy = jnp.array(dist < 2., dtype=float)
+
+        if self.dense_reward:
+            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+        else:
+            reward = success
+
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
-        dist = jp.linalg.norm(obs[:2] - obs[-2:])
-        success = jp.array(dist < 0.5, dtype=float)
-        success_easy = jp.array(dist < 2., dtype=float)
-        reward = -dist + healthy_reward - ctrl_cost - contact_cost
         state.metrics.update(
-            reward_forward=forward_reward,
             reward_survive=healthy_reward,
             reward_ctrl=-ctrl_cost,
             reward_contact=-contact_cost,
@@ -280,24 +259,35 @@ class AntMaze(PipelineEnv):
             success=success,
             success_easy=success_easy
         )
-        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
-        qpos = pipeline_state.q[:-2]
-        qvel = pipeline_state.qd[:-2]
+        # remove target and object q, qd
+        qpos = pipeline_state.q[:-4]
+        qvel = pipeline_state.qd[:-4]
 
         target_pos = pipeline_state.x.pos[-1][:2]
 
         if self._exclude_current_positions_from_observation:
             qpos = qpos[2:]
 
-        return jp.concatenate([qpos] + [qvel] + [target_pos])
+        object_position = pipeline_state.x.pos[self._object_idx][:2]
 
-    def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        return jnp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
+    
+
+    def _random_target(self, rng: jax.Array) -> jax.Array:
         """Returns a random target location chosen from possibilities specified in the maze layout."""
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_goals))
-        return rng, jp.array(self.possible_goals[idx])[0]
+        return jnp.array(self.possible_goals[idx])[0]
+
+    def _random_start(self, rng: jax.Array) -> jax.Array:
+        idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
+        return jnp.array(self.possible_starts[idx])[0]
+    
+    def _random_ball(self, rng: jax.Array) -> jax.Array:
+        idx = jax.random.randint(rng, (1,), 0, len(self.possible_balls))
+        return jnp.array(self.possible_balls[idx])[0]

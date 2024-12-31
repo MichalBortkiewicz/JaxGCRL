@@ -2,8 +2,10 @@ import argparse
 import os
 from collections import namedtuple
 from datetime import datetime
+from typing import List
 
 import jax
+import math
 from brax.io import html
 
 from matplotlib import pyplot as plt
@@ -25,10 +27,23 @@ from envs.manipulation.arm_push_easy import ArmPushEasy
 from envs.manipulation.arm_push_hard import ArmPushHard
 from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
 from envs.manipulation.arm_binpick_hard import ArmBinpickHard
+from envs.ant_ball_maze import AntBallMaze
 from envs.simple_maze import SimpleMaze
 
 
 def create_parser():
+    """
+    Create an argument parser for training script.
+
+    This function sets up an argument parser to handle various training
+    parameters for a RL experiment.
+
+    Returns:
+        argparse.ArgumentParser: The configured argument parser.
+
+    Args:
+        None
+    """
     parser = argparse.ArgumentParser(description="Training script arguments")
     parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
     parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
@@ -47,20 +62,17 @@ def create_parser():
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
     parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument("--normalize_observations", default=False, action="store_true", help="Whether to normalize observations")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument('--policy_lr', type=float, default=3e-4)
-    parser.add_argument('--alpha_lr', type=float, default=3e-4)
-    parser.add_argument('--critic_lr', type=float, default=3e-4)
-    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce')
-    parser.add_argument('--energy_fn', type=str, default='l2')
-    parser.add_argument('--backend', type=str, default=None)
+    parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")
+    parser.add_argument('--alpha_lr', type=float, default=3e-4, help="Learning rate for entropy coefficient (alpha)")
+    parser.add_argument('--critic_lr', type=float, default=3e-4, help="Learning rate for critic network")
+    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce', help="Name of the contrastive loss function")
+    parser.add_argument('--energy_fn', type=str, default='l2', help="Function to calculate energy")
+    parser.add_argument('--backend', type=str, default=None, help="Backend to be used for the environment")
     parser.add_argument('--no_resubs', default=False, action='store_true', help="Not use resubstitution (diagonal) for logsumexp in contrastive cross entropy")
     parser.add_argument('--use_ln', default=False, action='store_true', help="Whether to use layer normalization for preactivations in hidden layers")
-    parser.add_argument('--use_c_target', default=False, action='store_true', help="Use learnable c_target param in contrastive loss")
-    parser.add_argument('--logsumexp_penalty', type=float, default=0.0)
-    parser.add_argument('--l2_penalty', type=float, default=0.0)
-    parser.add_argument('--exploration_coef', type=float, default=0.0)
+    parser.add_argument('--logsumexp_penalty', type=float, default=0.0, help="Penalty for logsumexp in contrastive loss")
+    parser.add_argument('--l2_penalty', type=float, default=0.0, help="L2 penalty for regularization")
     parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
     parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
     parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
@@ -69,71 +81,124 @@ def create_parser():
     parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
     parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
     parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
+    parser.add_argument('--visualization_interval', type=int, default=5, help="Number of evals between each visualization of trajectories")
     return parser
 
 
-def create_env(args: argparse.Namespace) -> object:
-    env_name = args.env_name
+def create_env(env_name: str, backend: str = None, **kwargs) -> object:
+    """
+    This function creates and returns an appropriate environment object based on the specified environment name and
+    backend.
+
+    Args:
+        env_name (str): Name of the environment.
+        backend (str): Backend to be used for the environment.
+
+    Returns:
+        object: The instantiated environment object.
+
+    Raises:
+        ValueError: If the specified environment name is unknown.
+    """
     if env_name == "reacher":
-        env = Reacher(backend=args.backend or "generalized")
+        env = Reacher(backend=backend or "generalized")
     elif env_name == "ant":
-        env = Ant(backend=args.backend or "spring")
+        env = Ant(backend=backend or "spring")
     elif env_name == "ant_ball":
-        env = AntBall(backend=args.backend or "spring")
+        env = AntBall(backend=backend or "spring")
     elif env_name == "ant_push":
         # This is stable only in mjx backend
-        assert args.backend == "mjx"
-        env = AntPush(backend=args.backend)
+        assert backend == "mjx" or backend is None
+        env = AntPush(backend=backend or "mjx")
     elif "maze" in env_name:
-        if "ant" in env_name: 
+        if "ant_ball" in env_name:
+            env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
+        elif "ant" in env_name:
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-            env = AntMaze(backend=args.backend or "spring", maze_layout_name=env_name[4:])
+            env = AntMaze(backend=backend or "spring", maze_layout_name=env_name[4:])
         elif "humanoid" in env_name:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
-            env = HumanoidMaze(backend=args.backend or "spring", maze_layout_name=env_name[9:])
+            env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
-            env = SimpleMaze(backend=args.backend or "spring", maze_layout_name=env_name[7:])
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
-        env = Pusher(backend=args.backend or "generalized", kind="easy")
+        env = Pusher(backend=backend or "generalized", kind="easy")
     elif env_name == "pusher_hard":
-        env = Pusher(backend=args.backend or "generalized", kind="hard")
+        env = Pusher(backend=backend or "generalized", kind="hard")
     elif env_name == "pusher_reacher":
-        env = PusherReacher(backend=args.backend or "generalized")
+        env = PusherReacher(backend=backend or "generalized")
     elif env_name == "pusher2":
-        env = Pusher2(backend=args.backend or "generalized")
+        env = Pusher2(backend=backend or "generalized")
     elif env_name == "humanoid":
-        env = Humanoid(backend=args.backend or "spring")
+        env = Humanoid(backend=backend or "spring")
     elif env_name == "arm_reach":
-        env = ArmReach(backend=args.backend or "mjx")
+        env = ArmReach(backend=backend or "mjx")
     elif env_name == "arm_grasp":
-        env = ArmGrasp(backend=args.backend or "mjx")
+        env = ArmGrasp(backend=backend or "mjx")
     elif env_name == "arm_push_easy":
-        env = ArmPushEasy(backend=args.backend or "mjx")
+        env = ArmPushEasy(backend=backend or "mjx")
     elif env_name == "arm_push_hard":
-        env = ArmPushHard(backend=args.backend or "mjx")
+        env = ArmPushHard(backend=backend or "mjx")
     elif env_name == "arm_binpick_easy":
-        env = ArmBinpickEasy(backend=args.backend or "mjx")
+        env = ArmBinpickEasy(backend=backend or "mjx")
     elif env_name == "arm_binpick_hard":
-        env = ArmBinpickHard(backend=args.backend or "mjx")
+        env = ArmBinpickHard(backend=backend or "mjx")
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     return env
 
 
 def create_eval_env(args: argparse.Namespace) -> object:
+    """
+    Creates an evaluation environment based on the provided arguments.
+
+    This function generates a new environment specifically for evaluation based on
+    args.eval_env. If args.eval_env is not specified, the function returns None.
+
+    Args:
+        args (argparse.Namespace): The arguments containing configuration for the
+                                   environment, including eval_env.
+
+    Returns:
+        object: The created evaluation environment, or None if args.eval_env is not
+                specified.
+    """
     if not args.eval_env:
         return None
     
     eval_arg = argparse.Namespace(**vars(args))
     eval_arg.env_name = args.eval_env
-    return create_env(eval_arg)
+    return create_env(**vars(eval_arg))
 
 def get_env_config(args: argparse.Namespace):
+    """
+    Generate and validate environment configuration based on input arguments.
+
+    This function takes an argparse.Namespace object, validates the specified environment name
+    against a list of legal environments, and returns a configuration named tuple constructed
+    from the input arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The input arguments containing the environment name and other configuration settings.
+
+    Returns
+    -------
+    Config
+        A named tuple containing the configuration derived from the input arguments.
+
+    Raises
+    ------
+    ValueError
+        If the specified environment name is not in the list of legal environments or does not
+        contain the word 'maze'.
+    """
     legal_envs = ["reacher", "cheetah", "pusher_easy", "pusher_hard", "pusher_reacher", "pusher2",
-                  "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp", 
+                  "ant", "ant_push", "ant_ball", "humanoid", "arm_reach", "arm_grasp",
                   "arm_push_easy", "arm_push_hard", "arm_binpick_easy", "arm_binpick_hard"]
     if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
@@ -146,11 +211,24 @@ def get_env_config(args: argparse.Namespace):
 
 
 class MetricsRecorder:
-    def __init__(self, num_timesteps):
+    """
+    Initialize the MetricsRecorder with the specified number of timesteps
+    and the metrics to be collected.
+
+    Parameters:
+    num_timesteps (int): The maximum number of timesteps for recording metrics.
+    metrics_to_collect (List[str]): List of metric names that are to be collected.
+    exp_dir (str): Directory to save renders to.
+    exp_name (str): Experiment name for naming rendered trajectory visualizations.
+    """
+    def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
         self.times = [datetime.now()]
+        self.metrics_to_collect = metrics_to_collect
+        self.exp_dir = exp_dir
+        self.exp_name = exp_name
 
         self.max_x, self.min_x = num_timesteps * 1.1, 0
 
@@ -204,26 +282,74 @@ class MetricsRecorder:
     def print_times(self):
         print(f"time to jit: {self.times[1] - self.times[0]}")
         print(f"time to train: {self.times[-1] - self.times[1]}")
+        
+    def progress(self, num_steps, metrics, make_policy, params, env, do_render=True):
+        for key in self.metrics_to_collect:
+            self.ensure_metric(metrics, key)
+        
+        if do_render:
+            render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
+        
+        self.record(num_steps, {key: value for key, value in metrics.items() if key in self.metrics_to_collect})
+        self.log_wandb()
+        self.print_progress()
+    
+    @staticmethod
+    def ensure_metric(metrics, key):
+        if key not in metrics:
+            metrics[key] = 0
+        else:
+            if math.isnan(metrics[key]):
+                raise Exception(f"Metric: {key} is Nan")
 
+def render(make_policy, params, env, exp_dir, exp_name, num_steps):
+    """
+    Renders a given environment over a series of steps and stores the resulting
+    HTML file to a specified directory. Logs the rendered HTML using wandb.
 
-def render(inf_fun_factory, params, env, exp_dir, exp_name):
-    inference_fn = inf_fun_factory(params)
+    This function initializes the environment and the inference function, then
+    runs the environment for a fixed number of steps, periodically resetting.
+    It collects the state of the environment at each step, renders the HTML,
+    stores the result, and logs it.
+
+    Parameters:
+    inf_fun_factory : Callable
+        A factory function that returns an inference function when provided with
+        'params'.
+    params : any
+        Parameters for the 'inf_fun_factory'.
+    env : object
+        The environment object with 'reset', 'step', and 'sys.tree_replace' methods.
+    exp_dir : str
+        The directory where the rendered HTML file will be saved.
+    exp_name : str
+        The file name to be used for the saved HTML (without extension).
+    num_steps : int
+        The number of environment steps taken so far (used for naming the file).
+
+    Returns:
+    None
+    """
+    policy = make_policy(params)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
-    jit_inference_fn = jax.jit(inference_fn)
+    jit_policy = jax.jit(policy)
 
     rollout = []
-    rng = jax.random.PRNGKey(seed=1)
-    state = jit_env_reset(rng=rng)
+    key = jax.random.PRNGKey(seed=1)
+    key, subkey = jax.random.split(key)
+    state = jit_env_reset(rng=subkey)
     for i in range(5000):
         rollout.append(state.pipeline_state)
-        act_rng, rng = jax.random.split(rng)
-        act, _ = jit_inference_fn(state.obs, act_rng)
-        state = jit_env_step(state, act)
+        key, subkey = jax.random.split(key)
+        action, _ = jit_policy(state.obs[None], subkey) # Policy requires batched dimension
+        action = action[0] # Remove batch dimension
+        state = jit_env_step(state, action)
         if i % 1000 == 0:
-            state = jit_env_reset(rng=rng)
+            key, subkey = jax.random.split(key)
+            state = jit_env_reset(rng=subkey)
 
     url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
-    with open(os.path.join(exp_dir, f"{exp_name}.html"), "w") as file:
+    with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})
