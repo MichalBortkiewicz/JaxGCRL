@@ -162,9 +162,7 @@ We summarize the most important elements of the code structure, for users wantin
 
 <pre><code>
 ├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
-│   ├── <b>train.py:</b> Main file. Collects trajectories, trains networks, runs evaluations.
-│   ├── <b>losses.py:</b> Contains energy functions, and actor, critic, and alpha losses.
-│   ├── <b>networks.py:</b> Contains network definitions for policy, and encoders for the critic.
+│   ├── <b>train.py:</b> Main file. Defines energy functions + losses, and networks. Collects trajectories, trains networks, runs evaluations.
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
 ├── <b>envs:</b> Environments (python files and XMLs)
