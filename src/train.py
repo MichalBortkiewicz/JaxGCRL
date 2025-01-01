@@ -477,8 +477,12 @@ def train(
         device_count,
     )
 
+    # Sanity checks
     if min_replay_size >= num_timesteps:
         raise ValueError("No training will happen because min_replay_size >= num_timesteps")
+
+    if ((episode_length - 1) * num_envs) % batch_size != 0:
+        raise ValueError("(episode_length - 1) * num_envs must be divisible by batch_size")
 
     if max_replay_size is None:
         max_replay_size = num_timesteps
