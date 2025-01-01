@@ -1,5 +1,6 @@
 site_name: JaxGCRL
-site_url: https://michalbortkiewicz.github.io/JaxGCRL/
+site_url: https://michalbortkiewicz.github.io/JaxGCRL
+repo_url: https://github.com/MichalBortkiewicz/JaxGCRL
 theme:
   name: material
   palette:
