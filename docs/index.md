@@ -1,7 +1,7 @@
 # <span style="color: orange;">JaxGCRL</span>
 
 
-<p align="center"><img src="imgs/grid.png" width=80%></p>
+![envs_grid](imgs/grid.png)
 
 JaxGCRL is a high-performance library and benchmark for self-supervised goal-conditioned reinforcement learning. 
 Leveraging efficient GPU acceleration, the framework enables researchers to train agents for millions of environment 
@@ -33,9 +33,7 @@ The codebase is organized into several key files and directories. Below is an ov
 
 
 ## Paper: Accelerating Goal-Conditioned RL Algorithms and Research
-<p align="center">
-  <img src="imgs/teaser.jpg" width=100% /> 
-</p>
+![teaser](imgs/teaser.jpg)
 <p align="center">
 Training CRL on Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
 </p>
