@@ -169,7 +169,7 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
 
             # Recalculate reward
             dist = jnp.linalg.norm(new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1)
-            new_reward = jnp.array(dist < env.goal_dist, dtype=float)
+            new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
 
             # Transform next observation
             next_state = transition.next_observation[:, : env.state_dim]
