@@ -494,7 +494,7 @@ def train(
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
-        training_state, buffer_state, metrics = additional_sgds(training_state, buffer_state, training_key)
+        training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(
@@ -529,7 +529,7 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
-    def additional_sgds(
+    def train_steps(
         training_state: TrainingState,
         buffer_state: ReplayBufferState,
         key: PRNGKey,
@@ -557,12 +557,12 @@ def train(
         (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
-    def scan_additional_sgds(n, ts, bs, a_sgd_key):
+    def scan_train_steps(n, ts, bs, a_sgd_key):
 
         def body(carry, unsued_t):
             ts, bs, a_sgd_key = carry
             new_key, a_sgd_key = jax.random.split(a_sgd_key)
-            ts, bs, metrics = additional_sgds(ts, bs, a_sgd_key)
+            ts, bs, metrics = train_steps(ts, bs, a_sgd_key)
             return (ts, bs, new_key), metrics
 
         return jax.lax.scan(body, (ts, bs, a_sgd_key), (), length=n)
@@ -577,7 +577,7 @@ def train(
             ts, es, bs, k = carry
             k, new_key, a_sgd_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            (ts, bs, a_sgd_key), _ = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
+            (ts, bs, a_sgd_key), _ = scan_train_steps(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
