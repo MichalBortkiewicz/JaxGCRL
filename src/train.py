@@ -378,7 +378,7 @@ def train(
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
     unroll_length: int = 50,
-    multiplier_num_sgd_steps: int = 1,
+    train_step_multiplier: int = 1,
     config: NamedTuple = None,
     use_ln: bool = False,
     h_dim: int = 256,
@@ -443,7 +443,7 @@ def train(
             Evaluation environment. Default is None.
         unroll_length: int, optional
             Length of time to unroll the environment. Default is 50.
-        multiplier_num_sgd_steps: int, optional
+        train_step_multiplier: int, optional
             Number of SGD steps multiplier. Default is 1.
         config: NamedTuple, optional
             Configuration settings. Default is None.
@@ -546,7 +546,7 @@ def train(
     actor_update = gradients.gradient_update_fn(actor_loss, training_state.actor_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
     critic_update = gradients.gradient_update_fn(critic_loss, training_state.critic_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
     
-    def sgd_step(carry, transitions):
+    def update_step(carry, transitions):
         training_state, key = carry
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
@@ -632,23 +632,23 @@ def train(
         transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[1:]), transitions)
         
         ## Train
-        (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
+        (training_state, _), metrics = jax.lax.scan(update_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
-    def scan_train_steps(n, ts, bs, a_sgd_key):
+    def scan_train_steps(n, ts, bs, update_key):
         def body(carry, unsued_t):
-            ts, bs, a_sgd_key = carry
-            new_key, a_sgd_key = jax.random.split(a_sgd_key)
-            ts, bs, metrics = train_steps(ts, bs, a_sgd_key)
+            ts, bs, update_key = carry
+            new_key, update_key = jax.random.split(update_key)
+            ts, bs, metrics = train_steps(ts, bs, update_key)
             return (ts, bs, new_key), metrics
-        return jax.lax.scan(body, (ts, bs, a_sgd_key), (), length=n)
+        return jax.lax.scan(body, (ts, bs, update_key), (), length=n)
 
     def training_epoch(training_state, env_state, buffer_state, key):
         def f(carry, unused_t):
             ts, es, bs, k = carry
-            k, new_key, a_sgd_key = jax.random.split(k, 3)
+            k, new_key, update_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            (ts, bs, a_sgd_key), _ = scan_train_steps(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
+            (ts, bs, update_key), _ = scan_train_steps(train_step_multiplier - 1, ts, bs, update_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(f, (training_state, env_state, buffer_state, key), (), length=num_training_steps_per_epoch)

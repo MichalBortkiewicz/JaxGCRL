@@ -269,7 +269,7 @@ def train(
 
     return (optimizer_state, params, key), metrics
 
-  def sgd_step(carry, unused_t, data: types.Transition,
+  def update_step(carry, unused_t, data: types.Transition,
                normalizer_params: running_statistics.RunningStatisticsState):
     optimizer_state, params, key = carry
     key, key_perm, key_grad = jax.random.split(key, 3)
@@ -291,7 +291,7 @@ def train(
       carry: Tuple[TrainingState, envs.State, PRNGKey],
       unused_t) -> Tuple[Tuple[TrainingState, envs.State, PRNGKey], Metrics]:
     training_state, state, key = carry
-    key_sgd, key_generate_unroll, new_key = jax.random.split(key, 3)
+    update_key, key_generate_unroll, new_key = jax.random.split(key, 3)
 
     policy = make_policy(
         (training_state.normalizer_params, training_state.params.policy))
@@ -325,8 +325,8 @@ def train(
 
     (optimizer_state, params, _), metrics = jax.lax.scan(
         functools.partial(
-            sgd_step, data=data, normalizer_params=normalizer_params),
-        (training_state.optimizer_state, training_state.params, key_sgd), (),
+            update_step, data=data, normalizer_params=normalizer_params),
+        (training_state.optimizer_state, training_state.params, update_key), (),
         length=num_updates_per_batch)
 
     new_training_state = TrainingState(

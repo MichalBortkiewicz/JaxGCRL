@@ -45,8 +45,8 @@ def main(args):
     # We want ratio of sgd steps to env steps to be roughly equal to 1:16
     num_minibatches = 16 #(16 * args.num_envs) // (args.batch_size * args.unroll_length * args.action_repeat)
     print(f"Num_minibatches {num_minibatches}")
-    sgd_to_env_step_ratio = args.num_envs / (args.batch_size * args.unroll_length * num_minibatches * args.action_repeat)
-    print(f"SGD to ENV step ratio: {sgd_to_env_step_ratio}")
+    utd_ratio = args.num_envs / (args.batch_size * args.unroll_length * num_minibatches * args.action_repeat)
+    print(f"Updates per environment step: {utd_ratio}")
 
     train_fn = functools.partial(
         train,
