@@ -1,7 +1,7 @@
 # <span style="color: orange;">JaxGCRL</span>
 
 
-<p align="center"><img src="imgs/grid.png" width=80%></p>
+![envs_grid](imgs/grid.png)
 
 JaxGCRL is a high-performance library and benchmark for self-supervised goal-conditioned reinforcement learning. 
 Leveraging efficient GPU acceleration, the framework enables researchers to train agents for millions of environment 
@@ -17,36 +17,23 @@ steps within minutes on a single GPU.
 ## Structure of the Code
 The codebase is organized into several key files and directories. Below is an overview of the structure and most important files:
 
-```
-├── training.py
-├── src 
-│ ├── train.py
-│ ├── networks.py
-│ ├── losses.py
-│ └── ...
-├── envs
-│ └── ...
-├── utils.py
-└── ...
-```
-**`training.py`** - The main entry point for running training. It initializes essential components such as the environment, configuration, logging, and starts the training loop.
-
-**`src/train.py`** - Implements the training loop for a GCRL agent.
-
-**`src/networks.py`** - Defines the neural network architectures.
-
-**`src/losses.py`** - Provides customizable loss functions.
-
-**`envs`** - Contains implementations of various environments.
-
-**`utils.py`** - Provides utility functions and classes to support training, including argument parsing, environment creation, configuration management, and metrics logging.
-
+<pre><code>
+├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
+│   ├── <b>train.py:</b> Main file. Defines energy functions + losses, and networks. Collects trajectories, trains networks, runs evaluations.
+│   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
+│   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
+├── <b>envs:</b> Environments (python files and XMLs)
+│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here
+│   ├── <b>assets:</b> Contains XMLs for environments
+│   └── <b>manipulation:</b> Contains all manipulation environments
+├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters
+├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
+└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+</code></pre>
 
 
 ## Paper: Accelerating Goal-Conditioned RL Algorithms and Research
-<p align="center">
-  <img src="imgs/teaser.jpg" width=100% /> 
-</p>
+![teaser](imgs/teaser.jpg)
 <p align="center">
 Training CRL on Ant environment for 10M steps takes only ~10 minutes on 1 Nvidia V100. 
 </p>

@@ -60,7 +60,7 @@ def create_parser():
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
     parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
     parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
-    parser.add_argument("--multiplier_num_sgd_steps", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
+    parser.add_argument("--train_step_multiplier", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
     parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
     parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
     parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")

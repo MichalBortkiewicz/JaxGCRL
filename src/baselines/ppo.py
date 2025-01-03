@@ -177,17 +177,17 @@ def train(
   device_count = local_devices_to_use * process_count
 
   # The number of environment steps executed for every training step.
-  env_step_per_training_step = (
+  utd_ratio = (
       batch_size * unroll_length * num_minibatches * action_repeat)
   num_evals_after_init = max(num_evals - 1, 1)
   # The number of training_step calls per training_epoch call.
-  # equals to ceil(num_timesteps / (num_evals * env_step_per_training_step *
+  # equals to ceil(num_timesteps / (num_evals * utd_ratio *
   #                                 num_resets_per_eval))
   num_training_steps_per_epoch = np.ceil(
       num_timesteps
       / (
           num_evals_after_init
-          * env_step_per_training_step
+          * utd_ratio
           * max(num_resets_per_eval, 1)
       )
   ).astype(int)
@@ -269,7 +269,7 @@ def train(
 
     return (optimizer_state, params, key), metrics
 
-  def sgd_step(carry, unused_t, data: types.Transition,
+  def update_step(carry, unused_t, data: types.Transition,
                normalizer_params: running_statistics.RunningStatisticsState):
     optimizer_state, params, key = carry
     key, key_perm, key_grad = jax.random.split(key, 3)
@@ -291,7 +291,7 @@ def train(
       carry: Tuple[TrainingState, envs.State, PRNGKey],
       unused_t) -> Tuple[Tuple[TrainingState, envs.State, PRNGKey], Metrics]:
     training_state, state, key = carry
-    key_sgd, key_generate_unroll, new_key = jax.random.split(key, 3)
+    update_key, key_generate_unroll, new_key = jax.random.split(key, 3)
 
     policy = make_policy(
         (training_state.normalizer_params, training_state.params.policy))
@@ -325,15 +325,15 @@ def train(
 
     (optimizer_state, params, _), metrics = jax.lax.scan(
         functools.partial(
-            sgd_step, data=data, normalizer_params=normalizer_params),
-        (training_state.optimizer_state, training_state.params, key_sgd), (),
+            update_step, data=data, normalizer_params=normalizer_params),
+        (training_state.optimizer_state, training_state.params, update_key), (),
         length=num_updates_per_batch)
 
     new_training_state = TrainingState(
         optimizer_state=optimizer_state,
         params=params,
         normalizer_params=normalizer_params,
-        env_steps=training_state.env_steps + env_step_per_training_step)
+        env_steps=training_state.env_steps + utd_ratio)
     return (new_training_state, state, new_key), metrics
 
   def training_epoch(training_state: TrainingState, state: envs.State,
@@ -362,7 +362,7 @@ def train(
     epoch_training_time = time.time() - t
     training_walltime += epoch_training_time
     sps = (num_training_steps_per_epoch *
-           env_step_per_training_step *
+           utd_ratio *
            max(num_resets_per_eval, 1)) / epoch_training_time
     metrics = {
         'training/sps': sps,

@@ -256,7 +256,7 @@ def train(
     deterministic_eval: bool = False,
     network_factory: types.NetworkFactory[sac_networks.SACNetworks] = sac_networks.make_sac_networks,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
-    multiplier_num_sgd_steps: int = 1,
+    train_step_multiplier: int = 1,
     unroll_length: int = 50,
     config: NamedTuple = None,
     checkpoint_logdir: Optional[str] = None,
@@ -369,7 +369,7 @@ def train(
         actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
 
-    def sgd_step(
+    def update_step(
         carry: Tuple[TrainingState, PRNGKey], transitions: Transition
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
@@ -490,7 +490,7 @@ def train(
             env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
-        training_state, buffer_state, metrics = additional_sgds(training_state, buffer_state, training_key)
+        training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(
@@ -525,7 +525,7 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
-    def additional_sgds(
+    def train_steps(
         training_state: TrainingState,
         buffer_state: ReplayBufferState,
         key: PRNGKey,
@@ -550,18 +550,18 @@ def train(
             transitions,
         )
 
-        (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
+        (training_state, _), metrics = jax.lax.scan(update_step, (training_state, training_key), transitions)
         return training_state, buffer_state, metrics
 
-    def scan_additional_sgds(n, ts, bs, a_sgd_key):
+    def scan_train_steps(n, ts, bs, update_key):
 
         def body(carry, unsued_t):
-            ts, bs, a_sgd_key = carry
-            new_key, a_sgd_key = jax.random.split(a_sgd_key)
-            ts, bs, metrics = additional_sgds(ts, bs, a_sgd_key)
+            ts, bs, update_key = carry
+            new_key, update_key = jax.random.split(update_key)
+            ts, bs, metrics = train_steps(ts, bs, update_key)
             return (ts, bs, new_key), metrics
 
-        return jax.lax.scan(body, (ts, bs, a_sgd_key), (), length=n)
+        return jax.lax.scan(body, (ts, bs, update_key), (), length=n)
 
     def training_epoch(
         training_state: TrainingState,
@@ -571,9 +571,9 @@ def train(
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         def f(carry, unused_t):
             ts, es, bs, k = carry
-            k, new_key, a_sgd_key = jax.random.split(k, 3)
+            k, new_key, update_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            (ts, bs, a_sgd_key), _ = scan_additional_sgds(multiplier_num_sgd_steps - 1, ts, bs, a_sgd_key)
+            (ts, bs, update_key), _ = scan_train_steps(train_step_multiplier - 1, ts, bs, update_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(

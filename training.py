@@ -65,7 +65,7 @@ def main(args):
         batch_size=args.batch_size,
         seed=args.seed,
         unroll_length=args.unroll_length,
-        multiplier_num_sgd_steps=args.multiplier_num_sgd_steps,
+        train_step_multiplier=args.train_step_multiplier,
         config=config,
         checkpoint_logdir=ckpt_dir,
         eval_env=eval_env,
@@ -118,14 +118,14 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
-    sgd_to_env = (
+    utd_ratio = (
         args.num_envs
         * args.episode_length
-        * args.multiplier_num_sgd_steps
+        * args.train_step_multiplier
         / args.batch_size
     ) / (args.num_envs * args.unroll_length)
-    print(f"SGD steps per env steps: {sgd_to_env}")
-    args.sgd_to_env = sgd_to_env
+    print(f"Updates per environment step: {utd_ratio}")
+    args.utd_ratio = utd_ratio
 
     wandb.init(
         project=args.project_name,
