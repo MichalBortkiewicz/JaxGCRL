@@ -44,7 +44,7 @@ class Halfcheetah(PipelineEnv):
         self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jnp.array([0])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
@@ -90,7 +90,7 @@ class Halfcheetah(PipelineEnv):
         obs = self._get_obs(pipeline_state)
 
         dist = jnp.linalg.norm(obs[:1] - obs[-1:])
-        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 2., dtype=float)
 
         if self.dense_reward:

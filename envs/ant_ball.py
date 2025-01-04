@@ -75,7 +75,7 @@ class AntBall(PipelineEnv):
 
         self.state_dim = 31
         self.goal_indices = jnp.array([29, 30])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
         
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -144,7 +144,7 @@ class AntBall(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
         vel_to_target = (old_dist - dist) / self.dt
-        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 2., dtype=float)
 
         if self.dense_reward:

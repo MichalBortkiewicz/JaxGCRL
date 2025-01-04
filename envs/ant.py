@@ -26,10 +26,12 @@ class Ant(PipelineEnv):
         reset_noise_scale=0.1,
         exclude_current_positions_from_observation=False,
         backend="generalized",
-        dense_reward:bool=False,
+        dense_reward: bool = False,
+        randomize_start=False,
+        goal_distance=10,
         **kwargs,
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant.xml")
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -50,11 +52,7 @@ class Ant(PipelineEnv):
 
         if backend == "positional":
             # TODO: does the same actuator strength work as in spring
-            sys = sys.replace(
-                actuator=sys.actuator.replace(
-                    gear=200 * jnp.ones_like(sys.actuator.gear)
-                )
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=200 * jnp.ones_like(sys.actuator.gear)))
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
@@ -68,13 +66,12 @@ class Ant(PipelineEnv):
         self._healthy_z_range = healthy_z_range
         self._contact_force_range = contact_force_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
         self.dense_reward = dense_reward
         self.state_dim = 29
         self.goal_indices = jnp.array([0, 1])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
+        self.goal_distance = goal_distance
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -85,15 +82,18 @@ class Ant(PipelineEnv):
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        q = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
-        )
+        q = self.sys.init_q + jax.random.uniform(rng1, (self.sys.q_size(),), minval=low, maxval=hi)
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
         # set the target q, qd
-        _, target = self._random_target(rng)
+        rng, target = self._random_target(rng)
         q = q.at[-2:].set(target)
         qd = qd.at[-2:].set(0)
+
+        if self.randomize_start:
+            _, start_delta = self._random_target(rng)
+            start = target + start_delta
+            q = q.at[:2].set(start)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
@@ -112,7 +112,7 @@ class Ant(PipelineEnv):
             "forward_reward": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -139,12 +139,12 @@ class Ant(PipelineEnv):
         old_dist = jnp.linalg.norm(old_obs[:2] - old_obs[-2:])
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[:2] - obs[-2:])
-        vel_to_target =  (old_dist-dist) / self.dt
-        success = jnp.array(dist < self.goal_dist, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        vel_to_target = (old_dist - dist) / self.dt
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
 
         if self.dense_reward:
-            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
         else:
             reward = success
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
@@ -162,11 +162,9 @@ class Ant(PipelineEnv):
             forward_reward=forward_reward,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
@@ -184,8 +182,7 @@ class Ant(PipelineEnv):
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
         """Returns a target location in a random circle slightly above xy plane."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
-        dist = 10
         ang = jnp.pi * 2.0 * jax.random.uniform(rng2)
-        target_x = dist * jnp.cos(ang)
-        target_y = dist * jnp.sin(ang)
+        target_x = self.goal_distance * jnp.cos(ang)
+        target_y = self.goal_distance * jnp.sin(ang)
         return rng, jnp.array([target_x, target_y])

@@ -14,52 +14,60 @@ import xml.etree.ElementTree as ET
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 # Maze creation dapted from: https://github.com/Farama-Foundation/D4RL/blob/master/d4rl/locomotion/maze_env.py
 
-RESET = R = 'r'
-GOAL = G = 'g'
+RESET = R = "r"
+GOAL = G = "g"
 
 
-U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, G, G, 1],
-          [1, 1, 1, G, 1],
-          [1, G, G, G, 1],
-          [1, 1, 1, 1, 1]]
+U_MAZE = [
+    [1, 1, 1, 1, 1],
+    [1, R, G, G, 1],
+    [1, 1, 1, G, 1],
+    [1, G, G, G, 1],
+    [1, 1, 1, 1, 1],
+]
 
-U_MAZE_EVAL = [[1, 1, 1, 1, 1],
-               [1, R, 0, 0, 1],
-               [1, 1, 1, 0, 1],
-               [1, G, G, G, 1],
-               [1, 1, 1, 1, 1]]
+U_MAZE_EVAL = [
+    [1, 1, 1, 1, 1],
+    [1, R, 0, 0, 1],
+    [1, 1, 1, 0, 1],
+    [1, G, G, G, 1],
+    [1, 1, 1, 1, 1],
+]
 
 
+BIG_MAZE = [
+    [1, 1, 1, 1, 1, 1, 1, 1],
+    [1, R, G, 1, 1, G, G, 1],
+    [1, G, G, 1, G, G, G, 1],
+    [1, 1, G, G, G, 1, 1, 1],
+    [1, G, G, 1, G, G, G, 1],
+    [1, G, 1, G, G, 1, G, 1],
+    [1, G, G, G, 1, G, G, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1],
+]
 
-BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
-            [1, R, G, 1, 1, G, G, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, 1, G, G, G, 1, 1, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, G, 1, G, G, 1, G, 1],
-            [1, G, G, G, 1, G, G, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1]]
+BIG_MAZE_EVAL = [
+    [1, 1, 1, 1, 1, 1, 1, 1],
+    [1, R, 0, 1, 1, G, G, 1],
+    [1, 0, 0, 1, 0, G, G, 1],
+    [1, 1, 0, 0, 0, 1, 1, 1],
+    [1, 0, 0, 1, 0, 0, 0, 1],
+    [1, 0, 1, G, 0, 1, G, 1],
+    [1, 0, G, G, 1, G, G, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1],
+]
 
-BIG_MAZE_EVAL = [[1, 1, 1, 1, 1, 1, 1, 1],
-                 [1, R, 0, 1, 1, G, G, 1],
-                 [1, 0, 0, 1, 0, G, G, 1],
-                 [1, 1, 0, 0, 0, 1, 1, 1],
-                 [1, 0, 0, 1, 0, 0, 0, 1],
-                 [1, 0, 1, G, 0, 1, G, 1],
-                 [1, 0, G, G, 1, G, G, 1],
-                 [1, 1, 1, 1, 1, 1, 1, 1]]
-
-HARDEST_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, R, G, G, G, 1, G, G, G, G, G, 1],
-                [1, G, 1, 1, G, 1, G, 1, G, 1, G, 1],
-                [1, G, G, G, G, G, G, 1, G, G, G, 1],
-                [1, G, 1, 1, 1, 1, G, 1, 1, 1, G, 1],
-                [1, G, G, 1, G, 1, G, G, G, G, G, 1],
-                [1, 1, G, 1, G, 1, G, 1, G, 1, 1, 1],
-                [1, G, G, 1, G, G, G, 1, G, G, G, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
-
+HARDEST_MAZE = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, R, G, G, G, 1, G, G, G, G, G, 1],
+    [1, G, 1, 1, G, 1, G, 1, G, 1, G, 1],
+    [1, G, G, G, G, G, G, 1, G, G, G, 1],
+    [1, G, 1, 1, 1, 1, G, 1, 1, 1, G, 1],
+    [1, G, G, 1, G, 1, G, G, G, G, G, 1],
+    [1, 1, G, 1, G, 1, G, 1, G, 1, 1, 1],
+    [1, G, G, 1, G, G, G, 1, G, G, G, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+]
 
 
 MAZE_HEIGHT = 0.5
@@ -73,7 +81,8 @@ def find_starts(structure, size_scaling):
                 starts.append([i * size_scaling, j * size_scaling])
 
     return jnp.array(starts)
-            
+
+
 def find_goals(structure, size_scaling):
     goals = []
     for i in range(len(structure)):
@@ -82,6 +91,7 @@ def find_goals(structure, size_scaling):
                 goals.append([i * size_scaling, j * size_scaling])
 
     return jnp.array(goals)
+
 
 # Create a xml with maze and a list of possible goal positions
 def make_maze(maze_layout_name, maze_size_scaling):
@@ -97,8 +107,8 @@ def make_maze(maze_layout_name, maze_size_scaling):
         maze_layout = HARDEST_MAZE
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
-    
-    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "simple_maze.xml")
+
+    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "simple_maze.xml")
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
@@ -111,14 +121,13 @@ def make_maze(maze_layout_name, maze_size_scaling):
             struct = maze_layout[i][j]
             if struct == 1:
                 ET.SubElement(
-                    worldbody, "geom",
+                    worldbody,
+                    "geom",
                     name="block_%d_%d" % (i, j),
-                    pos="%f %f %f" % (i * maze_size_scaling,
-                                    j * maze_size_scaling,
-                                    MAZE_HEIGHT / 2 * maze_size_scaling),
-                    size="%f %f %f" % (0.5 * maze_size_scaling,
-                                        0.5 * maze_size_scaling,
-                                        MAZE_HEIGHT / 2 * maze_size_scaling),
+                    pos="%f %f %f"
+                    % (i * maze_size_scaling, j * maze_size_scaling, MAZE_HEIGHT / 2 * maze_size_scaling),
+                    size="%f %f %f"
+                    % (0.5 * maze_size_scaling, 0.5 * maze_size_scaling, MAZE_HEIGHT / 2 * maze_size_scaling),
                     type="box",
                     material="",
                     contype="1",
@@ -128,9 +137,8 @@ def make_maze(maze_layout_name, maze_size_scaling):
 
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
-    
-    return xml_string, possible_starts, possible_goals
 
+    return xml_string, possible_starts, possible_goals
 
 
 class SimpleMaze(PipelineEnv):
@@ -174,11 +182,7 @@ class SimpleMaze(PipelineEnv):
 
         if backend == "positional":
             # TODO: does the same actuator strength work as in spring
-            sys = sys.replace(
-                actuator=sys.actuator.replace(
-                    gear=200 * jnp.ones_like(sys.actuator.gear)
-                )
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=200 * jnp.ones_like(sys.actuator.gear)))
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
@@ -192,13 +196,11 @@ class SimpleMaze(PipelineEnv):
         self._healthy_z_range = healthy_z_range
         self._contact_force_range = contact_force_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
-        
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
+
         self.state_dim = 4
         self.goal_indices = jnp.array([0, 1])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -209,9 +211,7 @@ class SimpleMaze(PipelineEnv):
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        q = self.sys.init_q + jax.random.uniform(
-            rng, (self.sys.q_size(),), minval=low, maxval=hi
-        )
+        q = self.sys.init_q + jax.random.uniform(rng, (self.sys.q_size(),), minval=low, maxval=hi)
         qd = hi * jax.random.normal(rng1, (self.sys.qd_size(),))
 
         # set the start and target q, qd
@@ -240,7 +240,7 @@ class SimpleMaze(PipelineEnv):
             "forward_reward": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -268,8 +268,8 @@ class SimpleMaze(PipelineEnv):
         done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
 
         dist = jnp.linalg.norm(obs[:2] - obs[-2:])
-        success = jnp.array(dist < self.goal_dist, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
         reward = -dist + healthy_reward - ctrl_cost - contact_cost
         state.metrics.update(
             reward_forward=forward_reward,
@@ -284,17 +284,14 @@ class SimpleMaze(PipelineEnv):
             forward_reward=forward_reward,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""
         qpos = pipeline_state.q[:-2]
         qvel = pipeline_state.qd[:-2]
-
 
         target_pos = pipeline_state.x.pos[-1][:2]
 

@@ -9,7 +9,7 @@ class TrajectoryIdWrapper(Wrapper):
 
     def reset(self, rng: jax.Array) -> State:
         state = self.env.reset(rng)
-        state.info['traj_id'] = jnp.zeros(rng.shape[:-1])
+        state.info["traj_id"] = jnp.zeros(rng.shape[:-1])
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
@@ -18,5 +18,5 @@ class TrajectoryIdWrapper(Wrapper):
         else:
             traj_id = state.info["traj_id"]
         state = self.env.step(state, action)
-        state.info['traj_id'] = traj_id
+        state.info["traj_id"] = traj_id
         return state
