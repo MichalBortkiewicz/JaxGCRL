@@ -27,6 +27,8 @@ class Ant(PipelineEnv):
         exclude_current_positions_from_observation=False,
         backend="generalized",
         dense_reward: bool = False,
+        randomize_start=False,
+        goal_distance=10,
         **kwargs,
     ):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant.xml")
@@ -69,6 +71,7 @@ class Ant(PipelineEnv):
         self.state_dim = 29
         self.goal_indices = jnp.array([0, 1])
         self.goal_reach_thresh = 0.5
+        self.goal_distance = goal_distance
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -83,9 +86,14 @@ class Ant(PipelineEnv):
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
         # set the target q, qd
-        _, target = self._random_target(rng)
+        rng, target = self._random_target(rng)
         q = q.at[-2:].set(target)
         qd = qd.at[-2:].set(0)
+
+        if self.randomize_start:
+            _, start_delta = self._random_target(rng)
+            start = target + start_delta
+            q = q.at[:2].set(start)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
@@ -174,8 +182,7 @@ class Ant(PipelineEnv):
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
         """Returns a target location in a random circle slightly above xy plane."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
-        dist = 10
         ang = jnp.pi * 2.0 * jax.random.uniform(rng2)
-        target_x = dist * jnp.cos(ang)
-        target_y = dist * jnp.sin(ang)
+        target_x = self.goal_distance * jnp.cos(ang)
+        target_y = self.goal_distance * jnp.sin(ang)
         return rng, jnp.array([target_x, target_y])
