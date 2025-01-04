@@ -29,7 +29,7 @@ class ArmReach(ArmEnvs):
         self.goal_indices = jnp.array([7, 8, 9]) # End-effector position
         self.completion_goal_indices = jnp.array([7, 8, 9]) # Identical
         self.state_dim = 13
-        self.goal_dist = 0.1
+        self.goal_reach_thresh = 0.1
 
         self.arm_noise_scale = 0
         self.goal_noise_scale = 0.2
@@ -56,7 +56,7 @@ class ArmReach(ArmEnvs):
         goal_eef_pos = goal[:3]
         dist = jnp.linalg.norm(eef_pos - goal_eef_pos)
 
-        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 0.3, dtype=float)
         success_hard = jnp.array(dist < 0.03, dtype=float)
         

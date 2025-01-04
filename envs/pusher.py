@@ -37,7 +37,7 @@ class Pusher(PipelineEnv):
         self.dense_reward = dense_reward
         self.state_dim = 20
         self.goal_indices = jnp.array([10, 11, 12])
-        self.goal_dist = 0.1
+        self.goal_reach_thresh = 0.1
 
     def reset(self, rng: jax.Array) -> State:
         qpos = self.sys.init_q
@@ -106,7 +106,7 @@ class Pusher(PipelineEnv):
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
 
         obs = self._get_obs(pipeline_state)
-        success = jnp.array(obj_to_goal_dist < self.goal_dist, dtype=float)
+        success = jnp.array(obj_to_goal_dist < self.goal_reach_thresh, dtype=float)
 
         if self.dense_reward:
             reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
