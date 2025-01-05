@@ -205,6 +205,10 @@ def get_env_config(args: argparse.Namespace):
     if args.env_name not in legal_envs and "maze" not in args.env_name:
         raise ValueError(f"Unknown environment: {args.env_name}")
 
+    # TODO: round num_envs to nearest valid value instead of throwing error
+    if ((args.episode_length - 1) * args.num_envs) % args.batch_size != 0:
+        raise ValueError("(episode_length - 1) * num_envs must be divisible by batch_size")
+
     args_dict = vars(args)
     Config = namedtuple("Config", [*args_dict.keys()])
     config = Config(*args_dict.values())
