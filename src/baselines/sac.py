@@ -42,6 +42,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
 from src.replay_buffer import QueueBase, Sample
 
@@ -262,6 +263,7 @@ def train(
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
+    visualization_interval: int = 5,
 ):
     """SAC training."""
     process_id = jax.process_index()
@@ -307,12 +309,14 @@ def train(
             randomization_fn,
             rng=jax.random.split(key, num_envs // jax.process_count() // local_devices_to_use),
         )
+    env = TrajectoryIdWrapper(env)
     env = wrap_for_training(
         env,
         episode_length=episode_length,
         action_repeat=action_repeat,
         randomization_fn=v_randomization_fn,
     )
+    unwrapped_env = environment
 
     obs_size = env.observation_size
     action_size = env.action_size
@@ -639,6 +643,7 @@ def train(
         eval_env = environment
     if randomization_fn is not None:
         v_randomization_fn = functools.partial(randomization_fn, rng=jax.random.split(eval_key, num_eval_envs))
+    eval_env = TrajectoryIdWrapper(eval_env)
     eval_env = wrap_for_training(
         eval_env,
         episode_length=episode_length,
@@ -662,7 +667,7 @@ def train(
             _unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics={}
         )
         logging.info(metrics)
-        progress_fn(0, metrics)
+        progress_fn(0, metrics, make_policy, _unpmap((training_state.normalizer_params, training_state.policy_params)), unwrapped_env)
 
     # Create and initialize the replay buffer.
     t = time.time()
@@ -678,7 +683,7 @@ def train(
     training_walltime = time.time() - t
 
     current_step = 0
-    for _ in range(num_evals_after_init):
+    for eval_epoch_num in range(num_evals_after_init):
         logging.info("step %s", current_step)
 
         # Optimization
@@ -702,7 +707,8 @@ def train(
                 _unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics
             )
             logging.info(metrics)
-            progress_fn(current_step, metrics)
+            do_render = (eval_epoch_num % visualization_interval) == 0
+            progress_fn(current_step, metrics, make_policy, _unpmap((training_state.normalizer_params, training_state.policy_params)), unwrapped_env, do_render)
 
     total_steps = current_step
     assert total_steps >= num_timesteps
