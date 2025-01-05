@@ -8,7 +8,7 @@ from brax.io import model
 from pyinstrument import Profiler
 
 from src.baselines.ppo import train
-from utils import MetricsRecorder, create_env, create_eval_env, create_parser, render
+from utils import MetricsRecorder, create_env, create_eval_env, create_parser
 
 
 def main(args):
@@ -54,7 +54,7 @@ def main(args):
         num_evals=args.num_evals,
         reward_scaling=1,
         episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
+        normalize_observations=False,
         action_repeat=args.action_repeat,
         unroll_length=args.unroll_length,
         discounting=args.discounting,
@@ -89,13 +89,10 @@ def main(args):
         "training/alpha_loss",
         "training/entropy",
     ]
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
-
-    os.makedirs("./params", exist_ok=True)
-    model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
-    render(make_inference_fn, params, env, "./renders", args.exp_name)
+    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
+    model.save_params(ckpt_dir + '/final', params)
 
 if __name__ == "__main__":
     parser = create_parser()
