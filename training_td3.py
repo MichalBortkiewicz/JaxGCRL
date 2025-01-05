@@ -8,7 +8,7 @@ from brax.io import model
 from pyinstrument import Profiler
 
 from src.baselines.td3.td3_train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
 
 
 def main(args):
@@ -47,7 +47,7 @@ def main(args):
         num_evals=args.num_evals,
         reward_scaling=1,
         episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
+        normalize_observations=False,
         action_repeat=args.action_repeat,
         discounting=args.discounting,
         learning_rate=args.critic_lr,
@@ -82,12 +82,10 @@ def main(args):
         "training/entropy",
     ]
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect)
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
-
+    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)
-    render(make_inference_fn, params, env, run_dir, args.exp_name)
 
 if __name__ == "__main__":
     parser = create_parser()
