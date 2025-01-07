@@ -14,6 +14,7 @@ import os
 # This is chosen to be very close to the z coordinate of the humanoid torso, when it is standing straight
 TARGET_Z_COORD = 1.25
 
+
 class Humanoid(PipelineEnv):
     def __init__(
         self,
@@ -24,34 +25,37 @@ class Humanoid(PipelineEnv):
         healthy_z_range=(1.0, 2.0),
         reset_noise_scale=0.0,
         exclude_current_positions_from_observation=False,
-        backend='generalized',
-        min_goal_dist = 1.0,
-        max_goal_dist = 5.0,
+        backend="generalized",
+        min_goal_dist=1.0,
+        max_goal_dist=5.0,
         dense_reward: bool = False,
         **kwargs,
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "humanoid.xml")
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "humanoid.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
 
-        if backend in ['spring', 'positional']:
-            sys = sys.tree_replace({'opt.timestep': 0.0015})
+        if backend in ["spring", "positional"]:
+            sys = sys.tree_replace({"opt.timestep": 0.0015})
             n_frames = 10
-            gear = jnp.array([
-                350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0,
-                350.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0])  # pyformat: disable
+            gear = jnp.array(
+                [350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0, 350.0,
+                 350.0, 350.0, 350.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,]
+            )  # pyformat: disable
             sys = sys.replace(actuator=sys.actuator.replace(gear=gear))
 
-        if backend == 'mjx':
-            sys = sys.tree_replace({
-                'opt.solver': mujoco.mjtSolver.mjSOL_NEWTON,
-                'opt.disableflags': mujoco.mjtDisableBit.mjDSBL_EULERDAMP,
-                'opt.iterations': 1,
-                'opt.ls_iterations': 4,
-            })
+        if backend == "mjx":
+            sys = sys.tree_replace(
+                {
+                    "opt.solver": mujoco.mjtSolver.mjSOL_NEWTON,
+                    "opt.disableflags": mujoco.mjtDisableBit.mjDSBL_EULERDAMP,
+                    "opt.iterations": 1,
+                    "opt.ls_iterations": 4,
+                }
+            )
 
-        kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
+        kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
 
@@ -61,29 +65,23 @@ class Humanoid(PipelineEnv):
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
-        self._target_ind = self.sys.link_names.index('target')
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
+        self._target_ind = self.sys.link_names.index("target")
         self.dense_reward = dense_reward
         self._min_goal_dist = min_goal_dist
         self._max_goal_dist = max_goal_dist
 
         self.state_dim = 268
         self.goal_indices = jnp.array([0, 1, 2])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        qpos = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
-        )
-        qvel = jax.random.uniform(
-            rng2, (self.sys.qd_size(),), minval=low, maxval=hi
-        )
+        qpos = self.sys.init_q + jax.random.uniform(rng1, (self.sys.q_size(),), minval=low, maxval=hi)
+        qvel = jax.random.uniform(rng2, (self.sys.qd_size(),), minval=low, maxval=hi)
 
         _, target = self._random_target(rng)
         qpos = qpos.at[-2:].set(target)
@@ -93,34 +91,26 @@ class Humanoid(PipelineEnv):
         obs = self._get_obs(pipeline_state, jnp.zeros(self.sys.act_size()))
         reward, done, zero = jnp.zeros(3)
         metrics = {
-            'forward_reward': zero,
-            'reward_linvel': zero,
-            'reward_quadctrl': zero,
-            'reward_alive': zero,
-            'x_position': zero,
-            'y_position': zero,
-            'distance_from_origin': zero,
-            'dist': zero,
-            'x_velocity': zero,
-            'y_velocity': zero,
+            "forward_reward": zero,
+            "reward_linvel": zero,
+            "reward_quadctrl": zero,
+            "reward_alive": zero,
+            "x_position": zero,
+            "y_position": zero,
+            "distance_from_origin": zero,
+            "dist": zero,
+            "x_velocity": zero,
+            "y_velocity": zero,
             "success": zero,
             "success_easy": zero,
         }
 
-        info = {"seed":0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
 
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         """Runs one timestep of the environment's dynamics."""
-
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
 
         # Scale action from [-1,1] to actuator limits
         action_min = self.sys.actuator.ctrl_range[:, 0]
@@ -144,12 +134,12 @@ class Humanoid(PipelineEnv):
             healthy_reward = self._healthy_reward * is_healthy
 
         ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
-    
+
         obs = self._get_obs(pipeline_state, action)
         distance_to_target = jnp.linalg.norm(obs[:3] - obs[-3:])
-        
-        success = jnp.array(distance_to_target < self.goal_dist, dtype=float)
-        success_easy = jnp.array(distance_to_target < 2., dtype=float)
+
+        success = jnp.array(distance_to_target < self.goal_reach_thresh, dtype=float)
+        success_easy = jnp.array(distance_to_target < 2.0, dtype=float)
 
         if self.dense_reward:
             reward = -distance_to_target + healthy_reward - ctrl_cost
@@ -172,14 +162,9 @@ class Humanoid(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        state.info.update(info)
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
-        
-    def _get_obs(
-        self, pipeline_state: base.State, action: jax.Array
-    ) -> jax.Array:
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
+
+    def _get_obs(self, pipeline_state: base.State, action: jax.Array) -> jax.Array:
         """Observes humanoid body position, velocities, and angles."""
         position = pipeline_state.q
         velocity = pipeline_state.qd
@@ -189,50 +174,43 @@ class Humanoid(PipelineEnv):
 
         com, inertia, mass_sum, x_i = self._com(pipeline_state)
         cinr = x_i.replace(pos=x_i.pos - com).vmap().do(inertia)
-        com_inertia = jnp.hstack(
-            [cinr.i.reshape((cinr.i.shape[0], -1)), inertia.mass[:, None]]
-        )
+        com_inertia = jnp.hstack([cinr.i.reshape((cinr.i.shape[0], -1)), inertia.mass[:, None]])
 
-        xd_i = (
-            base.Transform.create(pos=x_i.pos - pipeline_state.x.pos)
-            .vmap()
-            .do(pipeline_state.xd)
-        )
+        xd_i = base.Transform.create(pos=x_i.pos - pipeline_state.x.pos).vmap().do(pipeline_state.xd)
         com_vel = inertia.mass[:, None] * xd_i.vel / mass_sum
         com_ang = xd_i.ang
         com_velocity = jnp.hstack([com_vel, com_ang])
 
         qfrc_actuator = actuator.to_tau(self.sys, action, pipeline_state.q, pipeline_state.qd)
-        
+
         target_pos = pipeline_state.x.pos[-1][:2]
         # external_contact_forces are excluded
-        return jnp.concatenate([
-            position,
-            velocity,
-            com_inertia.ravel(),
-            com_velocity.ravel(),
-            qfrc_actuator,
-            target_pos,
-            jnp.array([TARGET_Z_COORD]), # Height of the target is fixed
-        ])
+        return jnp.concatenate(
+            [
+                position,
+                velocity,
+                com_inertia.ravel(),
+                com_velocity.ravel(),
+                qfrc_actuator,
+                target_pos,
+                jnp.array([TARGET_Z_COORD]),  # Height of the target is fixed
+            ]
+        )
 
     def _com(self, pipeline_state: base.State) -> jax.Array:
         inertia = self.sys.link.inertia
-        if self.backend in ['spring', 'positional']:
+        if self.backend in ["spring", "positional"]:
             inertia = inertia.replace(
                 i=jax.vmap(jnp.diag)(
-                    jax.vmap(jnp.diagonal)(inertia.i)
-                    ** (1 - self.sys.spring_inertia_scale)
+                    jax.vmap(jnp.diagonal)(inertia.i) ** (1 - self.sys.spring_inertia_scale)
                 ),
                 mass=inertia.mass ** (1 - self.sys.spring_mass_scale),
             )
         mass_sum = jnp.sum(inertia.mass)
         x_i = pipeline_state.x.vmap().do(inertia.transform)
-        com = (
-            jnp.sum(jax.vmap(jnp.multiply)(inertia.mass, x_i.pos), axis=0) / mass_sum
-        )
+        com = jnp.sum(jax.vmap(jnp.multiply)(inertia.mass, x_i.pos), axis=0) / mass_sum
         return com, inertia, mass_sum, x_i  # pytype: disable=bad-return-type  # jax-ndarray
-  
+
     def _random_target(self, rng: jax.Array):
         rng, rng1, rng2 = jax.random.split(rng, 3)
 

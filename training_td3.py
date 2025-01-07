@@ -7,9 +7,8 @@ import wandb
 from brax.io import model
 from pyinstrument import Profiler
 
-
-from src.train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
+from src.baselines.td3.td3_train import train
+from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
 
 
 def main(args):
@@ -30,11 +29,9 @@ def main(args):
         training and evaluation processes.
 
     """
-
     env = create_env(**vars(args))
     eval_env = create_eval_env(args)
     config = get_env_config(args)
-
 
     os.makedirs('./runs', exist_ok=True)
     run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
@@ -47,60 +44,42 @@ def main(args):
     train_fn = functools.partial(
         train,
         num_timesteps=args.num_timesteps,
+        num_evals=args.num_evals,
+        reward_scaling=1,
+        episode_length=args.episode_length,
+        normalize_observations=False,
+        action_repeat=args.action_repeat,
+        discounting=args.discounting,
+        learning_rate=args.critic_lr,
+        num_envs=args.num_envs,
+        batch_size=args.batch_size,
+        unroll_length=args.unroll_length,
+        max_devices_per_host=1,
         max_replay_size=args.max_replay_size,
         min_replay_size=args.min_replay_size,
-        num_evals=args.num_evals,
-        episode_length=args.episode_length,
-        action_repeat=args.action_repeat,
-        policy_lr=args.policy_lr,
-        critic_lr=args.critic_lr,
-        alpha_lr=args.alpha_lr,
-        contrastive_loss_fn=args.contrastive_loss_fn,
-        energy_fn=args.energy_fn,
-        logsumexp_penalty=args.logsumexp_penalty,
-        l2_penalty=args.l2_penalty,
-        resubs=not args.no_resubs,
-        num_envs=args.num_envs,
-        num_eval_envs=args.num_eval_envs,
-        batch_size=args.batch_size,
         seed=args.seed,
-        unroll_length=args.unroll_length,
-        train_step_multiplier=args.train_step_multiplier,
-        config=config,
-        checkpoint_logdir=ckpt_dir,
         eval_env=eval_env,
-        use_ln=args.use_ln,
-        h_dim=args.h_dim,
-        n_hidden=args.n_hidden,
-        repr_dim=args.repr_dim,
-        visualization_interval=args.visualization_interval,
+        config=config,
     )
 
     metrics_to_collect = [
+        "eval/episode_reward",
         "eval/episode_success",
         "eval/episode_success_any",
         "eval/episode_success_hard",
         "eval/episode_success_easy",
+        "eval/episode_reward_dist",
+        "eval/episode_reward_near",
+        "eval/episode_reward_ctrl",
         "eval/episode_dist",
         "eval/episode_reward_survive",
-        "training/crl_critic_loss",
         "training/actor_loss",
-        "training/binary_accuracy",
-        "training/categorical_accuracy",
-        "training/logits_pos",
-        "training/logits_neg",
-        "training/logsumexp",
+        "training/critic_loss",
         "training/sps",
         "training/entropy",
         "training/alpha",
         "training/alpha_loss",
         "training/entropy",
-        "training/sa_repr_mean",
-        "training/g_repr_mean",
-        "training/sa_repr_std",
-        "training/g_repr_std",
-        "training/l_align",
-        "training/l_unif",
     ]
 
     metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)

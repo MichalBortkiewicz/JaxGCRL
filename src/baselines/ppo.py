@@ -43,6 +43,7 @@ import numpy as np
 import optax
 from orbax import checkpoint as ocp
 
+from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
 
 
@@ -108,6 +109,7 @@ def train(
         Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
     ] = None,
     restore_checkpoint_path: Optional[str] = None,
+    visualization_interval: int = 5,
 ):
   """PPO training.
 
@@ -177,17 +179,17 @@ def train(
   device_count = local_devices_to_use * process_count
 
   # The number of environment steps executed for every training step.
-  env_step_per_training_step = (
+  utd_ratio = (
       batch_size * unroll_length * num_minibatches * action_repeat)
   num_evals_after_init = max(num_evals - 1, 1)
   # The number of training_step calls per training_epoch call.
-  # equals to ceil(num_timesteps / (num_evals * env_step_per_training_step *
+  # equals to ceil(num_timesteps / (num_evals * utd_ratio *
   #                                 num_resets_per_eval))
   num_training_steps_per_epoch = np.ceil(
       num_timesteps
       / (
           num_evals_after_init
-          * env_step_per_training_step
+          * utd_ratio
           * max(num_resets_per_eval, 1)
       )
   ).astype(int)
@@ -218,12 +220,15 @@ def train(
   else:
     wrap_for_training = envs_v1.wrappers.wrap_for_training
 
+  env = environment
+  env = TrajectoryIdWrapper(env)
   env = wrap_for_training(
       environment,
       episode_length=episode_length,
       action_repeat=action_repeat,
       randomization_fn=v_randomization_fn,
   )
+  unwrapped_env = environment
 
   reset_fn = jax.jit(jax.vmap(env.reset))
   key_envs = jax.random.split(key_env, num_envs // process_count)
@@ -269,7 +274,7 @@ def train(
 
     return (optimizer_state, params, key), metrics
 
-  def sgd_step(carry, unused_t, data: types.Transition,
+  def update_step(carry, unused_t, data: types.Transition,
                normalizer_params: running_statistics.RunningStatisticsState):
     optimizer_state, params, key = carry
     key, key_perm, key_grad = jax.random.split(key, 3)
@@ -291,7 +296,7 @@ def train(
       carry: Tuple[TrainingState, envs.State, PRNGKey],
       unused_t) -> Tuple[Tuple[TrainingState, envs.State, PRNGKey], Metrics]:
     training_state, state, key = carry
-    key_sgd, key_generate_unroll, new_key = jax.random.split(key, 3)
+    update_key, key_generate_unroll, new_key = jax.random.split(key, 3)
 
     policy = make_policy(
         (training_state.normalizer_params, training_state.params.policy))
@@ -325,15 +330,15 @@ def train(
 
     (optimizer_state, params, _), metrics = jax.lax.scan(
         functools.partial(
-            sgd_step, data=data, normalizer_params=normalizer_params),
-        (training_state.optimizer_state, training_state.params, key_sgd), (),
+            update_step, data=data, normalizer_params=normalizer_params),
+        (training_state.optimizer_state, training_state.params, update_key), (),
         length=num_updates_per_batch)
 
     new_training_state = TrainingState(
         optimizer_state=optimizer_state,
         params=params,
         normalizer_params=normalizer_params,
-        env_steps=training_state.env_steps + env_step_per_training_step)
+        env_steps=training_state.env_steps + utd_ratio)
     return (new_training_state, state, new_key), metrics
 
   def training_epoch(training_state: TrainingState, state: envs.State,
@@ -362,7 +367,7 @@ def train(
     epoch_training_time = time.time() - t
     training_walltime += epoch_training_time
     sps = (num_training_steps_per_epoch *
-           env_step_per_training_step *
+           utd_ratio *
            max(num_resets_per_eval, 1)) / epoch_training_time
     metrics = {
         'training/sps': sps,
@@ -415,6 +420,7 @@ def train(
     v_randomization_fn = functools.partial(
         randomization_fn, rng=jax.random.split(eval_key, num_eval_envs)
     )
+  eval_env = TrajectoryIdWrapper(eval_env)
   eval_env = wrap_for_training(
       eval_env,
       episode_length=episode_length,
@@ -433,18 +439,15 @@ def train(
   # Run initial eval
   metrics = {}
   if process_id == 0 and num_evals > 1:
-    metrics = evaluator.run_evaluation(
-        _unpmap(
-            (training_state.normalizer_params, training_state.params.policy)),
-        training_metrics={})
-    logging.info(metrics)
-    progress_fn(0, metrics)
+      metrics = evaluator.run_evaluation(_unpmap((training_state.normalizer_params, training_state.params.policy)), training_metrics={})
+      logging.info(metrics)
+      progress_fn(0, metrics, make_policy, _unpmap((training_state.normalizer_params, training_state.params.policy)), unwrapped_env)
 
   training_metrics = {}
   training_walltime = 0
   current_step = 0
-  for it in range(num_evals_after_init):
-    logging.info('starting iteration %s %s', it, time.time() - xt)
+  for eval_epoch_num in range(num_evals_after_init):
+    logging.info('starting iteration %s %s', eval_epoch_num, time.time() - xt)
 
     for _ in range(max(num_resets_per_eval, 1)):
       # optimization
@@ -468,11 +471,9 @@ def train(
               (training_state.normalizer_params, training_state.params.policy)),
           training_metrics)
       logging.info(metrics)
-      progress_fn(current_step, metrics)
-      params = _unpmap(
-          (training_state.normalizer_params, training_state.params)
-      )
-      policy_params_fn(current_step, make_policy, params)
+      do_render = (eval_epoch_num % visualization_interval) == 0
+      progress_fn(current_step, metrics, make_policy, _unpmap((training_state.normalizer_params, training_state.params.policy)),
+                  unwrapped_env, do_render=do_render)
 
   total_steps = current_step
   assert total_steps >= num_timesteps

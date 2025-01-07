@@ -17,7 +17,7 @@ for seed in 1 2 3 4 5 ; do
     --discounting 0.99 --action_repeat 1 --env_name ${env} \
     --episode_length 1000 --unroll_length 62  --min_replay_size 1000 --max_replay_size 10000 \
     --contrastive_loss_fn infonce_backward --energy_fn l2 \
-    --multiplier_num_sgd_steps 1 --log_wandb
+    --train_step_multiplier 1 --log_wandb
   done
 
 echo "All runs have finished."

@@ -32,27 +32,27 @@ ENVS = ["reacher",
 @pytest.mark.parametrize("env_name", ["aaaa", "", "fake_env"])
 def test_error_on_wrong_environment(env_name):
     with pytest.raises(ValueError, match=f"Unknown environment: {env_name}"):
-        create_env(SimpleNamespace(env_name=env_name, backend=None))
+        create_env(env_name=env_name)
 
 
 def test_error_on_wrong_maze():
     with pytest.raises(ValueError, match=f"Unknown maze layout: fake_maze"):
-        create_env(SimpleNamespace(env_name="ant_fake_maze", backend=None))
+        create_env(env_name="ant_fake_maze")
 
 @pytest.mark.parametrize("env_name", ENVS)
 class TestEnvironment:
     def test_initialization(self, env_name):
-        create_env(SimpleNamespace(env_name=env_name, backend=None))
+        create_env(env_name=env_name)
 
     def test_environment_has_attributes(self, env_name):
-        env = create_env(SimpleNamespace(env_name=env_name, backend=None))
+        env = create_env(env_name=env_name)
 
         assert hasattr(env, "state_dim")
         assert hasattr(env, "goal_indices")
         
 
     def test_environment_reset(self, env_name):
-        env = create_env(SimpleNamespace(env_name=env_name, backend=None))
+        env = create_env(env_name=env_name)
         jit_env_reset = jax.jit(env.reset)
         rng = jax.random.PRNGKey(seed=0)
 
@@ -62,7 +62,7 @@ class TestEnvironment:
         assert not jax.numpy.isinf(state.obs).any()
 
     def test_environment_step(self, env_name):
-        env = create_env(SimpleNamespace(env_name=env_name, backend=None))
+        env = create_env(env_name=env_name)
         jit_env_reset = jax.jit(env.reset)
         jit_env_step = jax.jit(env.step)
         rng = jax.random.PRNGKey(seed=0)

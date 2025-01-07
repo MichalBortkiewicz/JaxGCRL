@@ -44,7 +44,7 @@ class Halfcheetah(PipelineEnv):
         self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jnp.array([0])
-        self.goal_dist = 0.5
+        self.goal_reach_thresh = 0.5
 
     def reset(self, rng: jax.Array) -> State:
         """Resets the environment to an initial state."""
@@ -73,21 +73,13 @@ class Halfcheetah(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         """Runs one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
-
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
 
         x_velocity = (
             pipeline_state.x.pos[0, 0] - pipeline_state0.x.pos[0, 0]
@@ -98,7 +90,7 @@ class Halfcheetah(PipelineEnv):
         obs = self._get_obs(pipeline_state)
 
         dist = jnp.linalg.norm(obs[:1] - obs[-1:])
-        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 2., dtype=float)
 
         if self.dense_reward:
@@ -116,7 +108,6 @@ class Halfcheetah(PipelineEnv):
             success_easy=success_easy
         )
 
-        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward
         )

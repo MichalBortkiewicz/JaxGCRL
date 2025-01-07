@@ -106,9 +106,7 @@ class Pusher2(PipelineEnv):
           'success_easy': zero,
         }
 
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
 
         return state
 
@@ -129,13 +127,6 @@ class Pusher2(PipelineEnv):
 
         pipeline_state = self.pipeline_step(state.pipeline_state, action)
 
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-
-        info = {"seed": seed}
-
         obs = self._get_obs(pipeline_state)
         state.metrics.update(
             reward_near=reward_near,
@@ -144,7 +135,6 @@ class Pusher2(PipelineEnv):
             success=jnp.all(obj_to_goal_dist < 0.1).astype(float),
             success_easy=jnp.sum(obj_to_goal_dist < 0.1, dtype=float),
         )
-        state.info.update(info)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:

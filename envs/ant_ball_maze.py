@@ -18,23 +18,10 @@ BALL = B = 'b'
 
 
 U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, 0, B, 1],
+          [1, R, G, B, 1],
           [1, 1, 1, G, 1],
-          [1, 0, 0, 0, 1],
+          [1, G, G, G, 1],
           [1, 1, 1, 1, 1]]
-
-U_MAZE_EASY = [[1, 1, 1, 1, 1],
-               [1, R, B, G, 1],
-               [1, 1, 1, G, 1],
-               [1, 0, 0, 0, 1],
-               [1, 1, 1, 1, 1]]
-
-
-U_MAZE_FULL = [[1, 1, 1, 1, 1],
-               [1, R, B, G, 1],
-               [1, 1, 1, G, 1],
-               [1, G, G, G, 1],
-               [1, 1, 1, 1, 1]]
 
 
 
@@ -67,10 +54,6 @@ def find(structure, size_scaling, obj):
 def make_maze(maze_layout_name, maze_size_scaling):
     if maze_layout_name == "u_maze":
         maze_layout = U_MAZE
-    elif maze_layout_name == "u_maze_easy":
-        maze_layout = U_MAZE_EASY
-    elif maze_layout_name == "u_maze_full":
-        maze_layout = U_MAZE_FULL
     elif maze_layout_name == "big_maze":
         maze_layout = BIG_MAZE
     else:
@@ -179,8 +162,8 @@ class AntBallMaze(PipelineEnv):
         self.dense_reward = dense_reward
 
         self.state_dim = 31
-        self.goal_indices = jnp.array([29, 30])
-        self.goal_dist = 0.5
+        self.goal_indices = jnp.array([28, 29])
+        self.goal_reach_thresh = 0.5
         
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
@@ -225,21 +208,13 @@ class AntBallMaze(PipelineEnv):
             "success": zero,
             "success_easy": zero
         }
-        info = {"seed": 0}
         state = State(pipeline_state, obs, reward, done, metrics)
-        state.info.update(info)
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
-
-        if "steps" in state.info.keys():
-            seed = state.info["seed"] + jnp.where(state.info["steps"], 0, 1)
-        else:
-            seed = state.info["seed"]
-        info = {"seed": seed}
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -260,7 +235,7 @@ class AntBallMaze(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
         vel_to_target = (old_dist - dist) / self.dt
-        success = jnp.array(dist < self.goal_dist, dtype=float)
+        success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
         success_easy = jnp.array(dist < 2., dtype=float)
 
         if self.dense_reward:
@@ -284,7 +259,6 @@ class AntBallMaze(PipelineEnv):
             success=success,
             success_easy=success_easy
         )
-        state.info.update(info)
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
         )

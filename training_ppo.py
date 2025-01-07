@@ -3,19 +3,33 @@ import json
 import os
 import pickle
 
-import jax
 import wandb
 from brax.io import model
-from brax.io import html
 from pyinstrument import Profiler
 
 from src.baselines.ppo import train
-from utils import MetricsRecorder, create_env, create_eval_env, create_parser, render
+from utils import MetricsRecorder, create_env, create_eval_env, create_parser
 
 
 def main(args):
+    """
+    Main function orchestrating the overall setup, initialization, and execution
+    of training and evaluation processes. This function performs the following:
+    1. Environment setup
+    2. Directory creation for logging and checkpoints
+    3. Training function creation
+    4. Metrics recording
+    5. Progress logging and monitoring
+    6. Model saving and inference
 
-    env = create_env(args)
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments specifying configuration parameters for the
+        training and evaluation processes.
+
+    """
+    env = create_env(**vars(args))
     eval_env = create_eval_env(args)
 
 
@@ -31,8 +45,8 @@ def main(args):
     # We want ratio of sgd steps to env steps to be roughly equal to 1:16
     num_minibatches = 16 #(16 * args.num_envs) // (args.batch_size * args.unroll_length * args.action_repeat)
     print(f"Num_minibatches {num_minibatches}")
-    sgd_to_env_step_ratio = args.num_envs / (args.batch_size * args.unroll_length * num_minibatches * args.action_repeat)
-    print(f"SGD to ENV step ratio: {sgd_to_env_step_ratio}")
+    utd_ratio = args.num_envs / (args.batch_size * args.unroll_length * num_minibatches * args.action_repeat)
+    print(f"Updates per environment step: {utd_ratio}")
 
     train_fn = functools.partial(
         train,
@@ -40,7 +54,7 @@ def main(args):
         num_evals=args.num_evals,
         reward_scaling=1,
         episode_length=args.episode_length,
-        normalize_observations=args.normalize_observations,
+        normalize_observations=False,
         action_repeat=args.action_repeat,
         unroll_length=args.unroll_length,
         discounting=args.discounting,
@@ -55,12 +69,6 @@ def main(args):
         seed=args.seed,
         eval_env=eval_env
     )
-
-    metrics_recorder = MetricsRecorder(args.num_timesteps)
-
-    def ensure_metric(metrics, key):
-        if key not in metrics:
-            metrics[key] = 0
 
     metrics_to_collect = [
         "eval/episode_reward",
@@ -81,22 +89,10 @@ def main(args):
         "training/alpha_loss",
         "training/entropy",
     ]
+    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
 
-    def progress(num_steps, metrics):
-        for key in metrics_to_collect:
-            ensure_metric(metrics, key)
-        metrics_recorder.record(
-            num_steps,
-            {key: value for key, value in metrics.items() if key in metrics_to_collect},
-        )
-        metrics_recorder.log_wandb()
-        metrics_recorder.print_progress()
-
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
-
-    os.makedirs("./params", exist_ok=True)
-    model.save_params(f'./params/param_{args.exp_name}_s_{args.seed}', params)
-    render(make_inference_fn, params, env, "./renders", args.exp_name)
+    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
+    model.save_params(ckpt_dir + '/final', params)
 
 if __name__ == "__main__":
     parser = create_parser()
