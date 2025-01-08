@@ -37,6 +37,7 @@ class Net(nn.Module):
     @nn.compact
     def __call__(self, x):
         lecun_uniform = nn.initializers.variance_scaling(1/3, "fan_in", "uniform")
+        bias_init = nn.initializers.zeros
         normalize = nn.LayerNorm() if self.use_ln else (lambda x: x)
         
         # Start of net
@@ -45,12 +46,12 @@ class Net(nn.Module):
         # Main body
         for i in range(self.num_blocks):
             for j in range(self.block_size):
-                x = nn.swish(normalize(nn.Dense(self.width, kernel_init=lecun_uniform)(x)))
+                x = nn.swish(normalize(nn.Dense(self.width, kernel_init=lecun_uniform, bias_init=bias_init)(x)))
             x += residual_stream
             residual_stream = x
                 
         # Last layer mapping to representation dimension
-        x = nn.Dense(self.output_size, kernel_init=lecun_uniform)(x)
+        x = nn.Dense(self.output_size, kernel_init=lecun_uniform, bias_init=bias_init)(x)
         return x
 
 # The brax version of this does not take in the actor and action_distribution arguments; before we pass it to brax evaluator or return it from train(), we do a partial application.
@@ -528,7 +529,7 @@ def train(
     replay_buffer = jit_wrap(replay_buffer)
     
     # Network functions
-    block_size = 2 # Maybe make this a hyperparameter
+    block_size = 4 # Maybe make this a hyperparameter
     num_blocks = max(1, n_hidden // block_size)
     actor = Net(action_size * 2, h_dim, num_blocks, block_size, use_ln)
     sa_encoder = Net(repr_dim, h_dim, num_blocks, block_size, use_ln)
