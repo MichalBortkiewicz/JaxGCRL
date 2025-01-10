@@ -72,6 +72,7 @@ class Ant(PipelineEnv):
         self.goal_indices = jnp.array([0, 1])
         self.goal_reach_thresh = 0.5
         self.goal_distance = goal_distance
+        self.randomize_start = randomize_start
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")

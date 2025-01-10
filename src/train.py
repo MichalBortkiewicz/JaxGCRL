@@ -11,17 +11,60 @@ import optax
 from absl import logging
 import brax
 from brax import envs
-from brax.training import gradients, distribution, types, pmap
+from brax.training import distribution, types, pmap
 from brax.training.replay_buffers_test import jit_wrap
 
 from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
-from src.replay_buffer import ReplayBufferState, Transition, TrajectoryUniformSamplingQueue
+from src.replay_buffer import Transition, TrajectoryUniformSamplingQueue
 
 Metrics = types.Metrics
 Env = envs.Env
 State = envs.State
 _PMAP_AXIS_NAME = "i"
+
+
+def loss_and_pgrad(loss_fn: Callable[..., float], pmap_axis_name: Optional[str], has_aux: bool = False):
+    g = jax.value_and_grad(loss_fn, has_aux=has_aux)
+
+    def h(*args, **kwargs):
+        value, grad = g(*args, **kwargs)
+        return value, jax.lax.pmean(grad, axis_name=pmap_axis_name)
+
+    return g if pmap_axis_name is None else h
+
+
+def gradient_update_fn(
+    loss_fn: Callable[..., float],
+    optimizer: optax.GradientTransformation,
+    pmap_axis_name: Optional[str],
+    has_aux: bool = False,
+):
+    """Wrapper of the loss function that apply gradient updates.
+
+    Args:
+      loss_fn: The loss function.
+      optimizer: The optimizer to apply gradients.
+      pmap_axis_name: If relevant, the name of the pmap axis to synchronize
+        gradients.
+      has_aux: Whether the loss_fn has auxiliary data.
+
+    Returns:
+      A function that takes the same argument as the loss function plus the
+      optimizer state. The output of this function is the loss, the new parameter,
+      and the new optimizer state.
+    """
+    loss_and_pgrad_fn = loss_and_pgrad(loss_fn, pmap_axis_name=pmap_axis_name, has_aux=has_aux)
+
+    def f(*args, optimizer_state):
+        value, grads = loss_and_pgrad_fn(*args)
+        params_update, optimizer_state = optimizer.update(grads, optimizer_state)
+        params = optax.apply_updates(args[0], params_update)
+        return value, params, optimizer_state, grads
+
+    return f
+
+
 
 # The SAEncoder, GoalEncoder, and Actor all use the same function. Output size for SA/Goal encoders should be representation size, and for Actor should be 2 * action_size.
 # To keep parity with the existing architecture, by default we only use one residual block of depth 2, hence effectively not using the residual connections.
@@ -543,22 +586,22 @@ def train(
     del global_key
     
     # Update functions (may replace later: brax makes it opaque)
-    alpha_update = gradients.gradient_update_fn(alpha_loss, training_state.alpha_state.tx, pmap_axis_name=_PMAP_AXIS_NAME)
-    actor_update = gradients.gradient_update_fn(actor_loss, training_state.actor_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
-    critic_update = gradients.gradient_update_fn(critic_loss, training_state.critic_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
+    alpha_update = gradient_update_fn(alpha_loss, training_state.alpha_state.tx, pmap_axis_name=_PMAP_AXIS_NAME)
+    actor_update = gradient_update_fn(actor_loss, training_state.actor_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
+    critic_update = gradient_update_fn(critic_loss, training_state.critic_state.tx, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
     
     def update_step(carry, transitions):
         training_state, key = carry
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
-        alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(training_state.alpha_state.params, actor, parametric_action_distribution, training_state, transitions, action_size,
+        alpha_loss, alpha_params, alpha_optimizer_state, grad_alpha = alpha_update(training_state.alpha_state.params, actor, parametric_action_distribution, training_state, transitions, action_size,
                                                                        key_alpha, optimizer_state=training_state.alpha_state.opt_state)
         alpha = jnp.exp(alpha_params["log_alpha"])
         
-        (critic_loss, metrics_crl), critic_params, critic_optimizer_state = critic_update(training_state.critic_state.params, sa_encoder, g_encoder, transitions, env.state_dim, 
+        (critic_loss, metrics_crl), critic_params, critic_optimizer_state, grad_critic = critic_update(training_state.critic_state.params, sa_encoder, g_encoder, transitions, env.state_dim,
                                                                                           contrastive_loss_fn, energy_fn, logsumexp_penalty, l2_penalty, 
                                                                                           resubs, key_critic, optimizer_state=training_state.critic_state.opt_state)
-        (actor_loss, actor_metrics), actor_params, actor_optimizer_state = actor_update(training_state.actor_state.params, training_state, actor, sa_encoder,
+        (actor_loss, actor_metrics), actor_params, actor_optimizer_state, grad_actor = actor_update(training_state.actor_state.params, training_state, actor, sa_encoder,
                                                                                         g_encoder, parametric_action_distribution, alpha, transitions, 
                                                                                         config, env.state_dim, env.goal_indices, energy_fn, 
                                                                                         key_actor, optimizer_state=training_state.actor_state.opt_state)
@@ -568,6 +611,9 @@ def train(
             "alpha_loss": alpha_loss,
             "alpha": jnp.exp(alpha_params["log_alpha"]),
             "critic_loss": critic_loss,
+            "grad_alpha": jnp.sqrt(sum([jnp.sum(jnp.square(e)) for e in jax.tree_util.tree_leaves(grad_alpha)])),
+            "grad_critic": jnp.sqrt(sum([jnp.sum(jnp.square(e)) for e in jax.tree_util.tree_leaves(grad_critic)])),
+            "grad_actor": jnp.sqrt(sum([jnp.sum(jnp.square(e)) for e in jax.tree_util.tree_leaves(grad_actor)])),
         }
         metrics.update(metrics_crl)
         metrics.update(actor_metrics)
