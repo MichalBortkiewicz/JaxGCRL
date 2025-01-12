@@ -74,6 +74,7 @@ def main(args):
         n_hidden=args.n_hidden,
         repr_dim=args.repr_dim,
         visualization_interval=args.visualization_interval,
+        deterministic_eval=True
     )
 
     metrics_to_collect = [
@@ -83,7 +84,7 @@ def main(args):
         "eval/episode_success_easy",
         "eval/episode_dist",
         "eval/episode_reward_survive",
-        "training/crl_critic_loss",
+        "training/critic_loss",
         "training/actor_loss",
         "training/binary_accuracy",
         "training/categorical_accuracy",
