@@ -22,7 +22,7 @@ import jax.numpy as jnp
 class ParametricDistribution(abc.ABC):
     """Abstract class for parametric (action) distribution."""
 
-    def __init__(self, param_size, postprocessor, event_ndims, reparametrizable):
+    def __init__(self, param_size, event_ndims, reparametrizable):
         """Abstract class for parametric (action) distribution.
 
         Specifies how to transform distribution parameters (i.e. actor output)
@@ -30,13 +30,10 @@ class ParametricDistribution(abc.ABC):
 
         Args:
           param_size: size of the parameters for the distribution
-          postprocessor: bijector which is applied after sampling (in practice, it's
-            tanh or identity)
           event_ndims: rank of the distribution sample (i.e. action)
           reparametrizable: is the distribution reparametrizable
         """
         self._param_size = param_size
-        self._postprocessor = postprocessor
         self._event_ndims = event_ndims  # rank of events
         self._reparametrizable = reparametrizable
         assert event_ndims in [0, 1]
@@ -55,39 +52,28 @@ class ParametricDistribution(abc.ABC):
         return self._reparametrizable
 
     def postprocess(self, event):
-        return self._postprocessor.forward(event)
-
-    def inverse_postprocess(self, event):
-        return self._postprocessor.inverse(event)
+        return jnp.tanh(event)
 
     def sample_no_postprocessing(self, parameters, seed):
         return self.create_dist(parameters).sample(seed=seed)
 
+    # OK
     def sample(self, parameters, seed):
         """Returns a sample from the postprocessed distribution."""
         return self.postprocess(self.sample_no_postprocessing(parameters, seed))
 
+    # OK
     def mode(self, parameters):
         """Returns the mode of the postprocessed distribution."""
         return self.postprocess(self.create_dist(parameters).mode())
 
-    def log_prob(self, parameters, actions):
+    def log_prob(self, parameters, x_ts):
         """Compute the log probability of actions."""
         dist = self.create_dist(parameters)
-        log_probs = dist.log_prob(actions)
-        log_probs -= self._postprocessor.forward_log_det_jacobian(actions)
-        if self._event_ndims == 1:
-            log_probs = jnp.sum(log_probs, axis=-1)  # sum over action dimension
-        return log_probs
-
-    def entropy(self, parameters, seed):
-        """Return the entropy of the given distribution."""
-        dist = self.create_dist(parameters)
-        entropy = dist.entropy()
-        entropy += self._postprocessor.forward_log_det_jacobian(dist.sample(seed=seed))
-        if self._event_ndims == 1:
-            entropy = jnp.sum(entropy, axis=-1)
-        return entropy
+        log_prob = jax.scipy.stats.norm.logpdf(x_ts, loc=dist.loc, scale=dist.scale)
+        log_prob -= jnp.log((1 - jnp.square(jnp.tanh(x_ts))) + 1e-6)
+        log_prob = log_prob.sum(-1)
+        return log_prob
 
 
 class NormalDistribution:
@@ -103,29 +89,6 @@ class NormalDistribution:
     def mode(self):
         return self.loc
 
-    def log_prob(self, x):
-        log_unnormalized = -0.5 * jnp.square(x / self.scale - self.loc / self.scale)
-        log_normalization = 0.5 * jnp.log(2.0 * jnp.pi) + jnp.log(self.scale)
-        return log_unnormalized - log_normalization
-
-    def entropy(self):
-        log_normalization = 0.5 * jnp.log(2.0 * jnp.pi) + jnp.log(self.scale)
-        entropy = 0.5 + log_normalization
-        return entropy * jnp.ones_like(self.loc)
-
-
-class TanhBijector:
-    """Tanh Bijector."""
-
-    def forward(self, x):
-        return jnp.tanh(x)
-
-    def inverse(self, y):
-        return jnp.arctanh(y)
-
-    def forward_log_det_jacobian(self, x):
-        return 2.0 * (jnp.log(2.0) - x - jax.nn.softplus(-2.0 * x))
-
 
 class NormalTanhDistribution(ParametricDistribution):
     """Normal distribution followed by tanh."""
@@ -138,14 +101,8 @@ class NormalTanhDistribution(ParametricDistribution):
           min_std: minimum std for the gaussian.
           var_scale: adjust the gaussian's scale parameter.
         """
-        # We apply tanh to gaussian actions to bound them.
-        # Normally we would use TransformedDistribution to automatically
-        # apply tanh to the distribution.
-        # We can't do it here because of tanh saturation
-        # which would make log_prob computations impossible. Instead, most
-        # of the code operate on pre-tanh actions and we take the postprocessor
-        # jacobian into account in log_prob computations.
-        super().__init__(param_size=2 * event_size, postprocessor=TanhBijector(), event_ndims=1, reparametrizable=True)
+
+        super().__init__(param_size=2 * event_size, event_ndims=1, reparametrizable=True)
         self.log_max_std = log_max_std
         self.log_min_std = log_min_std
 

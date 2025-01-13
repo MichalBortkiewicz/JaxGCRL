@@ -266,8 +266,8 @@ def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
 def alpha_loss(alpha_params, actor, parametric_action_distribution, training_state, transitions, action_size, key):
     """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
     action_mean_and_SD = actor.apply(training_state.actor_state.params, transitions.observation)
-    action = parametric_action_distribution.sample_no_postprocessing(action_mean_and_SD, key)
-    log_prob = parametric_action_distribution.log_prob(action_mean_and_SD, action)
+    x_ts = parametric_action_distribution.sample_no_postprocessing(action_mean_and_SD, key)
+    log_prob = parametric_action_distribution.log_prob(action_mean_and_SD, x_ts)
 
     alpha = jnp.exp(alpha_params["log_alpha"])
     target_entropy = -0.5 * action_size
@@ -332,10 +332,9 @@ def actor_loss(actor_params, training_state, actor, sa_encoder, g_encoder, param
 
     # Compute action with policy, given state and goal
     action_mean_and_SD = actor.apply(actor_params, sg)
-    action = parametric_action_distribution.sample_no_postprocessing(action_mean_and_SD, sample_key)
-    log_prob = parametric_action_distribution.log_prob(action_mean_and_SD, action)
-    entropy = parametric_action_distribution.entropy(action_mean_and_SD, entropy_key)
-    action = parametric_action_distribution.postprocess(action)
+    x_ts = parametric_action_distribution.sample_no_postprocessing(action_mean_and_SD, sample_key)
+    log_prob = parametric_action_distribution.log_prob(action_mean_and_SD, x_ts)
+    action = parametric_action_distribution.postprocess(x_ts)
 
     # Compute representations
     sa = jnp.concatenate([state, action], axis=-1)
@@ -351,7 +350,7 @@ def actor_loss(actor_params, training_state, actor, sa_encoder, g_encoder, param
         actor_loss += alpha * log_prob
 
     # Compute metrics
-    metrics = {"entropy": entropy.mean()}
+    metrics = {"entropy": -log_prob}
     return jnp.mean(actor_loss), metrics
 
 def actor_step(env, env_state, actor, parametric_action_distribution, actor_params, key, extra_fields=()):
