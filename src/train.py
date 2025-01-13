@@ -578,7 +578,7 @@ def train(
     actor = Net(action_size * 2, h_dim, num_blocks, block_size, use_ln)
     sa_encoder = Net(repr_dim, h_dim, num_blocks, block_size, use_ln)
     g_encoder = Net(repr_dim, h_dim, num_blocks, block_size, use_ln)
-    parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size) # Would like to replace this but it's annoying to.
+    parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size, ) # Would like to replace this but it's annoying to.
 
     # Initialize training state (not sure if it makes sense to split and fold local_key here)
     global_key, local_key = jax.random.split(rng)

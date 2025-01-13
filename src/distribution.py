@@ -130,7 +130,7 @@ class TanhBijector:
 class NormalTanhDistribution(ParametricDistribution):
     """Normal distribution followed by tanh."""
 
-    def __init__(self, event_size, min_std=0.001, var_scale=1):
+    def __init__(self, event_size, log_min_std=-5, log_max_std=2):
         """Initialize the distribution.
 
         Args:
@@ -146,10 +146,12 @@ class NormalTanhDistribution(ParametricDistribution):
         # of the code operate on pre-tanh actions and we take the postprocessor
         # jacobian into account in log_prob computations.
         super().__init__(param_size=2 * event_size, postprocessor=TanhBijector(), event_ndims=1, reparametrizable=True)
-        self._min_std = min_std
-        self._var_scale = var_scale
+        self.log_max_std = log_max_std
+        self.log_min_std = log_min_std
 
     def create_dist(self, parameters):
-        loc, scale = jnp.split(parameters, 2, axis=-1)
-        scale = (jax.nn.softplus(scale) + self._min_std) * self._var_scale
+        loc, log_std = jnp.split(parameters, 2, axis=-1)
+        log_std = jnp.tanh(log_std)
+        log_std = self.log_min_std + 0.5 * (self.log_max_std - self.log_min_std) * (log_std + 1)
+        scale = jnp.exp(log_std)
         return NormalDistribution(loc=loc, scale=scale)
