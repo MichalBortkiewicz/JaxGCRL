@@ -11,10 +11,11 @@ import optax
 from absl import logging
 import brax
 from brax import envs
-from brax.training import distribution, types, pmap
+from brax.training import  types, pmap  #,distribution
 from brax.training.replay_buffers_test import jit_wrap
 
 from envs.wrappers import TrajectoryIdWrapper
+from src import distribution
 from src.evaluator import CrlEvaluator
 from src.replay_buffer import Transition, TrajectoryUniformSamplingQueue
 
