@@ -664,7 +664,7 @@ def train(
     def train_steps(training_state, buffer_state, key):
         # Sample, process, shuffle, then train
         ## Sample from buffer
-        experience_key, training_key, sampling_key = jax.random.split(key, 3)
+        experience_key, training_key, sampling_key, sgd_batches_key = jax.random.split(key, 4)
         buffer_state, transitions = replay_buffer.sample(buffer_state)
         
         ## Process
@@ -677,6 +677,17 @@ def train(
         permutation = jax.random.permutation(experience_key, len(transitions.observation))
         transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
         transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[1:]), transitions)
+
+        num_sgd_batches_per_training_step=800
+        num_total_batches = transitions.observation.shape[0]
+        selected_indices = jax.random.permutation(
+            sgd_batches_key,
+            num_total_batches
+        )[:num_sgd_batches_per_training_step]
+        transitions = jax.tree_util.tree_map(
+            lambda x: x[selected_indices],
+            transitions
+        )
         
         ## Train
         (training_state, _), metrics = jax.lax.scan(update_step, (training_state, training_key), transitions)
@@ -695,7 +706,7 @@ def train(
             ts, es, bs, k = carry
             k, new_key, update_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            (ts, bs, update_key), _ = scan_train_steps(train_step_multiplier - 1, ts, bs, update_key)
+            # (ts, bs, update_key), _ = scan_train_steps(train_step_multiplier - 1, ts, bs, update_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(f, (training_state, env_state, buffer_state, key), (), length=num_training_steps_per_epoch)
