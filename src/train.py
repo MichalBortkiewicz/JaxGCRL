@@ -83,16 +83,18 @@ class Net(nn.Module):
         lecun_uniform = nn.initializers.variance_scaling(1/3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
         normalize = lambda x: nn.LayerNorm()(x) if self.use_ln else (lambda x: x)
-        
-        # Start of net
-        residual_stream = jnp.zeros((x.shape[0], self.width))
-        
-        # Main body
-        for i in range(self.num_blocks):
-            for j in range(self.block_size):
-                x = nn.swish(normalize(nn.Dense(self.width, kernel_init=lecun_uniform, bias_init=bias_init)(x)))
-            x += residual_stream
-            residual_stream = x
+
+        for i in range(self.num_blocks*self.block_size):
+            x = nn.Dense(self.width, kernel_init=lecun_uniform, bias_init=bias_init)(x)
+            x = normalize(x)
+            x = nn.swish(x)
+
+            if True:
+                if i == 0:
+                    skip = x
+                if i > 0 and i % self.block_size == 0:
+                    x = x + skip
+                    skip = x
                 
         # Last layer mapping to representation dimension
         x = nn.Dense(self.output_size, kernel_init=lecun_uniform, bias_init=bias_init)(x)
@@ -244,8 +246,8 @@ def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
     sa_repr_l2 = jnp.sqrt(jnp.sum(sa_repr**2, axis=-1))
     g_repr_l2 = jnp.sqrt(jnp.sum(g_repr**2, axis=-1))
 
-    l_align_log = -jnp.mean(jnp.diag(l_align))
-    l_unif_log = -jnp.mean(l_unif)
+    # l_align_log = -jnp.mean(jnp.diag(l_align))
+    # l_unif_log = -jnp.mean(l_unif)
 
     metrics = {
         "binary_accuracy": jnp.mean((logits > 0) == I),
@@ -258,8 +260,8 @@ def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
         "g_repr_std": jnp.std(g_repr_l2),
         "logsumexp": logsumexp.mean(),
         "l2_penalty": l2_loss,
-        "l_align": l_align_log,
-        "l_unif": l_unif_log,
+        # "l_align": l_align_log,
+        # "l_unif": l_unif_log,
     }
     return metrics
 
@@ -286,32 +288,39 @@ def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, co
     g_repr = g_encoder.apply(g_encoder_params, g)
 
     # Compute energy and loss
-    logits = compute_energy(energy_fn_name, sa_repr, g_repr)
-    loss, l_align, l_unif = compute_loss(contrastive_loss_fn_name, logits, resubs)
+    # logits = compute_energy(energy_fn_name, sa_repr, g_repr)
+    # loss, l_align, l_unif = compute_loss(contrastive_loss_fn_name, logits, resubs)
+    # InfoNCE
+    logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))  # shape = BxB
+    loss = -jnp.mean(jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1))
+
+    # logsumexp regularisation
+    logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)
+    loss += logsumexp_penalty * jnp.mean(logsumexp ** 2)
 
     # Modify loss (logsumexp, L2 penalty)
-    if logsumexp_penalty > 0:
-        # For backward we can check jax.nn.logsumexp(logits, axis=0)
-        # VM: we could also try removing the diagonal here when using logsumexp penalty + resubs=False
-        logits_ = logits
-        big = 100
-        I = jnp.eye(logits.shape[0])
-
-        if not resubs:
-            logits_ = logits - big * I
-
-        eps = 1e-6
-        logsumexp = jax.nn.logsumexp(logits_ + eps, axis=1)
-        loss += logsumexp_penalty * jnp.mean(logsumexp**2)
-
-    if l2_penalty > 0:
-        l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
-        loss += l2_loss
-    else:
-        l2_loss = 0
+    # if logsumexp_penalty > 0:
+    #     # For backward we can check jax.nn.logsumexp(logits, axis=0)
+    #     # VM: we could also try removing the diagonal here when using logsumexp penalty + resubs=False
+    #     logits_ = logits
+    #     big = 100
+    #     I = jnp.eye(logits.shape[0])
+    #
+    #     if not resubs:
+    #         logits_ = logits - big * I
+    #
+    #     eps = 1e-6
+    #     logsumexp = jax.nn.logsumexp(logits_ + eps, axis=1)
+    #     loss += logsumexp_penalty * jnp.mean(logsumexp**2)
+    #
+    # if l2_penalty > 0:
+    #     l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
+    #     loss += l2_loss
+    # else:
+    #     l2_loss = 0
 
     # Compute metrics
-    metrics = compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif)
+    metrics = compute_metrics(logits, sa_repr, g_repr, 0, 0, 0)
     return loss, metrics
     
 def actor_loss(actor_params, training_state, actor, sa_encoder, g_encoder, parametric_action_distribution, alpha, transitions, config, state_dim, goal_indices, energy_fn_name, key):
