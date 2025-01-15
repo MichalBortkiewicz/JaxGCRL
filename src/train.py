@@ -82,7 +82,7 @@ class Net(nn.Module):
     def __call__(self, x):
         lecun_uniform = nn.initializers.variance_scaling(1/3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
-        normalize = nn.LayerNorm() if self.use_ln else (lambda x: x)
+        normalize = lambda x: nn.LayerNorm()(x) if self.use_ln else (lambda x: x)
         
         # Start of net
         residual_stream = jnp.zeros((x.shape[0], self.width))
