@@ -84,7 +84,7 @@ class NormalDistribution:
         self.scale = scale
 
     def sample(self, seed):
-        return jax.random.normal(seed, shape=self.loc.shape) * self.scale + self.loc
+        return jax.random.normal(seed, shape=self.loc.shape, dtype=self.loc.dtype) * self.scale + self.loc
 
     def mode(self):
         return self.loc

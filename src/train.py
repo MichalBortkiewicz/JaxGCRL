@@ -166,18 +166,6 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
     return training_state
 
 
-def compute_actor_energy(energy_fn, sa_repr, g_repr):
-    if energy_fn == "l2":
-        q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
-    elif energy_fn == "l1":
-        q = -jnp.sum(jnp.abs(sa_repr - g_repr), axis=-1)
-    elif energy_fn == "dot":
-        q = jnp.einsum("ik,ik->i", sa_repr, g_repr)
-    else:
-        raise ValueError(f"Unknown energy function: {energy_fn}")
-    return q
-        
-
 
 def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
     I = jnp.eye(logits.shape[0])
@@ -270,12 +258,12 @@ def actor_loss(actor_params, training_state, actor, sa_encoder, g_encoder, param
     g_repr = g_encoder.apply(g_encoder_params, goal)
 
     # Compute energy and loss
-    q = compute_actor_energy(energy_fn_name, sa_repr, g_repr)
-    actor_loss = -jnp.mean(q)
+    q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
 
-    # Modify loss (actor entropy)
-    if not config.disable_entropy_actor:
-        actor_loss += alpha * log_prob
+    if config.disable_entropy_actor:
+        actor_loss = -jnp.mean(q)
+    else:
+        actor_loss = jnp.mean(alpha * log_prob - (q))
 
     # Compute metrics
     metrics = {"entropy": -log_prob}
@@ -571,12 +559,75 @@ def train(
 
     def training_step(training_state, env_state, buffer_state, key):
         # Collect experience
-        experience_key, training_key = jax.random.split(key)
-        env_state, buffer_state = get_experience(training_state.actor_state.params, env_state, buffer_state, experience_key)
+        experience_key1, experience_key2, sampling_key, training_key, sgd_batches_key = jax.random.split(key, 5)
+        env_state, buffer_state = get_experience(training_state.actor_state.params, env_state, buffer_state, experience_key1)
         training_state = training_state.replace(env_steps=training_state.env_steps + env_steps_per_actor_step)
         
         # Train
-        training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
+        # training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
+
+        transitions_list = []
+        for _ in range(1):
+            buffer_state, new_transitions = replay_buffer.sample(buffer_state)
+            transitions_list.append(new_transitions)
+
+        # Concatenate all sampled transitions
+        transitions = jax.tree_util.tree_map(
+            lambda *arrays: jnp.concatenate(arrays, axis=0),
+            *transitions_list
+        )
+
+        print(
+            f"transitions.observation.shape (after {1} episodes per env): {transitions.observation.shape}",
+            flush=True)
+
+        # process transitions for training
+        batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
+        vmap_flatten_crl_fn = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, None, 0, 0))
+        transitions = vmap_flatten_crl_fn(config, env, transitions, batch_keys)
+
+        print(f"transitions.observation.shape (after flatten_crl_fn): {transitions.observation.shape}", flush=True)
+
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),
+            transitions,
+        )
+        print(f"transitions.observation.shape (after first reshape): {transitions.observation.shape}", flush=True)
+
+        permutation = jax.random.permutation(experience_key2, len(transitions.observation))
+        transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
+
+        # I added this code, so as to ensure len(transitions.observation) is divisible by batch_size
+        num_full_batches = len(transitions.observation) // batch_size
+        transitions = jax.tree_util.tree_map(lambda x: x[:num_full_batches * batch_size], transitions)
+        print(
+            f"transitions.observation.shape (after ensuring divisibility by batch_size): {transitions.observation.shape}",
+            flush=True)
+
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[1:]),
+            transitions,
+        )
+
+        print(f"transitions.observation.shape (after processing): {transitions.observation.shape}", flush=True)
+
+        if 0 == 0:
+            num_total_batches = transitions.observation.shape[0]
+            selected_indices = jax.random.permutation(
+                sgd_batches_key,
+                num_total_batches
+            )[:800]
+            transitions = jax.tree_util.tree_map(
+                lambda x: x[selected_indices],
+                transitions
+            )
+        print(
+            f"transitions.observation.shape (after {0}, selecting {800} batches): {transitions.observation.shape}",
+            flush=True)
+
+        # take actor-step worth of training-step
+        (training_state, _,), metrics = jax.lax.scan(update_step, (training_state, training_key), transitions)
+
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(training_state, env_state, buffer_state, key):
@@ -591,52 +642,11 @@ def train(
     
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
-    def train_steps(training_state, buffer_state, key):
-        # Sample, process, shuffle, then train
-        ## Sample from buffer
-        experience_key, training_key, sampling_key, sgd_batches_key = jax.random.split(key, 4)
-        buffer_state, transitions = replay_buffer.sample(buffer_state)
-        
-        ## Process
-        batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
-        vmap_flatten_crl_fn = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, None, 0, 0))
-        transitions = vmap_flatten_crl_fn(config, env, transitions, batch_keys)
-        
-        ## Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)
-        transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions)
-        permutation = jax.random.permutation(experience_key, len(transitions.observation))
-        transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
-        transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1, batch_size) + x.shape[1:]), transitions)
-
-        num_sgd_batches_per_training_step=800
-        num_total_batches = transitions.observation.shape[0]
-        selected_indices = jax.random.permutation(
-            sgd_batches_key,
-            num_total_batches
-        )[:num_sgd_batches_per_training_step]
-        transitions = jax.tree_util.tree_map(
-            lambda x: x[selected_indices],
-            transitions
-        )
-        
-        ## Train
-        (training_state, _), metrics = jax.lax.scan(update_step, (training_state, training_key), transitions)
-        return training_state, buffer_state, metrics
-
-    def scan_train_steps(n, ts, bs, update_key):
-        def body(carry, unsued_t):
-            ts, bs, update_key = carry
-            new_key, update_key = jax.random.split(update_key)
-            ts, bs, metrics = train_steps(ts, bs, update_key)
-            return (ts, bs, new_key), metrics
-        return jax.lax.scan(body, (ts, bs, update_key), (), length=n)
-
     def training_epoch(training_state, env_state, buffer_state, key):
         def f(carry, unused_t):
             ts, es, bs, k = carry
             k, new_key, update_key = jax.random.split(k, 3)
             ts, es, bs, metrics = training_step(ts, es, bs, k)
-            # (ts, bs, update_key), _ = scan_train_steps(train_step_multiplier - 1, ts, bs, update_key)
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(f, (training_state, env_state, buffer_state, key), (), length=num_training_steps_per_epoch)
