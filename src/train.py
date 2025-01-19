@@ -26,7 +26,9 @@ Metrics = types.Metrics
 Env = envs.Env
 State = envs.State
 _PMAP_AXIS_NAME = "i"
-
+j
+# TODO: after I find problems:
+#  - change hardcoded variables!
 
 def loss_and_pgrad(loss_fn: Callable[..., float], pmap_axis_name: Optional[str], has_aux: bool = False):
     g = jax.value_and_grad(loss_fn, has_aux=has_aux)
@@ -173,38 +175,6 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
     return training_state
 
 
-
-def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
-    I = jnp.eye(logits.shape[0])
-    correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
-    logits_pos = jnp.sum(logits * I) / jnp.sum(I)
-    logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
-    if len(logits.shape) == 3:
-        logsumexp = jax.nn.logsumexp(logits[:, :, 0], axis=1) ** 2
-    else:
-        logsumexp = jax.nn.logsumexp(logits, axis=1) ** 2
-
-    sa_repr_l2 = jnp.sqrt(jnp.sum(sa_repr**2, axis=-1))
-    g_repr_l2 = jnp.sqrt(jnp.sum(g_repr**2, axis=-1))
-
-    # l_align_log = -jnp.mean(jnp.diag(l_align))
-    # l_unif_log = -jnp.mean(l_unif)
-
-    metrics = {
-        "binary_accuracy": jnp.mean((logits > 0) == I),
-        "categorical_accuracy": jnp.mean(correct),
-        "logits_pos": logits_pos,
-        "logits_neg": logits_neg,
-        "sa_repr_mean": jnp.mean(sa_repr_l2),
-        "g_repr_mean": jnp.mean(g_repr_l2),
-        "sa_repr_std": jnp.std(sa_repr_l2),
-        "g_repr_std": jnp.std(g_repr_l2),
-        "logsumexp": logsumexp.mean(),
-        "l2_penalty": l2_loss,
-        # "l_align": l_align_log,
-        # "l_unif": l_unif_log,
-    }
-    return metrics
 
 def alpha_loss(alpha_params, actor, parametric_action_distribution, training_state, transitions, action_size, key, entropy):
     """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
