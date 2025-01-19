@@ -1,9 +1,10 @@
 import functools
 import time
-from typing import Callable, Optional, NamedTuple
+from typing import Callable, Optional, NamedTuple, Any
 
 import flax
 import flax.linen as nn
+import wandb
 from flax.training.train_state import TrainState
 import jax
 from jax import numpy as jnp
@@ -13,6 +14,8 @@ import brax
 from brax import envs
 from brax.training import  types, pmap  #,distribution
 from brax.training.replay_buffers_test import jit_wrap
+from etils import epath
+import pickle
 
 from envs.wrappers import TrajectoryIdWrapper
 from src import distribution
@@ -34,6 +37,10 @@ def loss_and_pgrad(loss_fn: Callable[..., float], pmap_axis_name: Optional[str],
 
     return g if pmap_axis_name is None else h
 
+def save_params(path: str, params: Any):
+    """Saves parameters in flax format."""
+    with epath.Path(path).open('wb') as fout:
+        fout.write(pickle.dumps(params))
 
 def gradient_update_fn(
     loss_fn: Callable[..., float],
@@ -232,7 +239,7 @@ def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, co
     correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
     logits_pos = jnp.sum(logits * I) / jnp.sum(I)
     logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
-    
+
     metrics = {
         "categorical_accuracy": jnp.mean(correct),
         "logits_pos": logits_pos,
@@ -465,6 +472,8 @@ def train(
     env_steps_per_actor_step = action_repeat * num_envs * unroll_length
     num_prefill_actor_steps = min_replay_size // unroll_length + 1
     print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
+    print("env_steps_per_actor_step: ", env_steps_per_actor_step)
+
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
     assert num_timesteps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)
@@ -645,14 +654,25 @@ def train(
         return training_state, env_state, buffer_state, metrics
 
     def prefill_replay_buffer(training_state, env_state, buffer_state, key):
+        @jax.jit
         def f(carry, unused):
-            # Collect experience
+            del unused
             training_state, env_state, buffer_state, key = carry
             key, new_key = jax.random.split(key)
-            env_state, buffer_state = get_experience(training_state.actor_state.params, env_state, buffer_state, key)
-            new_training_state = training_state.replace(env_steps=training_state.env_steps + env_steps_per_actor_step)
-            return (new_training_state, env_state, buffer_state, new_key), ()
-        return jax.lax.scan(f, (training_state, env_state, buffer_state, key), (), length=num_prefill_actor_steps)[0]
+            env_state, buffer_state = get_experience(
+                training_state.actor_state.params,
+                env_state,
+                buffer_state,
+                key,
+
+            )
+            training_state = training_state.replace(
+                env_steps=training_state.env_steps + env_steps_per_actor_step,
+            )
+            return (training_state, env_state, buffer_state, new_key), ()
+
+        return jax.lax.scan(f, (training_state, env_state, buffer_state, key), (), length=num_prefill_actor_steps)[
+            0]
     
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
@@ -669,24 +689,6 @@ def train(
         return training_state, env_state, buffer_state, metrics
 
     training_epoch = jax.pmap(training_epoch, axis_name=_PMAP_AXIS_NAME)
-
-    # Note that this is NOT a pure jittable method.
-    def training_epoch_with_timing(training_state, env_state, buffer_state, key):
-        nonlocal training_walltime
-        t = time.time()
-        (training_state, env_state, buffer_state, metrics) = training_epoch(training_state, env_state, buffer_state, key)
-        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-        jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
-
-        epoch_training_time = time.time() - t
-        training_walltime += epoch_training_time
-        sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
-        metrics = {
-            "training/sps": sps,
-            "training/walltime": training_walltime,
-            **{f"training/{name}": value for name, value in metrics.items()},
-        }
-        return (training_state, env_state, buffer_state, metrics)
 
     # Initialization and setup
     ## Env init
@@ -724,35 +726,53 @@ def train(
         progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env)
 
     # Collect/train/eval loop
-    current_step = 0
-    for eval_epoch_num in range(num_evals_after_init):
-        logging.info("step %s", current_step)
+    training_walltime = 0
+    print('starting training....', flush=True)
+    start_time = time.time()  # Add this line before the training loop
+    for ne in range(100):
 
-        # Collect data and train
-        epoch_key, local_key = jax.random.split(local_key)
-        epoch_keys = jax.random.split(epoch_key, num_local_devices_to_use)
-        (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(training_state, env_state, buffer_state, epoch_keys)
-        current_step = int(_unpmap(training_state.env_steps))
+        t = time.time()
 
-        # Logging and evals
-        if process_id == 0:
-            ## Save policy and critic params
-            if checkpoint_logdir:
-                params = _unpmap((training_state.actor_state.params, training_state.critic_state.params))
-                path = f"{checkpoint_logdir}/step_{current_step}.pkl"
-                brax.io.model.save_params(path, params)
+        key, epoch_key = jax.random.split(key)
+        training_state, env_state, buffer_state, metrics = training_epoch(training_state, env_state, buffer_state,
+                                                                          epoch_key)
 
-            ## Run evals
-            metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics)
-            logging.info(metrics)
-            do_render = (eval_epoch_num % visualization_interval) == 0
-            progress_fn(current_step, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env, do_render)
+        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+        metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
+
+        epoch_training_time = time.time() - t
+        training_walltime += epoch_training_time
+
+        sps = (31,744 * 31) / epoch_training_time
+        metrics = {
+            "training/sps": sps,
+            "training/walltime": training_walltime,
+            "training/envsteps": training_state.env_steps.item(),
+            **{f"training/{name}": value for name, value in metrics.items()},
+        }
+
+        metrics = evaluator.run_evaluation(training_state, metrics)
+
+        print(f"epoch {ne} out of {100} complete. metrics: {metrics}", flush=True)
+
+        if True:
+            # Save current policy and critic params.
+            params = (
+            training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
+            path = f"{checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
+            save_params(path, params)
+
+        if True:
+            wandb.log(metrics, step=ne)
+
+            # if args.wandb_mode == 'offline':
+            #     trigger_sync()
+
+        hours_passed = (time.time() - start_time) / 3600
+        print(f"Time elapsed: {hours_passed:.3f} hours", flush=True)
 
     # Final validity checks
     ## Verify number of steps is sufficient
-    total_steps = current_step
-    logging.info("total steps: %s", total_steps)
-    assert total_steps >= num_timesteps
 
     ## If there were no mistakes the training_state should still be identical on all devices
     pmap.assert_is_replicated(training_state)

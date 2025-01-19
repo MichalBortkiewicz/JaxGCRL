@@ -145,6 +145,8 @@ class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
                 [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len, axis=0
             )
 
+            # TODO: Change to future strategy and relabel all or mask so that only a part is relabelled
+            #  This can be based on the code from CRL
             # final_step_mask.shape == (seq_len, seq_len)
             final_step_mask = is_future_mask * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
             final_step_mask = jnp.logical_and(final_step_mask, transition.extras["state_extras"]["truncation"][None, :])
