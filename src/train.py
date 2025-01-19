@@ -227,7 +227,21 @@ def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, co
     loss += logsumexp_penalty * jnp.mean(logsumexp ** 2)
 
     # Compute metrics
-    metrics = compute_metrics(logits, sa_repr, g_repr, 0, 0, 0)
+
+    I = jnp.eye(logits.shape[0])
+    correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
+    logits_pos = jnp.sum(logits * I) / jnp.sum(I)
+    logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
+    
+    metrics = {
+        "categorical_accuracy": jnp.mean(correct),
+        "logits_pos": logits_pos,
+        "logits_neg": logits_neg,
+        "logsumexp": logsumexp.mean(),
+        "critic_loss": loss,
+    }
+
+    # metrics = compute_metrics(logits, sa_repr, g_repr, 0, 0, 0)
     return loss, metrics
     
 def actor_loss(actor_params, training_state, actor, sa_encoder, g_encoder, parametric_action_distribution, alpha, transitions, config, state_dim, goal_indices, energy_fn_name, key):
