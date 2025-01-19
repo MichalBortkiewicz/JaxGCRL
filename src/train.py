@@ -165,17 +165,7 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
     training_state = jax.device_put_replicated(training_state, jax.local_devices()[:num_local_devices_to_use])
     return training_state
 
-def compute_energy(energy_fn, sa_repr, g_repr):
-    if energy_fn == "l2":
-        logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))
-    elif energy_fn == "l1":
-        logits = -jnp.sum(jnp.abs(sa_repr[:, None, :] - g_repr[None, :, :]), axis=-1)
-    elif energy_fn == "dot":
-        logits = jnp.einsum("ik,jk->ij", sa_repr, g_repr)
-    else:
-        raise ValueError(f"Unknown energy function: {energy_fn}")
-    return logits
-        
+
 def compute_actor_energy(energy_fn, sa_repr, g_repr):
     if energy_fn == "l2":
         q = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
@@ -187,51 +177,7 @@ def compute_actor_energy(energy_fn, sa_repr, g_repr):
         raise ValueError(f"Unknown energy function: {energy_fn}")
     return q
         
-# Helper for compute_loss
-def log_softmax(logits, axis, resubs):
-    if not resubs:
-        I = jnp.eye(logits.shape[0])
-        big = 100
-        eps = 1e-6
-        return logits, -jax.nn.logsumexp(logits - big * I + eps, axis=axis, keepdims=True)
-    else:
-        return logits, -jax.nn.logsumexp(logits, axis=axis, keepdims=True)
-    
-def compute_loss(contrastive_loss_fn, logits, resubs):
-    if contrastive_loss_fn == "symmetric_infonce":
-        l_align1, l_unify1 = log_softmax(logits, axis=1, resubs=resubs)
-        l_align2, l_unify2 = log_softmax(logits, axis=0, resubs=resubs)
-        l_align = l_align1 + l_align2
-        l_unif = l_unify1 + l_unify2
-        loss = -jnp.mean(jnp.diag(l_align1 + l_unify1) + jnp.diag(l_align2 + l_unify2))
-    elif contrastive_loss_fn == "infonce":
-        # From "Improved Deep Metric Learning with Multi-class N-pair Loss Objective"
-        # https://dl.acm.org/doi/10.5555/3157096.3157304
-        l_align, l_unif = log_softmax(logits, axis=1, resubs=resubs)
-        loss = -jnp.mean(jnp.diag(l_align + l_unif))
-    elif contrastive_loss_fn == "infonce_backward":
-        l_align, l_unif = log_softmax(logits, axis=0, resubs=resubs)
-        loss = -jnp.mean(jnp.diag(l_align + l_unif))
-    elif contrastive_loss_fn == "flatnce":
-        # From "Simpler, Faster, Stronger: Breaking The log-K Curse
-        # On Contrastive Learners With FlatNCE" https://arxiv.org/pdf/2107.01152
-        logits_flat = logits - jnp.diag(logits)[:, None]
-        clogits = jax.nn.logsumexp(logits_flat, axis=1)
-        l_align = clogits
-        l_unif = jnp.sum(logits_flat, axis=-1)
-        loss = jnp.exp(clogits - jax.lax.stop_gradient(clogits)).mean()
-    elif contrastive_loss_fn == "dpo":
-        # Based on "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
-        # https://arxiv.org/pdf/2305.18290
-        # It aims to drive positive and negative logits further away from each other
-        positive = jnp.diag(logits)
-        diffs = positive[:, None] - logits
-        loss = -jnp.mean(jax.nn.log_sigmoid(diffs))
-        l_align = 0
-        l_unif = 0
-    else:
-        raise ValueError(f"Unknown contrastive loss function: {contrastive_loss_fn}")
-    return loss, l_align, l_unif
+
 
 def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
     I = jnp.eye(logits.shape[0])
@@ -265,16 +211,13 @@ def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
     }
     return metrics
 
-def alpha_loss(alpha_params, actor, parametric_action_distribution, training_state, transitions, action_size, key):
+def alpha_loss(alpha_params, actor, parametric_action_distribution, training_state, transitions, action_size, key, entropy):
     """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
-    action_mean_and_SD = actor.apply(training_state.actor_state.params, transitions.observation)
-    x_ts = parametric_action_distribution.sample_no_postprocessing(action_mean_and_SD, key)
-    log_prob = parametric_action_distribution.log_prob(action_mean_and_SD, x_ts)
 
     alpha = jnp.exp(alpha_params["log_alpha"])
     target_entropy = -0.5 * action_size
 
-    alpha_loss = alpha * jax.lax.stop_gradient(-log_prob - target_entropy)
+    alpha_loss = alpha * jax.lax.stop_gradient(entropy - target_entropy)
     return jnp.mean(alpha_loss)
 
 def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, contrastive_loss_fn_name, energy_fn_name, logsumexp_penalty, l2_penalty, resubs, key):
@@ -287,9 +230,6 @@ def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, co
     g = transitions.observation[:, state_dim:]
     g_repr = g_encoder.apply(g_encoder_params, g)
 
-    # Compute energy and loss
-    # logits = compute_energy(energy_fn_name, sa_repr, g_repr)
-    # loss, l_align, l_unif = compute_loss(contrastive_loss_fn_name, logits, resubs)
     # InfoNCE
     logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))  # shape = BxB
     loss = -jnp.mean(jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1))
@@ -297,27 +237,6 @@ def critic_loss(critic_params, sa_encoder, g_encoder, transitions, state_dim, co
     # logsumexp regularisation
     logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)
     loss += logsumexp_penalty * jnp.mean(logsumexp ** 2)
-
-    # Modify loss (logsumexp, L2 penalty)
-    # if logsumexp_penalty > 0:
-    #     # For backward we can check jax.nn.logsumexp(logits, axis=0)
-    #     # VM: we could also try removing the diagonal here when using logsumexp penalty + resubs=False
-    #     logits_ = logits
-    #     big = 100
-    #     I = jnp.eye(logits.shape[0])
-    #
-    #     if not resubs:
-    #         logits_ = logits - big * I
-    #
-    #     eps = 1e-6
-    #     logsumexp = jax.nn.logsumexp(logits_ + eps, axis=1)
-    #     loss += logsumexp_penalty * jnp.mean(logsumexp**2)
-    #
-    # if l2_penalty > 0:
-    #     l2_loss = l2_penalty * (jnp.mean(sa_repr**2) + jnp.mean(g_repr**2))
-    #     loss += l2_loss
-    # else:
-    #     l2_loss = 0
 
     # Compute metrics
     metrics = compute_metrics(logits, sa_repr, g_repr, 0, 0, 0)
@@ -603,17 +522,19 @@ def train(
         training_state, key = carry
         key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
 
-        alpha_loss, alpha_params, alpha_optimizer_state, grad_alpha = alpha_update(training_state.alpha_state.params, actor, parametric_action_distribution, training_state, transitions, action_size,
-                                                                       key_alpha, optimizer_state=training_state.alpha_state.opt_state)
-        alpha = jnp.exp(alpha_params["log_alpha"])
-        
-        (critic_loss, metrics_crl), critic_params, critic_optimizer_state, grad_critic = critic_update(training_state.critic_state.params, sa_encoder, g_encoder, transitions, env.state_dim,
-                                                                                          contrastive_loss_fn, energy_fn, logsumexp_penalty, l2_penalty, 
-                                                                                          resubs, key_critic, optimizer_state=training_state.critic_state.opt_state)
+        alpha = jnp.exp(training_state.alpha_state.params["log_alpha"])
         (actor_loss, actor_metrics), actor_params, actor_optimizer_state, grad_actor = actor_update(training_state.actor_state.params, training_state, actor, sa_encoder,
                                                                                         g_encoder, parametric_action_distribution, alpha, transitions, 
                                                                                         config, env.state_dim, env.goal_indices, energy_fn, 
                                                                                         key_actor, optimizer_state=training_state.actor_state.opt_state)
+
+        alpha_loss, alpha_params, alpha_optimizer_state, grad_alpha = alpha_update(training_state.alpha_state.params, actor, parametric_action_distribution, training_state, transitions, action_size,
+                                                                       key_alpha, actor_metrics['entropy'], optimizer_state=training_state.alpha_state.opt_state,)
+
+        (critic_loss, metrics_crl), critic_params, critic_optimizer_state, grad_critic = critic_update(training_state.critic_state.params, sa_encoder, g_encoder, transitions, env.state_dim,
+                                                                                          contrastive_loss_fn, energy_fn, logsumexp_penalty, l2_penalty,
+                                                                                          resubs, key_critic, optimizer_state=training_state.critic_state.opt_state)
+
 
         metrics = {
             "actor_loss": actor_loss,
