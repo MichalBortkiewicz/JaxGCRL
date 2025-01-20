@@ -5,7 +5,7 @@ import pickle
 
 import wandb
 from brax.io import model
-from pyinstrument import Profiler
+# from pyinstrument import Profiler
 
 
 from src.train import train
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         mode="online" if args.log_wandb else "disabled",
     )
 
-    with Profiler(interval=0.1) as profiler:
-        main(args)
-    profiler.print()
-    profiler.open_in_browser()
+    # with Profiler(interval=0.1) as profiler:
+    main(args)
+    # profiler.print()
+    # profiler.open_in_browser()

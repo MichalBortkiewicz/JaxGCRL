@@ -26,7 +26,7 @@ Metrics = types.Metrics
 Env = envs.Env
 State = envs.State
 _PMAP_AXIS_NAME = "i"
-j
+
 # TODO: after I find problems:
 #  - change hardcoded variables!
 
@@ -175,6 +175,38 @@ def _init_training_state(key, actor, sa_encoder, g_encoder, state_dim, goal_dim,
     return training_state
 
 
+
+def compute_metrics(logits, sa_repr, g_repr, l2_loss, l_align, l_unif):
+    I = jnp.eye(logits.shape[0])
+    correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
+    logits_pos = jnp.sum(logits * I) / jnp.sum(I)
+    logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
+    if len(logits.shape) == 3:
+        logsumexp = jax.nn.logsumexp(logits[:, :, 0], axis=1) ** 2
+    else:
+        logsumexp = jax.nn.logsumexp(logits, axis=1) ** 2
+
+    sa_repr_l2 = jnp.sqrt(jnp.sum(sa_repr**2, axis=-1))
+    g_repr_l2 = jnp.sqrt(jnp.sum(g_repr**2, axis=-1))
+
+    # l_align_log = -jnp.mean(jnp.diag(l_align))
+    # l_unif_log = -jnp.mean(l_unif)
+
+    metrics = {
+        "binary_accuracy": jnp.mean((logits > 0) == I),
+        "categorical_accuracy": jnp.mean(correct),
+        "logits_pos": logits_pos,
+        "logits_neg": logits_neg,
+        "sa_repr_mean": jnp.mean(sa_repr_l2),
+        "g_repr_mean": jnp.mean(g_repr_l2),
+        "sa_repr_std": jnp.std(sa_repr_l2),
+        "g_repr_std": jnp.std(g_repr_l2),
+        "logsumexp": logsumexp.mean(),
+        "l2_penalty": l2_loss,
+        # "l_align": l_align_log,
+        # "l_unif": l_unif_log,
+    }
+    return metrics
 
 def alpha_loss(alpha_params, actor, parametric_action_distribution, training_state, transitions, action_size, key, entropy):
     """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
@@ -668,6 +700,7 @@ def train(
     env_state = jax.pmap(env.reset)(env_keys)
 
     ## Replay buffer init and prefill
+    # TODO Note, is it a good practice to map buffer state?
     buffer_state = jax.pmap(replay_buffer.init)(jax.random.split(rb_key, num_local_devices_to_use))
     t = time.time()
     prefill_key, local_key = jax.random.split(local_key)
@@ -693,7 +726,7 @@ def train(
     if process_id == 0 and num_evals > 1:
         metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), training_metrics={})
         logging.info(metrics)
-        progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env)
+        # progress_fn(0, metrics, make_policy, _unpmap(training_state.actor_state.params), unwrapped_env)
 
     # Collect/train/eval loop
     training_walltime = 0
@@ -704,8 +737,10 @@ def train(
         t = time.time()
 
         key, epoch_key = jax.random.split(key)
+        # TODO NOTE: Necessary because of pmaping
+        epoch_keys = jax.random.split(epoch_key, num_local_devices_to_use)
         training_state, env_state, buffer_state, metrics = training_epoch(training_state, env_state, buffer_state,
-                                                                          epoch_key)
+                                                                          epoch_keys)
 
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
@@ -713,7 +748,7 @@ def train(
         epoch_training_time = time.time() - t
         training_walltime += epoch_training_time
 
-        sps = (31,744 * 31) / epoch_training_time
+        sps = 31744 * 31 / epoch_training_time
         metrics = {
             "training/sps": sps,
             "training/walltime": training_walltime,
@@ -721,22 +756,19 @@ def train(
             **{f"training/{name}": value for name, value in metrics.items()},
         }
 
-        metrics = evaluator.run_evaluation(training_state, metrics)
+        metrics = evaluator.run_evaluation(_unpmap(training_state.actor_state.params), metrics)
 
         print(f"epoch {ne} out of {100} complete. metrics: {metrics}", flush=True)
 
         if True:
             # Save current policy and critic params.
-            params = (
-            training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
-            path = f"{checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
-            save_params(path, params)
+            params = _unpmap((training_state.actor_state.params, training_state.critic_state.params))
+            path = f"{checkpoint_logdir}/step_{int(_unpmap(training_state.env_steps))}.pkl"
+            brax.io.model.save_params(path, params)
 
         if True:
             wandb.log(metrics, step=ne)
 
-            # if args.wandb_mode == 'offline':
-            #     trigger_sync()
 
         hours_passed = (time.time() - start_time) / 3600
         print(f"Time elapsed: {hours_passed:.3f} hours", flush=True)
