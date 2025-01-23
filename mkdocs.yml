@@ -16,11 +16,7 @@ theme:
     - search.highlight
 
 plugins:
-  - search:
-      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
-      lang:
-        - en
-      prebuild_index: true
+  - search
 
 nav:
   - Overview: index.md
