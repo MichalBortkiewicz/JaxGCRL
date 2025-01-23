@@ -9,9 +9,18 @@ theme:
   features:
     - content.code.copy
     - navigation.sections
+    - navigation.tracking
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
 
 plugins:
-  - search
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+      lang:
+        - en
+      prebuild_index: true
 
 nav:
   - Overview: index.md
