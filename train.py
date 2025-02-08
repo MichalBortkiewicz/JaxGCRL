@@ -74,41 +74,17 @@ class Args:
     num_training_steps_per_epoch : int = 0
     """the number of training steps per epoch(computed in runtime)"""
 
-class SA_encoder(nn.Module):
+class Encoder(nn.Module):
     norm_type = "layer_norm"
+    network_width: int = 256
+    network_depth: int = 4
+    skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
+    use_relu: int = 0
+
     @nn.compact
-    def __call__(self, s: jnp.ndarray, a: jnp.ndarray):
+    def __call__(self, data: jnp.ndarray):
 
-        lecun_unfirom = variance_scaling(1/3, "fan_in", "uniform")
-        bias_init = nn.initializers.zeros
-        
-        if self.norm_type == "layer_norm":
-            normalize = lambda x: nn.LayerNorm()(x)
-        else:
-            normalize = lambda x: x
-
-        x = jnp.concatenate([s, a], axis=-1)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(64, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        return x
-    
-class G_encoder(nn.Module):
-    norm_type = "layer_norm"
-    @nn.compact
-    def __call__(self, g: jnp.ndarray):
-
-        lecun_unfirom = variance_scaling(1/3, "fan_in", "uniform")
+        lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
         if self.norm_type == "layer_norm":
@@ -116,25 +92,34 @@ class G_encoder(nn.Module):
         else:
             normalize = lambda x: x
 
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(g)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
+        if self.use_relu:
+            activation = nn.relu
+        else:
+            activation = nn.swish
+
+        x = data
+        for i in range(self.network_depth):
+            x = nn.Dense(self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
+            x = normalize(x)
+            x = activation(x)
+
+            if self.skip_connections:
+                if i == 0:
+                    skip = x
+                if i > 0 and i % self.skip_connections == 0:
+                    x = x + skip
+                    skip = x
+
         x = nn.Dense(64, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
         return x
 
 class Actor(nn.Module):
     action_size: int
     norm_type = "layer_norm"
-
+    network_width: int = 256
+    network_depth: int = 4
+    skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
+    use_relu: int = 0
     LOG_STD_MAX = 2
     LOG_STD_MIN = -5
 
@@ -145,29 +130,37 @@ class Actor(nn.Module):
         else:
             normalize = lambda x: x
 
-        lecun_unfirom = variance_scaling(1/3, "fan_in", "uniform")
+        if self.use_relu:
+            activation = nn.relu
+        else:
+            activation = nn.swish
+
+        lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
-        x = nn.Dense(1024, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        x = normalize(x)
-        x = nn.swish(x)
+        print(f"x.shape: {x.shape}", flush=True)
+
+        for i in range(self.network_depth):
+            x = nn.Dense(self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
+            x = normalize(x)
+            x = activation(x)
+
+            if self.skip_connections:
+                if i == 0:
+                    skip = x
+                if i > 0 and i % self.skip_connections == 0:
+                    x = x + skip
+                    skip = x
 
         mean = nn.Dense(self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
         log_std = nn.Dense(self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
-        
+
         log_std = nn.tanh(log_std)
-        log_std = self.LOG_STD_MIN + 0.5 * (self.LOG_STD_MAX - self.LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
+        log_std = self.LOG_STD_MIN + 0.5 * (self.LOG_STD_MAX - self.LOG_STD_MIN) * (
+                    log_std + 1)  # From SpinUp / Denis Yarats
 
         return mean, log_std
+
 
 @flax.struct.dataclass
 class TrainingState:
@@ -273,8 +266,12 @@ if __name__ == "__main__":
         episode_length=args.episode_length,
     )
 
-    obs_size = env.observation_size
     action_size = env.action_size
+    state_size = env.state_dim
+    goal_size = len(env.goal_indices)
+    obs_size = state_size + goal_size 
+    assert obs_size == env.observation_size, f"obs_size: {obs_size}, env.observation_size: {env.observation_size}"
+
     env_keys = jax.random.split(env_key, args.num_envs)
     env_state = jax.jit(env.reset)(env_keys)
     env.step = jax.jit(env.step)
@@ -289,11 +286,10 @@ if __name__ == "__main__":
     )
 
     # Critic
-    sa_encoder = SA_encoder()
-    sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, args.obs_dim]), np.ones([1, action_size]))
-    g_encoder = G_encoder()
-    g_encoder_params = g_encoder.init(g_key, np.ones([1, args.goal_end_idx - args.goal_start_idx]))
-    c = jnp.asarray(0.0, dtype=jnp.float32)
+    sa_encoder = Encoder()
+    sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size+action_size]))
+    g_encoder = Encoder()
+    g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
     critic_state = TrainState.create(
         apply_fn=None,
         params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
@@ -434,7 +430,7 @@ if __name__ == "__main__":
             log_prob = log_prob.sum(-1)           # dimension = B
 
             sa_encoder_params, g_encoder_params = critic_params["sa_encoder"], critic_params["g_encoder"]
-            sa_repr = sa_encoder.apply(sa_encoder_params, state, action)
+            sa_repr = sa_encoder.apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
             g_repr = g_encoder.apply(g_encoder_params, goal)
 
             qf_pi = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
@@ -473,7 +469,7 @@ if __name__ == "__main__":
             obs = transitions.observation[:, :args.obs_dim]
             action = transitions.action
             
-            sa_repr = sa_encoder.apply(sa_encoder_params, obs, action)
+            sa_repr = sa_encoder.apply(sa_encoder_params, jnp.concatenate([obs, action], axis=-1))
             g_repr = g_encoder.apply(g_encoder_params, transitions.observation[:, args.obs_dim:])
             
             # InfoNCE
