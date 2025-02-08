@@ -191,15 +191,15 @@ class TrajectoryUniformSamplingQueue():
         # the same result can be obtained using probs = is_future_mask * (gamma ** jnp.cumsum(is_future_mask, axis=-1))
         
         single_trajectories = jnp.concatenate(
-            [transition.extras["state_extras"]["seed"][:, jnp.newaxis].T] * seq_len, axis=0
+            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len, axis=0
         )
-        # array of seq_len x seq_len where a row is an array of seeds that correspond to the episode index from which that time-step was collected
-        # timesteps collected from the same episode will have the same seed. All rows of the single_trajectories are same.
+        # array of seq_len x seq_len where a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
+        # timesteps collected from the same episode will have the same traj_id. All rows of the single_trajectories are same.
 
         probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
         #ith row of probs will be non zero only for time indices that 
         # 1) are greater than i
-        # 2) have the same seed as the ith time index
+        # 2) have the same traj_id as the ith time index
 
         goal_index = jax.random.categorical(sample_key, jnp.log(probs))
         future_state = jnp.take(transition.observation, goal_index[:-1], axis=0) #the last goal_index cannot be considered as there is no future.  
@@ -213,7 +213,7 @@ class TrajectoryUniformSamplingQueue():
             "policy_extras": {},
             "state_extras": {
                 "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
-                "seed": jnp.squeeze(transition.extras["state_extras"]["seed"][:-1]),
+                "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
             },
             "state": state,
             "future_state": future_state,

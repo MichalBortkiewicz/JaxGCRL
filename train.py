@@ -20,8 +20,9 @@ from wandb_osh.hooks import TriggerWandbSyncHook
 from flax.training.train_state import TrainState
 from flax.linen.initializers import variance_scaling
 
-from evaluator import CrlEvaluator
-from replay_buffer import TrajectoryUniformSamplingQueue
+from envs.wrappers import TrajectoryIdWrapper
+from src.evaluator import CrlEvaluator
+from src.replay_buffer import TrajectoryUniformSamplingQueue
 
 @dataclass
 class Args:
@@ -29,9 +30,9 @@ class Args:
     seed: int = 1
     torch_deterministic: bool = True
     cuda: bool = True
-    track: bool = False
+    track: bool = True
     wandb_project_name: str = "exploration"
-    wandb_entity: str = 'raj19'
+    wandb_entity: str = 'cl-probing'
     wandb_mode: str = 'online'
     wandb_dir: str = '.'
     wandb_group: str = '.'
@@ -266,6 +267,7 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
+    env = TrajectoryIdWrapper(env)
     env = envs.training.wrap(
         env,
         episode_length=args.episode_length,
@@ -328,7 +330,7 @@ if __name__ == "__main__":
         extras={
             "state_extras": {
                 "truncation": 0.0,
-                "seed": 0.0,
+                "traj_id": 0.0,
             }        
         },
     )
@@ -386,7 +388,7 @@ if __name__ == "__main__":
         def f(carry, unused_t):
             env_state, current_key = carry
             current_key, next_key = jax.random.split(current_key)
-            env_state, transition = actor_step(actor_state, env, env_state, current_key, extra_fields=("truncation", "seed"))
+            env_state, transition = actor_step(actor_state, env, env_state, current_key, extra_fields=("truncation", "traj_id"))
             return (env_state, next_key), transition
 
         (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=args.unroll_length)
