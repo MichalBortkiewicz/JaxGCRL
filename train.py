@@ -29,7 +29,6 @@ from utils import create_env
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     seed: int = 1
-    torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
     wandb_project_name: str = "exploration"
@@ -37,10 +36,9 @@ class Args:
     wandb_mode: str = 'online'
     wandb_dir: str = '.'
     wandb_group: str = '.'
-    capture_video: bool = False
     checkpoint: bool = False
 
-    #environment specific arguments
+    # Environment specific arguments
     env_id: str = "ant"
     episode_length: int = 1000
 
@@ -49,17 +47,21 @@ class Args:
     num_epochs: int = 50
     num_envs: int = 1024
     num_eval_envs: int = 128
-    actor_lr: float = 3e-4
+    policy_lr: float = 3e-4
     critic_lr: float = 3e-4
     alpha_lr: float = 3e-4
     batch_size: int = 256
-    gamma: float = 0.99
+    discounting: float = 0.99
     logsumexp_penalty_coeff: float = 0.1
 
     max_replay_size: int = 10000
     min_replay_size: int = 1000
-    
     unroll_length: int  = 62
+    h_dim: int = 256
+    n_hidden: int = 2
+    skip_connections: int = 4
+    use_relu: bool = False
+    repr_dim: int = 64
 
     # to be filled in runtime
     env_steps_per_actor_step : int = 0
@@ -72,11 +74,12 @@ class Args:
     """the number of training steps per epoch(computed in runtime)"""
 
 class Encoder(nn.Module):
+    repr_dim: int = 64
     norm_type = "layer_norm"
     network_width: int = 256
     network_depth: int = 4
     skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
-    use_relu: int = 0
+    use_relu: bool = False
 
     @nn.compact
     def __call__(self, data: jnp.ndarray):
@@ -107,7 +110,7 @@ class Encoder(nn.Module):
                     x = x + skip
                     skip = x
 
-        x = nn.Dense(64, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
+        x = nn.Dense(self.repr_dim, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
         return x
 
 class Actor(nn.Module):
@@ -116,7 +119,7 @@ class Actor(nn.Module):
     network_width: int = 256
     network_depth: int = 4
     skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
-    use_relu: int = 0
+    use_relu: bool = False
     LOG_STD_MAX = 2
     LOG_STD_MIN = -5
 
@@ -248,17 +251,17 @@ if __name__ == "__main__":
 
     # Network setup
     # Actor
-    actor = Actor(action_size=action_size)
+    actor = Actor(action_size=action_size, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu)
     actor_state = TrainState.create(
         apply_fn=actor.apply,
         params=actor.init(actor_key, np.ones([1, obs_size])),
-        tx=optax.adam(learning_rate=args.actor_lr)
+        tx=optax.adam(learning_rate=args.policy_lr)
     )
 
     # Critic
-    sa_encoder = Encoder()
+    sa_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu)
     sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size+action_size]))
-    g_encoder = Encoder()
+    g_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu)
     g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
     critic_state = TrainState.create(
         apply_fn=None,
@@ -510,7 +513,7 @@ if __name__ == "__main__":
         # process transitions for training
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
         transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
-            (args.gamma, state_size, tuple(env.goal_indices)), transitions, batch_keys
+            (args.discounting, state_size, tuple(env.goal_indices)), transitions, batch_keys
         )  
         
         transitions = jax.tree_util.tree_map(
@@ -607,7 +610,3 @@ if __name__ == "__main__":
         params = (training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
         path = f"{save_path}/final.pkl"
         save_params(path, params)
-        
-# (50000000 - 1024 x 1000) / 50 x 1024 x 62 = 15        #number of actor steps per epoch (which is equal to the number of training steps)
-# 1024 x 999 / 256 = 4000                               #number of gradient steps per actor step 
-# 1024 x 62 / 4000 = 16                                 #ratio of env steps per gradient step
