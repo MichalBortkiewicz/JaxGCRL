@@ -23,6 +23,7 @@ from flax.linen.initializers import variance_scaling
 from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
 from src.replay_buffer import TrajectoryUniformSamplingQueue
+from utils import create_env
 
 @dataclass
 class Args:
@@ -42,10 +43,6 @@ class Args:
     #environment specific arguments
     env_id: str = "ant"
     episode_length: int = 1000
-    # to be filled in runtime
-    obs_dim: int = 0
-    goal_start_idx: int = 0
-    goal_end_idx: int = 0
 
     # Algorithm specific arguments
     total_env_steps: int = 50000000
@@ -139,7 +136,6 @@ class Actor(nn.Module):
         bias_init = nn.initializers.zeros
 
         print(f"x.shape: {x.shape}", flush=True)
-
         for i in range(self.network_depth):
             x = nn.Dense(self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
             x = normalize(x)
@@ -232,40 +228,14 @@ if __name__ == "__main__":
     key, buffer_key, env_key, eval_env_key, actor_key, sa_key, g_key = jax.random.split(key, 7)
 
     # Environment setup    
-    if args.env_id == "ant":
-        from envs.ant import Ant
-        env = Ant(
-            backend="spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-        )
-
-        args.obs_dim = 29
-        args.goal_start_idx = 0
-        args.goal_end_idx = 2
-
-    elif "maze" in args.env_id:
-        from envs.ant_maze import AntMaze
-        env = AntMaze(
-            backend="spring",
-            exclude_current_positions_from_observation=False,
-            terminate_when_unhealthy=True,
-            maze_layout_name=args.env_id[4:]
-        )
-
-        args.obs_dim = 29
-        args.goal_start_idx = 0
-        args.goal_end_idx = 2
-
-    else:
-        raise NotImplementedError
-
+    env = create_env(args.env_id)
     env = TrajectoryIdWrapper(env)
     env = envs.training.wrap(
         env,
         episode_length=args.episode_length,
     )
 
+    # Dimensions definitions and sanity checks
     action_size = env.action_size
     state_size = env.state_dim
     goal_size = len(env.goal_indices)
@@ -416,9 +386,9 @@ if __name__ == "__main__":
     def update_actor_and_alpha(transitions, training_state, key):
         def actor_loss(actor_params, critic_params, log_alpha, transitions, key):
             obs = transitions.observation           # expected_shape = batch_size, obs_size + goal_size
-            state = obs[:, :args.obs_dim]
+            state = obs[:, :state_size]
             future_state = transitions.extras["future_state"]
-            goal = future_state[:, args.goal_start_idx : args.goal_end_idx]
+            goal = future_state[:, env.goal_indices]
             observation = jnp.concatenate([state, goal], axis=1)
 
             means, log_stds = actor.apply(actor_params, observation)
@@ -466,11 +436,11 @@ if __name__ == "__main__":
         def critic_loss(critic_params, transitions, key):
             sa_encoder_params, g_encoder_params = critic_params["sa_encoder"], critic_params["g_encoder"]
             
-            obs = transitions.observation[:, :args.obs_dim]
+            state = transitions.observation[:, :state_size]
             action = transitions.action
             
-            sa_repr = sa_encoder.apply(sa_encoder_params, jnp.concatenate([obs, action], axis=-1))
-            g_repr = g_encoder.apply(g_encoder_params, transitions.observation[:, args.obs_dim:])
+            sa_repr = sa_encoder.apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
+            g_repr = g_encoder.apply(g_encoder_params, transitions.observation[:, state_size:])
             
             # InfoNCE
             logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))       # shape = BxB
@@ -540,7 +510,7 @@ if __name__ == "__main__":
         # process transitions for training
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
         transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
-            (args.gamma, args.obs_dim, args.goal_start_idx, args.goal_end_idx), transitions, batch_keys
+            (args.gamma, state_size, tuple(env.goal_indices)), transitions, batch_keys
         )  
         
         transitions = jax.tree_util.tree_map(

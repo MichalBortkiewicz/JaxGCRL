@@ -172,7 +172,7 @@ class TrajectoryUniformSamplingQueue():
     @functools.partial(jax.jit, static_argnames=("buffer_config"))
     def flatten_crl_fn(buffer_config, transition, sample_key):
 
-        gamma, obs_dim, goal_start_idx, goal_end_idx = buffer_config
+        gamma, state_size, goal_indices = buffer_config
 
         # Because it's vmaped transition.obs.shape is of shape (episode_len, obs_dim)
         seq_len = transition.observation.shape[0]
@@ -204,9 +204,9 @@ class TrajectoryUniformSamplingQueue():
         goal_index = jax.random.categorical(sample_key, jnp.log(probs))
         future_state = jnp.take(transition.observation, goal_index[:-1], axis=0) #the last goal_index cannot be considered as there is no future.  
         future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
-        goal = future_state[:, goal_start_idx : goal_end_idx]
-        future_state = future_state[:, : obs_dim]
-        state = transition.observation[:-1, : obs_dim] #all states are considered
+        goal = future_state[:, goal_indices]
+        future_state = future_state[:, :state_size]
+        state = transition.observation[:-1, :state_size] #all states are considered
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
