@@ -316,3 +316,6 @@ wandb/
 params/
 runs/
 experiments/
+notebooks/data/
+notebooks/figures/
+
