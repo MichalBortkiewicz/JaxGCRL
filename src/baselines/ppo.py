@@ -44,7 +44,7 @@ import optax
 from orbax import checkpoint as ocp
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import CrlEvaluator
+from src.evaluator import BaselineEvaluator
 
 
 InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
@@ -428,7 +428,7 @@ def train(
       randomization_fn=v_randomization_fn,
   )
 
-  evaluator = CrlEvaluator(
+  evaluator = BaselineEvaluator(
       eval_env,
       functools.partial(make_policy, deterministic=deterministic_eval),
       num_eval_envs=num_eval_envs,

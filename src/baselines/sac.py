@@ -43,7 +43,7 @@ import jax.numpy as jnp
 import optax
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import CrlEvaluator
+from src.evaluator import BaselineEvaluator
 from src.replay_buffer import QueueBase, Sample
 
 Metrics = types.Metrics
@@ -651,7 +651,7 @@ def train(
         randomization_fn=v_randomization_fn,
     )
 
-    evaluator = CrlEvaluator(
+    evaluator = BaselineEvaluator(
         eval_env,
         functools.partial(make_policy, deterministic=deterministic_eval),
         num_eval_envs=num_eval_envs,
