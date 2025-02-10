@@ -46,9 +46,9 @@ def create_parser():
     """
     parser = argparse.ArgumentParser(description="Training script arguments")
     parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
-    parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
-    parser.add_argument("--project_name", type=str, default="crl", help="Name of the wandb project of experiment")
-    parser.add_argument("--num_timesteps", type=int, default=1000000, help="Number of training timesteps")
+    parser.add_argument("--wandb_group", type=str, default="test", help="Name of the wandb group of experiment")
+    parser.add_argument("--wandb_project_name", type=str, default="crl", help="Name of the wandb project of experiment")
+    parser.add_argument("--total_env_steps", type=int, default=1000000, help="Number of training timesteps")
     parser.add_argument("--max_replay_size", type=int, default=10000, help="Maximum size of replay buffer")
     parser.add_argument("--min_replay_size", type=int, default=8192, help="Minimum size of replay buffer")
     parser.add_argument("--num_evals", type=int, default=50, help="Total number of evaluations")
@@ -222,12 +222,12 @@ class MetricsRecorder:
     and the metrics to be collected.
 
     Parameters:
-    num_timesteps (int): The maximum number of timesteps for recording metrics.
+    total_env_steps (int): The maximum number of timesteps for recording metrics.
     metrics_to_collect (List[str]): List of metric names that are to be collected.
     exp_dir (str): Directory to save renders to.
     exp_name (str): Experiment name for naming rendered trajectory visualizations.
     """
-    def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
+    def __init__(self, total_env_steps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
@@ -236,7 +236,7 @@ class MetricsRecorder:
         self.exp_dir = exp_dir
         self.exp_name = exp_name
 
-        self.max_x, self.min_x = num_timesteps * 1.1, 0
+        self.max_x, self.min_x = total_env_steps * 1.1, 0
 
     def record(self, num_steps, metrics):
         self.times.append(datetime.now())

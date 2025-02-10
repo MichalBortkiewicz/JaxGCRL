@@ -28,7 +28,7 @@ python training.py --env_name ant --energy_fn l2 --contrastive_loss_fn infonce_b
 ```
 For a full list of available energy functions and contrastive losses, see: [ [energy functions](./src/losses.py#L91) | [contrastive losses](./src/losses.py#L145) ]
 
-JaxGCRL offers many other useful parameters, such as `num_timesteps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
+JaxGCRL offers many other useful parameters, such as `total_env_steps`, `batch_size`, `episode_length`. For a complete list of parameters, their descriptions, and default values, refer to [link](./utils.py#L24).
 
 You can also find additional information about main arguments and hyperparameters by running:
 
@@ -41,7 +41,7 @@ For example, the script below runs experiments to test the performance of differ
 for c_loss in binary infonce flatnce fb dp; do
 	for seed in 1 2 3 4 5; do
 		python training.py --seed ${seed} \
-		--project_name crl --group_name contrastive_loss_experiments \ 
+		--wandb_project_name crl --wandb_group contrastive_loss_experiments \ 
 		--exp_name ${c_loss} \
 		--contrastive_loss_fn ${c_loss} --energy_fn l2 \
         --log_wandb
@@ -56,8 +56,8 @@ done
     If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
 
  We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
-- `--project_name`
-- `--group_name`
+- `--wandb_project_name`
+- `--wandb_group`
 - `--exp_name`
 
 

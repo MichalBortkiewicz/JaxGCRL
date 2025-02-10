@@ -238,7 +238,7 @@ def _init_training_state(
 
 def train(
     environment: Union[envs_v1.Env, envs.Env],
-    num_timesteps,
+    total_env_steps,
     episode_length: int,
     action_repeat: int = 1,
     num_envs: int = 1,
@@ -277,25 +277,25 @@ def train(
     device_count = local_devices_to_use * jax.process_count()
     logging.info("local_device_count: %s; total_device_count: %s", local_devices_to_use, device_count)
 
-    if min_replay_size >= num_timesteps:
-        raise ValueError("No training will happen because min_replay_size >= num_timesteps")
+    if min_replay_size >= total_env_steps:
+        raise ValueError("No training will happen because min_replay_size >= total_env_steps")
 
     if max_replay_size is None:
-        max_replay_size = num_timesteps
+        max_replay_size = total_env_steps
 
     # The number of environment steps executed for every `actor_step()` call.
     env_steps_per_actor_step = action_repeat * num_envs * unroll_length
     num_prefill_actor_steps = min_replay_size // unroll_length + 1
     print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
-    assert num_timesteps - min_replay_size >= 0
+    assert total_env_steps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)
     # The number of epoch calls per training
     # equals to
-    # ceil(num_timesteps - num_prefill_env_steps /
+    # ceil(total_env_steps - num_prefill_env_steps /
     #      (num_evals_after_init * env_steps_per_actor_step))
     num_training_steps_per_epoch = -(
-        -(num_timesteps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
+        -(total_env_steps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
     )
 
     assert num_envs % device_count == 0
@@ -715,7 +715,7 @@ def train(
 
 
     total_steps = current_step
-    assert total_steps >= num_timesteps
+    assert total_steps >= total_env_steps
 
     params = _unpmap((training_state.normalizer_params, training_state.policy_params))
 

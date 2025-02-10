@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from brax import envs
 from etils import epath
 from dataclasses import dataclass
-from typing import NamedTuple, Any
+from typing import NamedTuple, Any, Optional
 from wandb_osh.hooks import TriggerWandbSyncHook
 from flax.training.train_state import TrainState
 from flax.linen.initializers import variance_scaling
@@ -30,17 +30,18 @@ class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     seed: int = 1
     cuda: bool = True
-    track: bool = True
+    log_wandb: bool = True
     wandb_project_name: str = "exploration"
-    wandb_entity: str = 'cl-probing'
     wandb_mode: str = 'online'
     wandb_dir: str = '.'
     wandb_group: str = '.'
     checkpoint: bool = False
 
     # Environment specific arguments
-    env_id: str = "ant"
+    env_name: str = "ant"
     episode_length: int = 1000
+    backend: Optional[str] = None
+    eval_env: Optional[str] = None
 
     # Algorithm specific arguments
     total_env_steps: int = 50000000
@@ -62,6 +63,7 @@ class Args:
     skip_connections: int = 4
     use_relu: bool = False
     repr_dim: int = 64
+    use_ln: bool = False
 
     # to be filled in runtime
     env_steps_per_actor_step : int = 0
@@ -75,11 +77,11 @@ class Args:
 
 class Encoder(nn.Module):
     repr_dim: int = 64
-    norm_type = "layer_norm"
     network_width: int = 256
     network_depth: int = 4
     skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
     use_relu: bool = False
+    use_ln: bool = False
 
     @nn.compact
     def __call__(self, data: jnp.ndarray):
@@ -87,7 +89,7 @@ class Encoder(nn.Module):
         lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
-        if self.norm_type == "layer_norm":
+        if self.use_ln:
             normalize = lambda x: nn.LayerNorm()(x)
         else:
             normalize = lambda x: x
@@ -115,17 +117,17 @@ class Encoder(nn.Module):
 
 class Actor(nn.Module):
     action_size: int
-    norm_type = "layer_norm"
     network_width: int = 256
     network_depth: int = 4
     skip_connections: int = 0  # 0 for no skip connections, >= 0 means the frequency of skip connections (every X layers)
     use_relu: bool = False
+    use_ln: bool = False
     LOG_STD_MAX = 2
     LOG_STD_MIN = -5
 
     @nn.compact
     def __call__(self, x):
-        if self.norm_type == "layer_norm":
+        if self.use_ln:
             normalize = lambda x: nn.LayerNorm()(x)
         else:
             normalize = lambda x: x
@@ -197,16 +199,15 @@ if __name__ == "__main__":
     args.num_prefill_actor_steps = np.ceil(args.min_replay_size / args.unroll_length)
     args.num_training_steps_per_epoch = (args.total_env_steps - args.num_prefill_env_steps) // (args.num_epochs * args.env_steps_per_actor_step)
 
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.env_name}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
-    if args.track:
+    if args.log_wandb:
 
         if args.wandb_group ==  '.':
             args.wandb_group = None
             
         wandb.init(
             project=args.wandb_project_name,
-            entity=args.wandb_entity,
             mode=args.wandb_mode,
             group=args.wandb_group,
             dir=args.wandb_dir,
@@ -231,7 +232,7 @@ if __name__ == "__main__":
     key, buffer_key, env_key, eval_env_key, actor_key, sa_key, g_key = jax.random.split(key, 7)
 
     # Environment setup    
-    env = create_env(args.env_id)
+    env = create_env(args.env_name)
     env = TrajectoryIdWrapper(env)
     env = envs.training.wrap(
         env,
@@ -259,9 +260,9 @@ if __name__ == "__main__":
     )
 
     # Critic
-    sa_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu)
+    sa_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu, use_ln=args.use_ln)
     sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size+action_size]))
-    g_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu)
+    g_encoder = Encoder(repr_dim=args.repr_dim, network_width=args.h_dim, network_depth=args.n_hidden, skip_connections=args.skip_connections, use_relu=args.use_relu, use_ln=args.use_ln)
     g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
     critic_state = TrainState.create(
         apply_fn=None,
@@ -480,9 +481,7 @@ if __name__ == "__main__":
         key, critic_key, actor_key, = jax.random.split(key, 3)
 
         training_state, actor_metrics = update_actor_and_alpha(transitions, training_state, actor_key)
-
         training_state, critic_metrics = update_critic(transitions, training_state, critic_key)
-
         training_state = training_state.replace(gradient_steps = training_state.gradient_steps + 1)
 
         metrics = {}
@@ -599,7 +598,7 @@ if __name__ == "__main__":
             path = f"{save_path}/step_{int(training_state.env_steps)}.pkl"
             save_params(path, params)
         
-        if args.track:
+        if args.log_wandb:
             wandb.log(metrics, step=ne)
 
             if args.wandb_mode == 'offline':

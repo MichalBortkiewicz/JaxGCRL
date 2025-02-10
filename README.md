@@ -47,7 +47,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 To run experiments of interest, change `scripts/train.sh`; descriptions of flags are in `utils.py:create_parser()`. Common flags you may want to change:
 - **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
 - Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
-- **--num_timesteps**: shorter or longer runs.
+- **--total_env_steps**: shorter or longer runs.
 - **--num_envs**: based on how many environments your GPU memory allows.
 - **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
@@ -93,8 +93,8 @@ for _ in range(NUM_STEPS):
 
 ### Wandb support 📈
 We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
-- `--project_name`
-- `--group_name`
+- `--wandb_project_name`
+- `--wandb_group`
 - `--exp_name`
 
 Logging to W&B happens when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.

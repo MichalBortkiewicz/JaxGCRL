@@ -43,7 +43,7 @@ def main(args):
 
     train_fn = functools.partial(
         train,
-        num_timesteps=args.num_timesteps,
+        total_env_steps=args.total_env_steps,
         num_evals=args.num_evals,
         reward_scaling=1,
         episode_length=args.episode_length,
@@ -83,7 +83,7 @@ def main(args):
         "training/entropy",
     ]
 
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
+    metrics_recorder = MetricsRecorder(args.total_env_steps, metrics_to_collect, run_dir, args.exp_name)
 
     make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
     model.save_params(ckpt_dir + '/final', params)
@@ -108,8 +108,8 @@ if __name__ == "__main__":
     args.utd_ratio = utd_ratio
 
     wandb.init(
-        project=args.project_name,
-        group=args.group_name,
+        project=args.wandb_project_name,
+        group=args.wandb_group,
         name=args.exp_name,
         config=vars(args),
         mode="online" if args.log_wandb else "disabled",

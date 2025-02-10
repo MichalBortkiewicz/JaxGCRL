@@ -77,7 +77,7 @@ def _strip_weak_type(tree):
 
 def train(
     environment: Union[envs_v1.Env, envs.Env],
-    num_timesteps: int,
+    total_env_steps: int,
     episode_length: int,
     action_repeat: int = 1,
     num_envs: int = 1,
@@ -115,7 +115,7 @@ def train(
 
   Args:
     environment: the environment to train
-    num_timesteps: the total number of environment steps to use during training
+    total_env_steps: the total number of environment steps to use during training
     episode_length: the length of an environment episode
     action_repeat: the number of timesteps to repeat an action
     num_envs: the number of parallel environments to use for rollouts
@@ -183,10 +183,10 @@ def train(
       batch_size * unroll_length * num_minibatches * action_repeat)
   num_evals_after_init = max(num_evals - 1, 1)
   # The number of training_step calls per training_epoch call.
-  # equals to ceil(num_timesteps / (num_evals * utd_ratio *
+  # equals to ceil(total_env_steps / (num_evals * utd_ratio *
   #                                 num_resets_per_eval))
   num_training_steps_per_epoch = np.ceil(
-      num_timesteps
+      total_env_steps
       / (
           num_evals_after_init
           * utd_ratio
@@ -389,7 +389,7 @@ def train(
           specs.Array(env_state.obs.shape[-1:], jnp.dtype('float32'))),
       env_steps=0)
 
-  if num_timesteps == 0:
+  if total_env_steps == 0:
     return (
         make_policy,
         (training_state.normalizer_params, training_state.params),
@@ -476,7 +476,7 @@ def train(
                   unwrapped_env, do_render=do_render)
 
   total_steps = current_step
-  assert total_steps >= num_timesteps
+  assert total_steps >= total_env_steps
 
   # If there was no mistakes the training_state should still be identical on all
   # devices.
