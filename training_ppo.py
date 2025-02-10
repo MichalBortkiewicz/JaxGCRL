@@ -3,12 +3,13 @@ import json
 import os
 import pickle
 
+import tyro
 import wandb
 from brax.io import model
 from pyinstrument import Profiler
 
 from src.baselines.ppo import train
-from utils import MetricsRecorder, create_env, create_eval_env, create_parser
+from utils import Args, MetricsRecorder, create_env, create_eval_env
 
 
 def main(args):
@@ -95,8 +96,7 @@ def main(args):
     model.save_params(ckpt_dir + '/final', params)
 
 if __name__ == "__main__":
-    parser = create_parser()
-    args = parser.parse_args()
+    args = tyro.cli(Args)
 
     print("Arguments:")
     print(

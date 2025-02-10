@@ -3,12 +3,13 @@ import json
 import os
 import pickle
 
+import tyro
 import wandb
 from brax.io import model
 from pyinstrument import Profiler
 
-from src.baselines.sac import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser
+from src.baselines.sac.sac import train
+from utils import Args, MetricsRecorder, get_env_config, create_env, create_eval_env
 
 
 def main(args):
@@ -60,7 +61,10 @@ def main(args):
         max_replay_size=args.max_replay_size,
         min_replay_size=args.min_replay_size,
         seed=args.seed,
-        eval_env=eval_env
+        eval_env=eval_env,
+        use_ln=args.use_ln,
+        h_dim=args.h_dim,
+        n_hidden=args.n_hidden,
     )
 
     metrics_to_collect = [
@@ -89,8 +93,7 @@ def main(args):
     model.save_params(ckpt_dir + '/final', params)
 
 if __name__ == "__main__":
-    parser = create_parser()
-    args = parser.parse_args()
+    args = tyro.cli(Args)
 
     print("Arguments:")
     print(
