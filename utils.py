@@ -8,7 +8,7 @@ from typing import List, Optional
 import jax
 import math
 from brax.io import html
-
+import flax.linen as nn
 from matplotlib import pyplot as plt
 import wandb
 
@@ -40,10 +40,10 @@ class Args:
     log_wandb: bool = True
     wandb_project_name: str = "exploration"
     wandb_mode: str = 'online'
-    wandb_dir: str = '.'
     wandb_group: str = '.'
     checkpoint: bool = False
     visualization_interval: int = 5
+    vis_length: int = 1000
 
     # Environment specific arguments
     env_name: str = "ant"
@@ -87,6 +87,11 @@ class Args:
     """number of actor steps to fill the buffer before starting training (computed in runtime)"""
     num_training_steps_per_epoch : int = 0
     """the number of training steps per epoch(computed in runtime)"""
+    run_dir: str = ''
+    """the directory to save the run"""
+    ckpt_dir: str = ''
+    """the directory to save the checkpoints"""
+    utd_ratio: float = 0
 
 
 def create_env(env_name: str, backend: str = None, **kwargs) -> object:
@@ -363,3 +368,36 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})
+
+
+
+def render_policy(training_state, save_path, env, actor, eval_env_name, vis_length):
+    """Renders the policy and saves it as an HTML file."""
+
+    # JIT compile the rollout function
+    @jax.jit
+    def policy_step(env_state, actor_params):
+        means, _ = actor.apply(actor_params, env_state.obs)
+        actions = nn.tanh(means)
+        next_state = env.step(env_state, actions)
+        return next_state, env_state  # Return current state for visualization
+
+    rollout_states = []
+    for i in range(10):
+        env = create_env(eval_env_name)
+
+        # Initialize environment
+        rng = jax.random.PRNGKey(seed=i + 1)
+        env_state = jax.jit(env.reset)(rng)
+
+        # Collect rollout using jitted function
+        for _ in range(vis_length):
+            env_state, current_state = policy_step(env_state, training_state.actor_state.params)
+            rollout_states.append(current_state.pipeline_state)
+
+    # Render and save
+    html_string = html.render(env.sys, rollout_states)
+    render_path = f"{save_path}/vis.html"
+    with open(render_path, "w") as f:
+        f.write(html_string)
+    wandb.log({"vis": wandb.Html(html_string)})

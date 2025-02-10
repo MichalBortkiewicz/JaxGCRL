@@ -23,63 +23,8 @@ from flax.linen.initializers import variance_scaling
 from envs.wrappers import TrajectoryIdWrapper
 from src.evaluator import CrlEvaluator
 from src.replay_buffer import TrajectoryUniformSamplingQueue
-from utils import create_env
+from utils import Args, create_env, render_policy
 
-@dataclass
-class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    seed: int = 1
-    cuda: bool = True
-    log_wandb: bool = True
-    wandb_project_name: str = "exploration"
-    wandb_mode: str = 'online'
-    wandb_dir: str = '.'
-    wandb_group: str = '.'
-    checkpoint: bool = False
-    visualization_interval: int = 5
-
-    # Environment specific arguments
-    env_name: str = "ant"
-    episode_length: int = 1000
-    backend: Optional[str] = None
-    eval_env: Optional[str] = None
-    action_repeat: int = 1
-    num_eval_envs: int = 128
-    use_dense_reward: bool = False
-
-    # Algorithm specific arguments
-    total_env_steps: int = 50000000
-    num_evals: int = 50
-    num_envs: int = 1024
-    policy_lr: float = 3e-4
-    critic_lr: float = 3e-4
-    alpha_lr: float = 3e-4
-    batch_size: int = 256
-    discounting: float = 0.99
-    logsumexp_penalty_coeff: float = 0.1
-    train_step_multiplier: int = 1
-    use_her: bool = False
-    disable_entropy_actor: bool = False
-
-    max_replay_size: int = 10000
-    min_replay_size: int = 1000
-    unroll_length: int  = 62
-    h_dim: int = 256
-    n_hidden: int = 2
-    skip_connections: int = 4
-    use_relu: bool = False
-    repr_dim: int = 64
-    use_ln: bool = False
-
-    # to be filled in runtime
-    env_steps_per_actor_step : int = 0
-    """number of env steps per actor step (computed in runtime)"""
-    num_prefill_env_steps : int = 0
-    """number of env steps to fill the buffer before starting training (computed in runtime)"""
-    num_prefill_actor_steps : int = 0
-    """number of actor steps to fill the buffer before starting training (computed in runtime)"""
-    num_training_steps_per_epoch : int = 0
-    """the number of training steps per epoch(computed in runtime)"""
 
 class Encoder(nn.Module):
     repr_dim: int = 64
@@ -196,9 +141,8 @@ def save_params(path: str, params: Any):
     with epath.Path(path).open('wb') as fout:
         fout.write(pickle.dumps(params))
                    
-if __name__ == "__main__":
 
-    args = tyro.cli(Args)
+def train(args: Args):
 
     args.env_steps_per_actor_step = args.num_envs * args.unroll_length
     args.num_prefill_env_steps = args.min_replay_size * args.num_envs
@@ -216,7 +160,6 @@ if __name__ == "__main__":
             project=args.wandb_project_name,
             mode=args.wandb_mode,
             group=args.wandb_group,
-            dir=args.wandb_dir,
             config=vars(args),
             name=run_name,
             monitor_gym=True,
@@ -226,11 +169,6 @@ if __name__ == "__main__":
         if args.wandb_mode == 'offline':
             wandb_osh.set_log_level("ERROR")
             trigger_sync = TriggerWandbSyncHook()
-        
-    if args.checkpoint:
-        from pathlib import Path
-        save_path = Path(args.wandb_dir) / Path(run_name)
-        os.mkdir(path=save_path)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -530,20 +468,13 @@ if __name__ == "__main__":
 
         # process transitions for training
         batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
-        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))(
-            (args.discounting, state_size, tuple(env.goal_indices)), transitions, batch_keys
-        )  
+        transitions = jax.vmap(TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0))((args.discounting, state_size, tuple(env.goal_indices)), transitions, batch_keys)  
+        transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),transitions)
         
-        transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),
-            transitions,
-        )
+        # permute transitions
         permutation = jax.random.permutation(experience_key2, len(transitions.observation))
         transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
-        transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1, args.batch_size) + x.shape[1:]),
-            transitions,
-        )
+        transitions = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1, args.batch_size) + x.shape[1:]),transitions)
 
         # take actor-step worth of training-step
         (training_state, _,), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
@@ -610,11 +541,13 @@ if __name__ == "__main__":
         metrics = evaluator.run_evaluation(training_state, metrics)
 
         print(metrics)
+        if ne % args.visualization_interval == 0:
+            render_policy(training_state, args.run_dir, env, actor, eval_env_name, args.vis_length)
 
         if args.checkpoint:
             # Save current policy and critic params.
             params = (training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
-            path = f"{save_path}/step_{int(training_state.env_steps)}.pkl"
+            path = f"{args.ckpt_dir}/step_{int(training_state.env_steps)}.pkl"
             save_params(path, params)
         
         if args.log_wandb:
@@ -626,5 +559,5 @@ if __name__ == "__main__":
     if args.checkpoint:
         # Save current policy and critic params.
         params = (training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
-        path = f"{save_path}/final.pkl"
+        path = f"{args.ckpt_dir}/final.pkl"
         save_params(path, params)
