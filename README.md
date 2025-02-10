@@ -189,7 +189,11 @@ Reach out and start contributing or just add an Issue/PR!
     - [ ] Hanabi
     - [ ] Rubik's cube
     - [ ] Sokoban
- 
+
+To run tests (make sure you have access to GPU):
+```bash
+python -m pytest 
+```
 
 <h2 name="cite" id="cite">Citing JaxGCRL 📜 </h2>
 If you use JaxGCRL in your work, please cite us as follows:
