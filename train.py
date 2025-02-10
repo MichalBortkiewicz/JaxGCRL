@@ -36,24 +36,30 @@ class Args:
     wandb_dir: str = '.'
     wandb_group: str = '.'
     checkpoint: bool = False
+    visualization_interval: int = 5
 
     # Environment specific arguments
     env_name: str = "ant"
     episode_length: int = 1000
     backend: Optional[str] = None
     eval_env: Optional[str] = None
+    action_repeat: int = 1
+    num_eval_envs: int = 128
+    use_dense_reward: bool = False
 
     # Algorithm specific arguments
     total_env_steps: int = 50000000
-    num_epochs: int = 50
+    num_evals: int = 50
     num_envs: int = 1024
-    num_eval_envs: int = 128
     policy_lr: float = 3e-4
     critic_lr: float = 3e-4
     alpha_lr: float = 3e-4
     batch_size: int = 256
     discounting: float = 0.99
     logsumexp_penalty_coeff: float = 0.1
+    train_step_multiplier: int = 1
+    use_her: bool = False
+    disable_entropy_actor: bool = False
 
     max_replay_size: int = 10000
     min_replay_size: int = 1000
@@ -197,7 +203,7 @@ if __name__ == "__main__":
     args.env_steps_per_actor_step = args.num_envs * args.unroll_length
     args.num_prefill_env_steps = args.min_replay_size * args.num_envs
     args.num_prefill_actor_steps = np.ceil(args.min_replay_size / args.unroll_length)
-    args.num_training_steps_per_epoch = (args.total_env_steps - args.num_prefill_env_steps) // (args.num_epochs * args.env_steps_per_actor_step)
+    args.num_training_steps_per_epoch = (args.total_env_steps - args.num_prefill_env_steps) // (args.num_evals * args.env_steps_per_actor_step)
 
     run_name = f"{args.env_name}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
@@ -237,6 +243,19 @@ if __name__ == "__main__":
     env = envs.training.wrap(
         env,
         episode_length=args.episode_length,
+        action_repeat=args.action_repeat,
+    )
+
+    if not args.eval_env:
+        eval_env_name = args.env_name
+    else:
+        eval_env_name = args.eval_env
+    eval_env = create_env(eval_env_name)
+    eval_env = TrajectoryIdWrapper(eval_env)
+    eval_env = envs.training.wrap(
+        eval_env,
+        episode_length=args.episode_length,
+        action_repeat=args.action_repeat,
     )
 
     # Dimensions definitions and sanity checks
@@ -559,7 +578,7 @@ if __name__ == "__main__":
     '''Setting up evaluator'''
     evaluator = CrlEvaluator(
         deterministic_actor_step,
-        env,
+        eval_env,
         num_eval_envs=args.num_eval_envs,
         episode_length=args.episode_length,
         key=eval_env_key,
@@ -567,7 +586,7 @@ if __name__ == "__main__":
 
     training_walltime = 0
     print('starting training....')
-    for ne in range(args.num_epochs):
+    for ne in range(args.num_evals):
         
         t = time.time()
 
