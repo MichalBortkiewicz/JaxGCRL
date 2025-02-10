@@ -1,13 +1,14 @@
 import argparse
+from dataclasses import dataclass
 import os
 from collections import namedtuple
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import jax
 import math
 from brax.io import html
-
+import flax.linen as nn
 from matplotlib import pyplot as plt
 import wandb
 
@@ -31,58 +32,66 @@ from envs.ant_ball_maze import AntBallMaze
 from envs.simple_maze import SimpleMaze
 
 
-def create_parser():
-    """
-    Create an argument parser for training script.
+@dataclass
+class Args:
+    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+    seed: int = 1
+    cuda: bool = True
+    log_wandb: bool = True
+    wandb_project_name: str = "exploration"
+    wandb_mode: str = 'online'
+    wandb_group: str = '.'
+    checkpoint: bool = False
+    visualization_interval: int = 5
+    vis_length: int = 1000
 
-    This function sets up an argument parser to handle various training
-    parameters for a RL experiment.
+    # Environment specific arguments
+    env_name: str = "ant"
+    episode_length: int = 1000
+    backend: Optional[str] = None
+    eval_env: Optional[str] = None
+    action_repeat: int = 1
+    num_eval_envs: int = 128
+    use_dense_reward: bool = False
 
-    Returns:
-        argparse.ArgumentParser: The configured argument parser.
+    # Algorithm specific arguments
+    total_env_steps: int = 50000000
+    num_evals: int = 50
+    num_envs: int = 1024
+    policy_lr: float = 3e-4
+    critic_lr: float = 3e-4
+    alpha_lr: float = 3e-4
+    batch_size: int = 256
+    discounting: float = 0.99
+    logsumexp_penalty_coeff: float = 0.1
+    train_step_multiplier: int = 1
+    use_her: bool = False
+    disable_entropy_actor: bool = False
 
-    Args:
-        None
-    """
-    parser = argparse.ArgumentParser(description="Training script arguments")
-    parser.add_argument("--exp_name", type=str, default="test", help="Name of the wandb experiment")
-    parser.add_argument("--group_name", type=str, default="test", help="Name of the wandb group of experiment")
-    parser.add_argument("--project_name", type=str, default="crl", help="Name of the wandb project of experiment")
-    parser.add_argument("--num_timesteps", type=int, default=1000000, help="Number of training timesteps")
-    parser.add_argument("--max_replay_size", type=int, default=10000, help="Maximum size of replay buffer")
-    parser.add_argument("--min_replay_size", type=int, default=8192, help="Minimum size of replay buffer")
-    parser.add_argument("--num_evals", type=int, default=50, help="Total number of evaluations")
-    parser.add_argument("--episode_length", type=int, default=50, help="Maximum length of each episode")
-    parser.add_argument("--action_repeat", type=int, default=2, help="Number of times to repeat each action")
-    parser.add_argument("--discounting", type=float, default=0.997, help="Discounting factor for rewards")
-    parser.add_argument("--num_envs", type=int, default=256, help="Number of environments")
-    parser.add_argument("--num_eval_envs", type=int, default=256, help="Number of evaluation environments")
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
-    parser.add_argument("--seed", type=int, default=0, help="Seed for reproducibility")
-    parser.add_argument("--unroll_length", type=int, default=50, help="Length of the env unroll")
-    parser.add_argument("--train_step_multiplier", type=int, default=1, help="Multiplier of total number of gradient steps resulting from other args.",)
-    parser.add_argument("--env_name", type=str, default="reacher", help="Name of the environment to train on")
-    parser.add_argument("--log_wandb", default=False, action="store_true", help="Whether to log to wandb")
-    parser.add_argument('--policy_lr', type=float, default=3e-4, help="Learning rate for policy network")
-    parser.add_argument('--alpha_lr', type=float, default=3e-4, help="Learning rate for entropy coefficient (alpha)")
-    parser.add_argument('--critic_lr', type=float, default=3e-4, help="Learning rate for critic network")
-    parser.add_argument('--contrastive_loss_fn', type=str, default='symmetric_infonce', help="Name of the contrastive loss function")
-    parser.add_argument('--energy_fn', type=str, default='l2', help="Function to calculate energy")
-    parser.add_argument('--backend', type=str, default=None, help="Backend to be used for the environment")
-    parser.add_argument('--no_resubs', default=False, action='store_true', help="Not use resubstitution (diagonal) for logsumexp in contrastive cross entropy")
-    parser.add_argument('--use_ln', default=False, action='store_true', help="Whether to use layer normalization for preactivations in hidden layers")
-    parser.add_argument('--logsumexp_penalty', type=float, default=0.0, help="Penalty for logsumexp in contrastive loss")
-    parser.add_argument('--l2_penalty', type=float, default=0.0, help="L2 penalty for regularization")
-    parser.add_argument('--random_goals', type=float, default=0.0, help="Propotion of random goals to use in the actor loss")
-    parser.add_argument('--disable_entropy_actor', default=False, action="store_true", help="Whether to disable entropy in actor")
-    parser.add_argument('--eval_env', type=str, default=None, help="Whether to use separate environment for evaluation")
-    parser.add_argument("--h_dim", type=int, default=256, help="Width of hidden layers")
-    parser.add_argument("--n_hidden", type=int, default=2, help="Number of hidden layers")
-    parser.add_argument('--repr_dim', type=int, default=64, help="Dimension of the representation")
-    parser.add_argument('--use_dense_reward', default=False, action="store_true", help="Whether to use sparse reward in env")
-    parser.add_argument('--use_her', default=False, action="store_true", help="Whether to use HER for SAC")
-    parser.add_argument('--visualization_interval', type=int, default=5, help="Number of evals between each visualization of trajectories")
-    return parser
+    max_replay_size: int = 10000
+    min_replay_size: int = 1000
+    unroll_length: int  = 62
+    h_dim: int = 256
+    n_hidden: int = 2
+    skip_connections: int = 4
+    use_relu: bool = False
+    repr_dim: int = 64
+    use_ln: bool = False
+
+    # to be filled in runtime
+    env_steps_per_actor_step : int = 0
+    """number of env steps per actor step (computed in runtime)"""
+    num_prefill_env_steps : int = 0
+    """number of env steps to fill the buffer before starting training (computed in runtime)"""
+    num_prefill_actor_steps : int = 0
+    """number of actor steps to fill the buffer before starting training (computed in runtime)"""
+    num_training_steps_per_epoch : int = 0
+    """the number of training steps per epoch(computed in runtime)"""
+    run_dir: str = ''
+    """the directory to save the run"""
+    ckpt_dir: str = ''
+    """the directory to save the checkpoints"""
+    utd_ratio: float = 0
 
 
 def create_env(env_name: str, backend: str = None, **kwargs) -> object:
@@ -222,12 +231,12 @@ class MetricsRecorder:
     and the metrics to be collected.
 
     Parameters:
-    num_timesteps (int): The maximum number of timesteps for recording metrics.
+    total_env_steps (int): The maximum number of timesteps for recording metrics.
     metrics_to_collect (List[str]): List of metric names that are to be collected.
     exp_dir (str): Directory to save renders to.
     exp_name (str): Experiment name for naming rendered trajectory visualizations.
     """
-    def __init__(self, num_timesteps: int, metrics_to_collect: List[str], exp_dir, exp_name):
+    def __init__(self, total_env_steps: int, metrics_to_collect: List[str], exp_dir, exp_name):
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
@@ -236,7 +245,7 @@ class MetricsRecorder:
         self.exp_dir = exp_dir
         self.exp_name = exp_name
 
-        self.max_x, self.min_x = num_timesteps * 1.1, 0
+        self.max_x, self.min_x = total_env_steps * 1.1, 0
 
     def record(self, num_steps, metrics):
         self.times.append(datetime.now())
@@ -359,3 +368,36 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})
+
+
+
+def render_policy(training_state, save_path, env, actor, eval_env_name, vis_length):
+    """Renders the policy and saves it as an HTML file."""
+
+    # JIT compile the rollout function
+    @jax.jit
+    def policy_step(env_state, actor_params):
+        means, _ = actor.apply(actor_params, env_state.obs)
+        actions = nn.tanh(means)
+        next_state = env.step(env_state, actions)
+        return next_state, env_state  # Return current state for visualization
+
+    rollout_states = []
+    for i in range(10):
+        env = create_env(eval_env_name)
+
+        # Initialize environment
+        rng = jax.random.PRNGKey(seed=i + 1)
+        env_state = jax.jit(env.reset)(rng)
+
+        # Collect rollout using jitted function
+        for _ in range(vis_length):
+            env_state, current_state = policy_step(env_state, training_state.actor_state.params)
+            rollout_states.append(current_state.pipeline_state)
+
+    # Render and save
+    html_string = html.render(env.sys, rollout_states)
+    render_path = f"{save_path}/vis.html"
+    with open(render_path, "w") as f:
+        f.write(html_string)
+    wandb.log({"vis": wandb.Html(html_string)})

@@ -31,8 +31,6 @@ from brax.training.replay_buffers_test import jit_wrap
 from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
-from brax.training.agents.sac import losses as sac_losses
-from brax.training.agents.sac import networks as sac_networks
 from brax.training.acme.types import NestedArray
 from brax.training.types import Params, Policy
 from brax.training.types import PRNGKey
@@ -43,14 +41,21 @@ import jax.numpy as jnp
 import optax
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import CrlEvaluator
+from src.evaluator import BaselineEvaluator
 from src.replay_buffer import QueueBase, Sample
+from src.baselines.td3 import networks as networks
+from src.baselines.td3 import losses as losses
 
 Metrics = types.Metrics
 # Transition = types.Transition
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
 
+
+def soft_update(target_params: Params, online_params: Params, tau) -> Params:
+    return jax.tree_util.tree_map(
+        lambda x, y: (1 - tau) * x + tau * y, target_params, online_params
+    )
 
 class Transition(NamedTuple):
     """Container for a transition."""
@@ -186,13 +191,12 @@ class TrainingState:
 
     policy_optimizer_state: optax.OptState
     policy_params: Params
+    target_policy_params: Params
     q_optimizer_state: optax.OptState
     q_params: Params
     target_q_params: Params
     gradient_steps: jnp.ndarray
     env_steps: jnp.ndarray
-    alpha_optimizer_state: optax.OptState
-    alpha_params: Params
     normalizer_params: running_statistics.RunningStatisticsState
 
 
@@ -204,19 +208,16 @@ def _init_training_state(
     key: PRNGKey,
     obs_size: int,
     local_devices_to_use: int,
-    sac_network: sac_networks.SACNetworks,
-    alpha_optimizer: optax.GradientTransformation,
+    td3_network: networks.TD3Networks,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
     """Inits the training state and replicates it over devices."""
     key_policy, key_q = jax.random.split(key)
-    log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
-    alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
-    policy_params = sac_network.policy_network.init(key_policy)
+    policy_params = td3_network.policy_network.init(key_policy)
     policy_optimizer_state = policy_optimizer.init(policy_params)
-    q_params = sac_network.q_network.init(key_q)
+    q_params = td3_network.q_network.init(key_q)
     q_optimizer_state = q_optimizer.init(q_params)
 
     normalizer_params = running_statistics.init_state(specs.Array((obs_size,), jnp.dtype("float32")))
@@ -224,13 +225,12 @@ def _init_training_state(
     training_state = TrainingState(
         policy_optimizer_state=policy_optimizer_state,
         policy_params=policy_params,
+        target_policy_params=policy_params,
         q_optimizer_state=q_optimizer_state,
         q_params=q_params,
         target_q_params=q_params,
         gradient_steps=jnp.zeros(()),
         env_steps=jnp.zeros(()),
-        alpha_optimizer_state=alpha_optimizer_state,
-        alpha_params=log_alpha,
         normalizer_params=normalizer_params,
     )
     return jax.device_put_replicated(training_state, jax.local_devices()[:local_devices_to_use])
@@ -238,12 +238,12 @@ def _init_training_state(
 
 def train(
     environment: Union[envs_v1.Env, envs.Env],
-    num_timesteps,
+    total_env_steps,
     episode_length: int,
     action_repeat: int = 1,
     num_envs: int = 1,
     num_eval_envs: int = 128,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 3e-4,
     discounting: float = 0.9,
     seed: int = 0,
     batch_size: int = 256,
@@ -255,17 +255,21 @@ def train(
     min_replay_size: int = 0,
     max_replay_size: Optional[int] = None,
     deterministic_eval: bool = False,
-    network_factory: types.NetworkFactory[sac_networks.SACNetworks] = sac_networks.make_sac_networks,
+    network_factory: types.NetworkFactory[networks.TD3Networks] = networks.make_td3_networks,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     train_step_multiplier: int = 1,
     unroll_length: int = 50,
     config: NamedTuple = None,
     checkpoint_logdir: Optional[str] = None,
     eval_env: Optional[envs.Env] = None,
+    policy_delay: int = 2,
+    noise_clip: int = 0.5,
+    smoothing_noise: int = 0.2,
+    exploration_noise: float = 0.4,
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
     visualization_interval: int = 5,
 ):
-    """SAC training."""
+    """TD3 training."""
     process_id = jax.process_index()
     local_devices_to_use = jax.local_device_count()
     if max_devices_per_host is not None:
@@ -273,25 +277,25 @@ def train(
     device_count = local_devices_to_use * jax.process_count()
     logging.info("local_device_count: %s; total_device_count: %s", local_devices_to_use, device_count)
 
-    if min_replay_size >= num_timesteps:
-        raise ValueError("No training will happen because min_replay_size >= num_timesteps")
+    if min_replay_size >= total_env_steps:
+        raise ValueError("No training will happen because min_replay_size >= total_env_steps")
 
     if max_replay_size is None:
-        max_replay_size = num_timesteps
+        max_replay_size = total_env_steps
 
     # The number of environment steps executed for every `actor_step()` call.
     env_steps_per_actor_step = action_repeat * num_envs * unroll_length
     num_prefill_actor_steps = min_replay_size // unroll_length + 1
     print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
-    assert num_timesteps - min_replay_size >= 0
+    assert total_env_steps - min_replay_size >= 0
     num_evals_after_init = max(num_evals - 1, 1)
     # The number of epoch calls per training
     # equals to
-    # ceil(num_timesteps - num_prefill_env_steps /
+    # ceil(total_env_steps - num_prefill_env_steps /
     #      (num_evals_after_init * env_steps_per_actor_step))
     num_training_steps_per_epoch = -(
-        -(num_timesteps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
+        -(total_env_steps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
     )
 
     assert num_envs % device_count == 0
@@ -324,12 +328,11 @@ def train(
     normalize_fn = lambda x, y: x
     if normalize_observations:
         normalize_fn = running_statistics.normalize
-    sac_network = network_factory(
+    td3_network = network_factory(
         observation_size=obs_size, action_size=action_size, preprocess_observations_fn=normalize_fn
     )
-    make_policy = sac_networks.make_inference_fn(sac_network)
+    make_policy = networks.make_inference_fn(td3_network)
 
-    alpha_optimizer = optax.adam(learning_rate=3e-4)
 
     policy_optimizer = optax.adam(learning_rate=learning_rate)
     q_optimizer = optax.adam(learning_rate=learning_rate)
@@ -360,12 +363,10 @@ def train(
         )
     )
 
-    alpha_loss, critic_loss, actor_loss = sac_losses.make_losses(
-        sac_network=sac_network, reward_scaling=reward_scaling, discounting=discounting, action_size=action_size
+    critic_loss, actor_loss = losses.make_losses(
+        td3_network=td3_network, reward_scaling=reward_scaling, discounting=discounting, smoothing=0.2, noise_clip=0.5,
     )
-    alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-    )
+
     critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
         critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
     )
@@ -378,58 +379,61 @@ def train(
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
-        key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
+        key, key_critic, key_actor = jax.random.split(key, 3)
 
-        alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
-            training_state.alpha_params,
-            training_state.policy_params,
-            training_state.normalizer_params,
-            transitions,
-            key_alpha,
-            optimizer_state=training_state.alpha_optimizer_state,
-        )
-        alpha = jnp.exp(training_state.alpha_params)
         critic_loss, q_params, q_optimizer_state = critic_update(
             training_state.q_params,
-            training_state.policy_params,
-            training_state.normalizer_params,
             training_state.target_q_params,
-            alpha,
+            training_state.target_policy_params,
+            training_state.normalizer_params,
             transitions,
             key_critic,
             optimizer_state=training_state.q_optimizer_state,
         )
         actor_loss, policy_params, policy_optimizer_state = actor_update(
             training_state.policy_params,
-            training_state.normalizer_params,
             training_state.q_params,
-            alpha,
+            training_state.normalizer_params,
             transitions,
-            key_actor,
             optimizer_state=training_state.policy_optimizer_state,
         )
 
-        new_target_q_params = jax.tree_util.tree_map(
-            lambda x, y: x * (1 - tau) + y * tau, training_state.target_q_params, q_params
-        )
+        def dont_policy_update(training_state):
+            return (0.0, training_state.policy_params, training_state.policy_optimizer_state,
+                    training_state.target_q_params, training_state.target_policy_params)
+
+        def do_policy_update(training_state):
+            actor_loss, policy_params, policy_optimizer_state = actor_update(
+                training_state.policy_params,
+                training_state.q_params,
+                training_state.normalizer_params,
+                transitions,
+                optimizer_state=training_state.policy_optimizer_state,
+            )
+            new_target_q_params = soft_update(training_state.target_q_params, q_params, tau)
+            new_target_policy_params = soft_update(training_state.policy_params, policy_params, tau)
+            return (actor_loss, policy_params, policy_optimizer_state,
+                    new_target_q_params, new_target_policy_params)
+
+        update_policy = training_state.gradient_steps % policy_delay == 0
+        (actor_loss, policy_params,
+         policy_optimizer_state, new_target_q_params, new_target_policy_params)\
+            = jax.lax.cond(update_policy, do_policy_update, dont_policy_update, training_state)
 
         metrics = {
             "critic_loss": critic_loss,
             "actor_loss": actor_loss,
-            "alpha_loss": alpha_loss,
-            "alpha": jnp.exp(alpha_params),
         }
 
         new_training_state = TrainingState(
             policy_optimizer_state=policy_optimizer_state,
             policy_params=policy_params,
+            target_policy_params=new_target_policy_params,
             q_optimizer_state=q_optimizer_state,
             q_params=q_params,
             target_q_params=new_target_q_params,
             gradient_steps=training_state.gradient_steps + 1,
             env_steps=training_state.env_steps,
-            alpha_optimizer_state=alpha_optimizer_state,
-            alpha_params=alpha_params,
             normalizer_params=training_state.normalizer_params,
         )
         return (new_training_state, key), metrics
@@ -445,7 +449,7 @@ def train(
         Union[envs.State, envs_v1.State],
         ReplayBufferState,
     ]:
-        policy = make_policy((normalizer_params, policy_params))
+        policy = make_policy((normalizer_params, policy_params), exploration_noise=exploration_noise, noise_clip=noise_clip)
 
         @jax.jit
         def f(carry, unused_t):
@@ -622,8 +626,7 @@ def train(
         key=global_key,
         obs_size=obs_size,
         local_devices_to_use=local_devices_to_use,
-        sac_network=sac_network,
-        alpha_optimizer=alpha_optimizer,
+        td3_network=td3_network,
         policy_optimizer=policy_optimizer,
         q_optimizer=q_optimizer,
     )
@@ -651,9 +654,9 @@ def train(
         randomization_fn=v_randomization_fn,
     )
 
-    evaluator = CrlEvaluator(
+    evaluator = BaselineEvaluator(
         eval_env,
-        functools.partial(make_policy, deterministic=deterministic_eval),
+        functools.partial(make_policy, exploration_noise=0, noise_clip=0, deterministic=deterministic_eval),
         num_eval_envs=num_eval_envs,
         episode_length=episode_length,
         action_repeat=action_repeat,
@@ -699,7 +702,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy.
                 params = _unpmap((training_state.normalizer_params, training_state.policy_params))
-                path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
+                path = f"{checkpoint_logdir}_td3_{current_step}.pkl"
                 model.save_params(path, params)
 
             # Run evals.
@@ -710,8 +713,9 @@ def train(
             do_render = (eval_epoch_num % visualization_interval) == 0
             progress_fn(current_step, metrics, make_policy, _unpmap((training_state.normalizer_params, training_state.policy_params)), unwrapped_env, do_render)
 
+
     total_steps = current_step
-    assert total_steps >= num_timesteps
+    assert total_steps >= total_env_steps
 
     params = _unpmap((training_state.normalizer_params, training_state.policy_params))
 

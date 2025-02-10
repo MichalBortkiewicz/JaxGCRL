@@ -20,9 +20,12 @@ dependencies:
   - pip
   - pip:
     - nvidia-cudnn-cu12==8.9.7.29
-    - brax==0.10.5
-    - mujoco==3.2.3
-    - mujoco-mjx==3.2.3
+    - brax==0.12.1
+    - mujoco==3.2.7
+    - mujoco-mjx==3.2.7
     - stack-data==0.6.3
+    - nvidia-cufft-cu12==11.2.0.44
+    - nvidia-cusolver-cu12==11.6.0.99
+    - nvidia-cuda-cupti-cu12==12.4.99
     - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

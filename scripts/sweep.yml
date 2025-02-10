@@ -28,7 +28,7 @@ command:
   - "1000"
   - "--num_envs"
   - "1024"
-  - "--num_timesteps"
+  - "--total_env_steps"
   - "50000000"
   - "--num_evals"
   - "500"
