@@ -197,7 +197,7 @@ Reach out and start contributing or just add an Issue/PR!
     - [ ] Rubik's cube
     - [ ] Sokoban
 
-To run tests (make sure you have access to GPU):
+To run tests (make sure you have access to a GPU):
 ```bash
 python -m pytest 
 ```
