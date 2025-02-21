@@ -9,6 +9,11 @@ theme:
   features:
     - content.code.copy
     - navigation.sections
+    - navigation.tracking
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
 
 plugins:
   - search
