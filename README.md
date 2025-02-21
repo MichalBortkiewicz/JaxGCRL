@@ -23,7 +23,7 @@
 
 <br/>
 
-# Accelerating Goal-Conditioned RL Algorithms and Research
+## Accelerating Goal-Conditioned RL Algorithms and Research
 
 We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
