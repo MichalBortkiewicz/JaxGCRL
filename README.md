@@ -8,20 +8,27 @@
         <img src="https://img.shields.io/badge/license-Apache2.0-blue.svg" /></a>
     <a href= "https://michalbortkiewicz.github.io/JaxGCRL/">
         <img src="https://img.shields.io/badge/docs-green" /></a>
+    <a href= "https://michalbortkiewicz.github.io/JaxGCRL/">
+        <img src="https://img.shields.io/badge/website-purple" /></a>
 </p>
 
 
-<p align="center"><img src="imgs/grid.png" width=80%></p>
+<p align="center"><img src="imgs/grid_transparent.png" width=85%></p>
+
+<center>
 
 [**Installation**](#Installation) | [**Quick Start**](#start) | [**Environments**](#envs) | [**Baselines**](#baselines) | [**Citation**](#cite)
----
+
+</center>
+
+<br/>
 
 ## Accelerating Goal-Conditioned RL Algorithms and Research
 
 We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
-- **Blazing Fast Training** - Train 10 million environment steps in 10 
+- **Blazingly Fast Training** - Train 10 million environment steps in 10 
   minutes on a single GPU, up to 22$\times$ faster than prior implementations.
 - **Comprehensive Benchmarking** - Includes 10+ diverse environments and multiple pre-implemented baselines for out-of-the-box evaluation.
 - **Modular Implementation** - Designed for clarity and scalability, 
@@ -29,22 +36,22 @@ quick experimentation with goal-conditioned self-supervised reinforcement learni
 
 
 ## Installation 📂
-The entire process of installing the benchmark is just one step using the conda `environment.yml` file.
+The environment can be set up from the `environment.yml` file.
 ```bash
 conda env create -f environment.yml
 ```
 
 <h3 name="start" id="start">Quick Start 🚀 </h3>
 
-To check whether installation worked, run a test experiment using `./scripts/train.sh` file:
+To verify the installation, run a test experiment using the `./scripts/train.sh` file:
 
 ```bash
 chmod +x ./scripts/train.sh; ./scripts/train.sh
 ```
 > [!NOTE]  
-> If you haven't configured yet [`wandb`](https://wandb.ai/site), you might be prompted to log in.
+> If you haven't yet configured [`wandb`](https://wandb.ai/site), you may be prompted to log in.
 
-To run experiments of interest, change `scripts/train.sh`; descriptions of flags are in `utils.py:create_parser()`. Common flags you may want to change:
+Specific configs can be specified as in `scripts/train.sh`. The descriptions of the available flags are in `utils.py:create_parser()`. Common flags you may want to change include:
 - **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
 - Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
 - **--num_timesteps**: shorter or longer runs.
@@ -53,7 +60,7 @@ To run experiments of interest, change `scripts/train.sh`; descriptions of flags
 
 ### Environment Interaction
 
-This section demonstrates how to interact with the environment using the `reset` and `step` functions. The environment returns a state object, which is a dataclass containing the following fields:
+Environments can be controlled with the `reset` and `step` functions. These methods return a state object, which is a dataclass containing the following fields:
 
 `state.pipeline_state`: current, internal state of the environment\
 `state.obs`: current observation\
@@ -92,24 +99,23 @@ for _ in range(NUM_STEPS):
 ```
 
 ### Wandb support 📈
-We highly recommend using Wandb for tracking and visualizing your results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. Additionally, you can organize experiments with the following flags:
+We strongly recommend using Wandb for tracking and visualizing results ([Wandb support](##wandb-support)). Enable Wandb logging with the `--log_wandb` flag. The following flags are also available to organize experiments:
 - `--project_name`
 - `--group_name`
 - `--exp_name`
 
-Logging to W&B happens when the `--log_wandb` flag is used when it's not used, metrics are logging to CSV file.
+The `--log_wandb` flag logs metrics to Wandb. By default, metrics are logged to a CSV.
 
-1. Run exemplary [`sweep`](https://docs.wandb.ai/guides/sweeps):
+1. Run example [`sweep`](https://docs.wandb.ai/guides/sweeps):
 ```bash
 wandb sweep --project exemplary_sweep ./scripts/sweep.yml
 ```
-2. Then run wandb agent with :
+2. Then run `wandb agent` with :
 ```
 wandb agent <previous_command_output>
 ```
 
-
-Besides logging the metrics, we also render final policy to `wandb` artifacts. 
+We also render videos of the learned policies as `wandb` artifacts. 
 
 <p align="center">
   <img src="imgs/wandb.png" width=55% />
@@ -118,28 +124,28 @@ Besides logging the metrics, we also render final policy to `wandb` artifacts.
 
 <h2 name="envs" id="envs">Environments 🌎</h2>
 
-We currently support a number of continuous control environments:
+We currently support a variety of continuous control environments:
 - Locomotion: Half-Cheetah, Ant, Humanoid
 - Locomotion + task: AntMaze, AntBall (AntSoccer), AntPush, HumanoidMaze
 - Simple arm: Reacher, Pusher, Pusher 2-object
 - Manipulation: Reach, Grasp, Push (easy/hard), Binpick (easy/hard)
 
 
-| Environment   |                                Env name                                |                      Code                       |
-|:--------------|:----------------------------------------------------------------------:|:-----------------------------------------------:|
-| Reacher       |                               `reacher`                                |            [link](./envs/reacher.py)            |
-| Half Cheetah  |                               `cheetah`                                |         [link](./envs/half_cheetah.py)          |
-| Pusher        |                    `pusher_easy` <br> `pusher_hard`                    |            [link](./envs/pusher.py)             |
-| Ant           |                                 `ant`                                  |              [link](./envs/ant.py)              |
-| Ant Maze      |        `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`        |           [link](./envs/ant_maze.py)            |
-| Ant Soccer    |                               `ant_ball`                               |           [link](./envs/ant_ball.py)            |
-| Ant Push      |                               `ant_push`                               |           [link](./envs/ant_push.py)            |
-| Humanoid      |                               `humanoid`                               |           [link](./envs/humanoid.py)            |
-| Humanoid Maze | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze` |         [link](./envs/humanoid_maze.py)         |
-| Arm Reach     |                              `arm_reach`                               |    [link](./envs/manipulation/arm_reach.py)     |
-| Arm Grasp     |                              `arm_grasp`                               |    [link](./envs/manipulation/arm_grasp.py)     |
-| Arm Push      |                  `arm_push_easy` <br> `arm_push_hard`                  |  [link](./envs/manipulation/arm_push_easy.py)   |
-| Arm Binpick   |             `arm_binpick_easy` <br> `arm_binpick_hard`             | [link](./envs/manipulation/arm_binpick_easy.py) |
+| Environment     | Env name                                                                 | Code                                              |
+| :-------------- | :----------------------------------------------------------------------: | :-----------------------------------------------: |
+| Reacher         | `reacher`                                                                | [link](./envs/reacher.py)                         |
+| Half Cheetah    | `cheetah`                                                                | [link](./envs/half_cheetah.py)                    |
+| Pusher          | `pusher_easy` <br> `pusher_hard`                                         | [link](./envs/pusher.py)                          |
+| Ant             | `ant`                                                                    | [link](./envs/ant.py)                             |
+| Ant Maze        | `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`                 | [link](./envs/ant_maze.py)                        |
+| Ant Soccer      | `ant_ball`                                                               | [link](./envs/ant_ball.py)                        |
+| Ant Push        | `ant_push`                                                               | [link](./envs/ant_push.py)                        |
+| Humanoid        | `humanoid`                                                               | [link](./envs/humanoid.py)                        |
+| Humanoid Maze   | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze`   | [link](./envs/humanoid_maze.py)                   |
+| Arm Reach       | `arm_reach`                                                              | [link](./envs/manipulation/arm_reach.py)          |
+| Arm Grasp       | `arm_grasp`                                                              | [link](./envs/manipulation/arm_grasp.py)          |
+| Arm Push        | `arm_push_easy` <br> `arm_push_hard`                                     | [link](./envs/manipulation/arm_push_easy.py)      |
+| Arm Binpick     | `arm_binpick_easy` <br> `arm_binpick_hard`                               | [link](./envs/manipulation/arm_binpick_easy.py)   |
 
 To add new environments: add an XML to `envs/assets`, add a python environment file in `envs`, and register the environment name in `utils.py`.
 
@@ -158,7 +164,8 @@ We currently support following algorithms:
 
 
 ## Code Structure 📝
-We summarize the most important elements of the code structure, for users wanting to understand the implementation specifics or modify the code:
+
+The core structure of the codebase is as follows:
 
 <pre><code>
 ├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
@@ -166,15 +173,15 @@ We summarize the most important elements of the code structure, for users wantin
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
 ├── <b>envs:</b> Environments (python files and XMLs)
-│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here
-│   ├── <b>assets:</b> Contains XMLs for environments
-│   └── <b>manipulation:</b> Contains all manipulation environments
-├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters
+│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here.
+│   ├── <b>assets:</b> Contains XMLs for environments.
+│   └── <b>manipulation:</b> Contains all manipulation environments.
+├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
 ├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
 └── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
 </code></pre>
 
-To modify the architecture: modify `networks.py`.
+The architecture can be adjusted in `networks.py`.
 
 
 ## Contributing 🏗️
@@ -190,7 +197,7 @@ Reach out and start contributing or just add an Issue/PR!
     - [ ] Rubik's cube
     - [ ] Sokoban
 
-To run tests (make sure you have access to GPU):
+To run tests (make sure you have access to a GPU):
 ```bash
 python -m pytest 
 ```
@@ -198,12 +205,15 @@ python -m pytest
 <h2 name="cite" id="cite">Citing JaxGCRL 📜 </h2>
 If you use JaxGCRL in your work, please cite us as follows:
 
-```
-@article{bortkiewicz2024accelerating,
-  title   = {Accelerating Goal-Conditioned RL Algorithms and Research},
-  author  = {Michał Bortkiewicz and Władek Pałucki and Vivek Myers and Tadeusz Dziarmaga and Tomasz Arczewski and Łukasz Kuciński and Benjamin Eysenbach},
-  year    = {2024},
-  journal = {arXiv preprint arXiv: 2408.11052}
+```bibtex
+@inproceedings{bortkiewicz2025accelerating,
+    author    = {Bortkiewicz, Micha\l{} and Pa\l{}ucki, W\l{}adek and Myers, Vivek and
+                 Dziarmaga, Tadeusz and Arczewski, Tomasz and Kuci\'{n}ski, \L{}ukasz and
+                 Eysenbach, Benjamin},
+    booktitle = {{International Conference} on {Learning Representations}},
+    title     = {{Accelerating Goal-Conditioned RL Algorithms} and {Research}},
+    url       = {https://arxiv.org/pdf/2408.11052},
+    year      = {2025},
 }
 ```
 
@@ -228,3 +238,4 @@ JAX-native environments:
 - [XLand-MiniGrid](https://github.com/corl-team/xland-minigrid): Meta-RL gridworld environments inspired by XLand and MiniGrid.
 - [Craftax](https://github.com/MichaelTMatthews/Craftax): (Crafter + NetHack) in JAX.
 - [JaxMARL](https://github.com/FLAIROx/JaxMARL): Multi-agent RL in Jax.
+
