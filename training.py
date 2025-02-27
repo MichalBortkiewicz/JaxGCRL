@@ -3,114 +3,50 @@ import json
 import os
 import pickle
 
+import tyro
 import wandb
 from brax.io import model
 from pyinstrument import Profiler
 
 
 from src.train import train
-from utils import MetricsRecorder, get_env_config, create_env, create_eval_env, create_parser, render
+from utils import Args
 
 
-def main(args):
+def main(args: Args):
+    """Main function for training and evaluation.
+
+    Sets up directories, initializes logging, runs training, and saves results.
+
+    Args:
+        args: Command-line arguments for configuring the training run.
+            Contains parameters for model architecture, training hyperparameters,
+            logging settings, etc.
+
+    Creates the following directory structure:
+        ./runs/
+            run_{name}_s_{seed}/  # Run-specific directory
+                args.pkl          # Saved command-line arguments
+                ckpt/            # Model checkpoints
+    Initializes wandb logging if enabled. Runs training with profiling and
+    saves profiling results.
     """
-    Main function orchestrating the overall setup, initialization, and execution
-    of training and evaluation processes. This function performs the following:
-    1. Environment setup
-    2. Directory creation for logging and checkpoints
-    3. Training function creation
-    4. Metrics recording
-    5. Progress logging and monitoring
-    6. Model saving and inference
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments specifying configuration parameters for the
-        training and evaluation processes.
-
-    """
-
-    env = create_env(**vars(args))
-    eval_env = create_eval_env(args)
-    config = get_env_config(args)
-
 
     os.makedirs('./runs', exist_ok=True)
-    run_dir = './runs/run_{name}_s_{seed}'.format(name=args.exp_name, seed=args.seed)
+    run_dir = f'./runs/run_{args.exp_name}_s_{args.seed}'
     ckpt_dir = run_dir + '/ckpt'
+    args.run_dir = run_dir
+    args.ckpt_dir = ckpt_dir
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(ckpt_dir, exist_ok=True)
     with open(run_dir + '/args.pkl', 'wb') as f:
         pickle.dump(args, f)
 
-    train_fn = functools.partial(
-        train,
-        num_timesteps=args.num_timesteps,
-        max_replay_size=args.max_replay_size,
-        min_replay_size=args.min_replay_size,
-        num_evals=args.num_evals,
-        episode_length=args.episode_length,
-        action_repeat=args.action_repeat,
-        policy_lr=args.policy_lr,
-        critic_lr=args.critic_lr,
-        alpha_lr=args.alpha_lr,
-        contrastive_loss_fn=args.contrastive_loss_fn,
-        energy_fn=args.energy_fn,
-        logsumexp_penalty=args.logsumexp_penalty,
-        l2_penalty=args.l2_penalty,
-        resubs=not args.no_resubs,
-        num_envs=args.num_envs,
-        num_eval_envs=args.num_eval_envs,
-        batch_size=args.batch_size,
-        seed=args.seed,
-        unroll_length=args.unroll_length,
-        train_step_multiplier=args.train_step_multiplier,
-        config=config,
-        checkpoint_logdir=ckpt_dir,
-        eval_env=eval_env,
-        use_ln=args.use_ln,
-        h_dim=args.h_dim,
-        n_hidden=args.n_hidden,
-        repr_dim=args.repr_dim,
-        visualization_interval=args.visualization_interval,
-    )
+    train(args)
 
-    metrics_to_collect = [
-        "eval/episode_success",
-        "eval/episode_success_any",
-        "eval/episode_success_hard",
-        "eval/episode_success_easy",
-        "eval/episode_dist",
-        "eval/episode_reward_survive",
-        "training/crl_critic_loss",
-        "training/actor_loss",
-        "training/binary_accuracy",
-        "training/categorical_accuracy",
-        "training/logits_pos",
-        "training/logits_neg",
-        "training/logsumexp",
-        "training/sps",
-        "training/entropy",
-        "training/alpha",
-        "training/alpha_loss",
-        "training/entropy",
-        "training/sa_repr_mean",
-        "training/g_repr_mean",
-        "training/sa_repr_std",
-        "training/g_repr_std",
-        "training/l_align",
-        "training/l_unif",
-    ]
-
-    metrics_recorder = MetricsRecorder(args.num_timesteps, metrics_to_collect, run_dir, args.exp_name)
-
-    make_policy, params, _ = train_fn(environment=env, progress_fn=metrics_recorder.progress)
-    model.save_params(ckpt_dir + '/final', params)
 
 if __name__ == "__main__":
-    parser = create_parser()
-    args = parser.parse_args()
+    args = tyro.cli(Args)
 
     print("Arguments:")
     print(
@@ -118,24 +54,16 @@ if __name__ == "__main__":
             vars(args), sort_keys=True, indent=4
         )
     )
+
+    # NOTE: if you want to modify the utd_ratio, you can modify training_step method in src/train.py
+    # For default args utd = 1024*999/256/1024/62 =~ 0.063
     utd_ratio = (
         args.num_envs
-        * args.episode_length
-        * args.train_step_multiplier
+        * (args.episode_length-1)
         / args.batch_size
     ) / (args.num_envs * args.unroll_length)
-    print(f"Updates per environment step: {utd_ratio}")
     args.utd_ratio = utd_ratio
+    print(f"Updates per environment step: {utd_ratio}")
+    assert args.num_envs* (args.episode_length-1)%args.batch_size == 0, "Can't divide envs*episode_length-1 by batch_size - modify these parameters"
 
-    wandb.init(
-        project=args.project_name,
-        group=args.group_name,
-        name=args.exp_name,
-        config=vars(args),
-        mode="online" if args.log_wandb else "disabled",
-    )
-
-    with Profiler(interval=0.1) as profiler:
-        main(args)
-    profiler.print()
-    profiler.open_in_browser()
+    main(args)

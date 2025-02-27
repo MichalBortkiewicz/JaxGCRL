@@ -54,7 +54,7 @@ chmod +x ./scripts/train.sh; ./scripts/train.sh
 Specific configs can be specified as in `scripts/train.sh`. The descriptions of the available flags are in `utils.py:create_parser()`. Common flags you may want to change include:
 - **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
 - Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
-- **--num_timesteps**: shorter or longer runs.
+- **--total_env_steps**: shorter or longer runs.
 - **--num_envs**: based on how many environments your GPU memory allows.
 - **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 

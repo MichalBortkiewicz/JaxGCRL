@@ -9,13 +9,13 @@ import jax.numpy as jnp
 from brax.training import types
 from brax.training.types import Params
 from brax.training.types import PRNGKey
-from src.baselines.td3 import td3_networks
+from src.baselines.td3 import networks
 
 Transition = types.Transition
 
 
 def make_losses(
-        td3_network: td3_networks.TD3Networks,
+        td3_network: networks.TD3Networks,
         reward_scaling: float,
         discounting: float,
         smoothing: float,
