@@ -8,6 +8,7 @@ from typing import List
 import flax.linen as nn
 import jax
 import wandb_osh
+from absl import logging
 from brax.io import html
 from matplotlib import pyplot as plt
 from wandb_osh.hooks import TriggerWandbSyncHook
@@ -258,13 +259,13 @@ class MetricsRecorder:
 
     def print_progress(self):
         for idx, (key, y_values) in enumerate(self.y_data.items()):
-            print(
+            logging.info(
                 f"step: {self.x_data[-1]}, {key}: {y_values[-1]:.3f} +/- {self.y_data_err[key][-1]:.3f}"
             )
 
     def print_times(self):
-        print(f"time to jit: {self.times[1] - self.times[0]}")
-        print(f"time to train: {self.times[-1] - self.times[1]}")
+        logging.info(f"time to jit: {self.times[1] - self.times[0]}")
+        logging.info(f"time to train: {self.times[-1] - self.times[1]}")
 
     def progress(self, num_steps, metrics, make_policy, params, env, do_render=True):
         for key in self.metrics_to_collect:

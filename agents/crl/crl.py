@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from absl import logging
 from brax import base, envs
 from brax.training import types
 from brax.v1 import envs as envs_v1
@@ -62,12 +63,13 @@ def save_params(path: str, params: Any):
 @dataclass
 class CRL:
     """Contrastive Reinforcement Learning (CRL) agent."""
+
     policy_lr: float = 3e-4
     critic_lr: float = 3e-4
     alpha_lr: float = 3e-4
     batch_size: int = 256
 
-    # gamma 
+    # gamma
     discounting: float = 0.99
 
     # forward CRL logsumexp penalty
@@ -596,7 +598,7 @@ class CRL:
         )
 
         training_walltime = 0
-        print("starting training....")
+        logging.info("starting training....")
         for ne in range(config.num_evals):
 
             t = time.time()
@@ -625,6 +627,7 @@ class CRL:
             current_step = int(training_state.env_steps.item())
 
             metrics = evaluator.run_evaluation(training_state, metrics)
+            logging.info(f"step: {current_step}, metrics: {metrics}")
 
             do_render = ne % config.visualization_interval == 0
             make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)

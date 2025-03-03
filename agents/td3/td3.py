@@ -318,7 +318,7 @@ class TD3:
             config.action_repeat * config.num_envs * self.unroll_length
         )
         num_prefill_actor_steps = self.min_replay_size // self.unroll_length + 1
-        print("Num_prefill_actor_steps: ", num_prefill_actor_steps)
+        logging.info("Num_prefill_actor_steps: ", num_prefill_actor_steps)
         num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
         assert config.total_env_steps - self.min_replay_size >= 0
         num_evals_after_init = max(config.num_evals - 1, 1)

@@ -1,5 +1,6 @@
 import flax.linen as nn
 import jax.numpy as jnp
+from absl import logging
 from flax.linen.initializers import variance_scaling
 
 
@@ -75,7 +76,7 @@ class Actor(nn.Module):
         lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
-        # print(f"x.shape: {x.shape}", flush=True)
+        logging.info(f"x.shape: {x.shape}")
         for i in range(self.network_depth):
             x = nn.Dense(
                 self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init
