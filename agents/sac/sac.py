@@ -38,9 +38,9 @@ from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import Evaluator
-from src.replay_buffer import QueueBase, Sample
-from src.sac import networks as sac_networks
+from utils.evaluator import Evaluator
+from utils.replay_buffer import QueueBase, Sample
+from agents.sac import networks as sac_networks
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]

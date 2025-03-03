@@ -38,7 +38,7 @@ from etils import epath
 from orbax import checkpoint as ocp
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import Evaluator
+from utils.evaluator import Evaluator
 
 InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
 Metrics = types.Metrics

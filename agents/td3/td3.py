@@ -33,9 +33,9 @@ from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
 from envs.wrappers import TrajectoryIdWrapper
-from src.evaluator import Evaluator
-from src.replay_buffer import QueueBase, Sample
-from src.td3 import losses as losses, networks as networks
+from utils.evaluator import Evaluator
+from utils.replay_buffer import QueueBase, Sample
+from agents.td3 import losses as losses, networks as networks
 
 Metrics = types.Metrics
 # Transition = types.Transition

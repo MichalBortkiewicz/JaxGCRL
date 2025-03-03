@@ -1,10 +1,9 @@
 import os
+from typing import Optional, Union
+
 from flax.struct import dataclass
-from typing import Union, Optional, Tuple
-from src.crl import CRL
-from src.ppo import PPO
-from src.sac import SAC
-from src.td3 import TD3
+
+from agents import CRL, PPO, SAC, TD3
 
 # agent configurations
 AgentConfig = Union[PPO, SAC, TD3, CRL]

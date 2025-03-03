@@ -155,12 +155,12 @@ We currently support following algorithms:
 
 | Algorithm                                     | How to run                             | Code                                     |
 |-----------------------------------------------|----------------------------------------|------------------------------------------|
-| [CRL](https://arxiv.org/abs/2206.07568)       | `python training.py ...`               | [link](./src/train.py)                   |
-| [SAC](https://arxiv.org/abs/1801.01290)       | `python training_sac.py ...`           | [link](./src/baselines/sac.py)           |
-| [SAC + HER](https://arxiv.org/abs/1707.01495) | `python training_sac.py ... --use_her` | [link](./src/baselines/sac.py)           |
-| [TD3](https://arxiv.org/pdf/1802.09477)       | `python training_td3.py ...`           | [link](./src/baselines/td3/td3_train.py) |
-| [TD3 + HER](https://arxiv.org/abs/1707.01495) | `python training_td3.py ... --use_her` | [link](./src/baselines/td3/td3_train.py) |
-| [PPO](https://arxiv.org/abs/1707.06347)       | `python training_ppo.py ...`           | [link](./src/baselines/ppo.py)           |
+| [CRL](https://arxiv.org/abs/2206.07568)       | `python main.py crl ...`               | [link](./src/train.py)                   |
+| [SAC](https://arxiv.org/abs/1801.01290)       | `python main.py sac ...`           | [link](./src/baselines/sac.py)           |
+| [SAC + HER](https://arxiv.org/abs/1707.01495) | `python main.py sac ... --use_her` | [link](./src/baselines/sac.py)           |
+| [TD3](https://arxiv.org/pdf/1802.09477)       | `python main.py td3 ...`           | [link](./src/baselines/td3/td3_train.py) |
+| [TD3 + HER](https://arxiv.org/abs/1707.01495) | `python main.py td3 ... --use_her` | [link](./src/baselines/td3/td3_train.py) |
+| [PPO](https://arxiv.org/abs/1707.06347)       | `python main.py ppo ...`           | [link](./src/baselines/ppo.py)           |
 
 
 ## Code Structure 📝
