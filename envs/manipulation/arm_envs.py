@@ -1,9 +1,10 @@
+import jax
+import mujoco
 from brax import base
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-import mujoco
-import jax
 from jax import numpy as jnp
+
 
 class ArmEnvs(PipelineEnv):
     def __init__(self, backend="mjx", **kwargs):

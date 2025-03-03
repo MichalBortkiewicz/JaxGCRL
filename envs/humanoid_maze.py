@@ -1,12 +1,12 @@
-from brax import actuator
-from brax import base
-from brax.envs.base import PipelineEnv, State
-from brax.io import mjcf
-import jax
-from jax import numpy as jnp
-import mujoco
 import os
 import xml.etree.ElementTree as ET
+
+import jax
+import mujoco
+from brax import actuator, base
+from brax.envs.base import PipelineEnv, State
+from brax.io import mjcf
+from jax import numpy as jnp
 
 # This is based on original Humanoid environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/humanoid.py

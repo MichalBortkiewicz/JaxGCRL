@@ -1,7 +1,9 @@
-import pytest
+from types import SimpleNamespace
+
 import jax
+import pytest
+
 from utils import create_env
-from types import SimpleNamespace 
 
 # Sanity check tests for all environments
 # python -m pytest to run them

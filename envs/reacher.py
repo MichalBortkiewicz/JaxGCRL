@@ -1,10 +1,10 @@
 from typing import Tuple
-from brax import base
-from brax import math
+
+import jax
+from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from etils import epath
-import jax
 from jax import numpy as jnp
 
 # This is based on original Reacher environment from Brax

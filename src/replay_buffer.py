@@ -1,24 +1,26 @@
-import jax
-import flax
 import functools
-import jax.numpy as jnp
 from typing import Generic, Tuple, TypeVar
 
-from jax import flatten_util
-from brax.training.types import PRNGKey
+import flax
+import jax
+import jax.numpy as jnp
 from brax.training.replay_buffers import ReplayBuffer
+from brax.training.types import PRNGKey
+from jax import flatten_util
 
 # TODO: make only single type of Replay Buffer (for CRL and baselines)
 Sample = TypeVar("Sample")
 
+
 @flax.struct.dataclass
 class ReplayBufferState:
-  """Contains data related to a replay buffer."""
+    """Contains data related to a replay buffer."""
 
-  data: jnp.ndarray
-  insert_position: jnp.ndarray
-  sample_position: jnp.ndarray
-  key: PRNGKey
+    data: jnp.ndarray
+    insert_position: jnp.ndarray
+    sample_position: jnp.ndarray
+    key: PRNGKey
+
 
 class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
     """Base class for limited-size FIFO reply buffers.
@@ -110,6 +112,7 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
             insert_position=position,
             sample_position=sample_position,
         )
+
     def sample_internal(
         self, buffer_state: ReplayBufferState
     ) -> Tuple[ReplayBufferState, Sample]:
@@ -121,9 +124,7 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
         )  # pytype: disable=bad-return-type  # jax-ndarray
 
 
-
-
-class TrajectoryUniformSamplingQueue():
+class TrajectoryUniformSamplingQueue:
     """
     Base class for limited-size FIFO reply buffers.
 
@@ -134,6 +135,7 @@ class TrajectoryUniformSamplingQueue():
 
     Derived classes must implement the `sample()` method.
     """
+
     def __init__(
         self,
         max_replay_size: int,
@@ -167,7 +169,7 @@ class TrajectoryUniformSamplingQueue():
         """Insert data into the replay buffer."""
         self.check_can_insert(buffer_state, samples, 1)
         return self.insert_internal(buffer_state, samples)
-    
+
     def check_can_insert(self, buffer_state, samples, shards):
         """Checks whether insert operation can be performed."""
         assert isinstance(shards, int), "This method should not be JITed."
@@ -182,11 +184,8 @@ class TrajectoryUniformSamplingQueue():
 
     def check_can_sample(self, buffer_state, shards):
         """Checks whether sampling can be performed. Do not JIT this method."""
-        pass
 
-    def insert_internal(
-        self, buffer_state, samples
-    ):
+    def insert_internal(self, buffer_state, samples):
         """Insert data in the replay buffer.
 
         Args:
@@ -202,8 +201,10 @@ class TrajectoryUniformSamplingQueue():
                 f"doesn't match the expected value ({self._data_shape})"
             )
 
-        update = self._flatten_fn(samples) #Updates has shape (unroll_len, num_envs, self._data_shape[-1])
-        data = buffer_state.data #shape = (max_replay_size, num_envs, data_size)
+        update = self._flatten_fn(
+            samples
+        )  # Updates has shape (unroll_len, num_envs, self._data_shape[-1])
+        data = buffer_state.data  # shape = (max_replay_size, num_envs, data_size)
 
         # If needed, roll the buffer to make sure there's enough space to fit
         # `update` after the current position.
@@ -214,8 +215,12 @@ class TrajectoryUniformSamplingQueue():
 
         # Update the buffer and the control numbers.
         data = jax.lax.dynamic_update_slice_in_dim(data, update, position, axis=0)
-        position = (position + len(update)) % (len(data) + 1)    # so whenever roll happens, position becomes len(data), else it is increased by len(update), what is the use of doing % (len(data) + 1)?? 
-        sample_position = jnp.maximum(0, buffer_state.sample_position + roll) #what is the use of this line? sample_position always remains 0 as roll can never be positive
+        position = (position + len(update)) % (
+            len(data) + 1
+        )  # so whenever roll happens, position becomes len(data), else it is increased by len(update), what is the use of doing % (len(data) + 1)??
+        sample_position = jnp.maximum(
+            0, buffer_state.sample_position + roll
+        )  # what is the use of this line? sample_position always remains 0 as roll can never be positive
 
         return buffer_state.replace(
             data=data,
@@ -239,12 +244,16 @@ class TrajectoryUniformSamplingQueue():
         shape = self.num_envs
 
         # Sampling envs idxs
-        envs_idxs = jax.random.choice(sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False)
+        envs_idxs = jax.random.choice(
+            sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False
+        )
 
         @functools.partial(jax.jit, static_argnames=("rows", "cols"))
         def create_matrix(rows, cols, min_val, max_val, rng_key):
             rng_key, subkey = jax.random.split(rng_key)
-            start_values = jax.random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
+            start_values = jax.random.randint(
+                subkey, shape=(rows,), minval=min_val, maxval=max_val
+            )
             row_indices = jnp.arange(cols)
             matrix = start_values[:, jnp.newaxis] + row_indices
             return matrix
@@ -263,7 +272,7 @@ class TrajectoryUniformSamplingQueue():
             sample_key,
         )
 
-        '''
+        """
         The function create_batch will be called for every envs_idxs of buffer_state.data and every row of matrix.
         Because every row of matrix has consecutive indices of self.episode_length, for every
         envs_idx of envs_idxs, we will sample a random self.episode_length length sequence from 
@@ -271,7 +280,7 @@ class TrajectoryUniformSamplingQueue():
         won't be across episodes?
 
         flatten_crl_fn takes care of this
-        '''
+        """
         batch = create_batch_vmaped(buffer_state.data[:, envs_idxs, :], matrix)
         transitions = self._unflatten_fn(batch)
         return buffer_state.replace(key=key), transitions
@@ -285,9 +294,13 @@ class TrajectoryUniformSamplingQueue():
         # Because it's vmaped transition.obs.shape is of shape (episode_len, obs_dim)
         seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
-        is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32) # upper triangular matrix of shape seq_len, seq_len where all non-zero entries are 1
-        discount = gamma ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)        
-        probs = is_future_mask * discount  
+        is_future_mask = jnp.array(
+            arrangement[:, None] < arrangement[None], dtype=jnp.float32
+        )  # upper triangular matrix of shape seq_len, seq_len where all non-zero entries are 1
+        discount = gamma ** jnp.array(
+            arrangement[None] - arrangement[:, None], dtype=jnp.float32
+        )
+        probs = is_future_mask * discount
 
         # probs is an upper triangular matrix of shape seq_len, seq_len of the form:
         #    [[0.        , 0.99      , 0.98010004, 0.970299  , 0.960596 ],
@@ -297,31 +310,41 @@ class TrajectoryUniformSamplingQueue():
         #    [0.        , 0.        , 0.        , 0.        , 0.        ]]
         # assuming seq_len = 5
         # the same result can be obtained using probs = is_future_mask * (gamma ** jnp.cumsum(is_future_mask, axis=-1))
-        
+
         single_trajectories = jnp.concatenate(
-            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len, axis=0
+            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
+            axis=0,
         )
         # array of seq_len x seq_len where a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
         # timesteps collected from the same episode will have the same traj_id. All rows of the single_trajectories are same.
 
-        probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
-        #ith row of probs will be non zero only for time indices that 
+        probs = (
+            probs * jnp.equal(single_trajectories, single_trajectories.T)
+            + jnp.eye(seq_len) * 1e-5
+        )
+        # ith row of probs will be non zero only for time indices that
         # 1) are greater than i
         # 2) have the same traj_id as the ith time index
 
         goal_index = jax.random.categorical(sample_key, jnp.log(probs))
-        future_state = jnp.take(transition.observation, goal_index[:-1], axis=0) #the last goal_index cannot be considered as there is no future.  
+        future_state = jnp.take(
+            transition.observation, goal_index[:-1], axis=0
+        )  # the last goal_index cannot be considered as there is no future.
         future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
         goal = future_state[:, goal_indices]
         future_state = future_state[:, :state_size]
-        state = transition.observation[:-1, :state_size] #all states are considered
+        state = transition.observation[:-1, :state_size]  # all states are considered
         new_obs = jnp.concatenate([state, goal], axis=1)
 
         extras = {
             "policy_extras": {},
             "state_extras": {
-                "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
-                "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
+                "truncation": jnp.squeeze(
+                    transition.extras["state_extras"]["truncation"][:-1]
+                ),
+                "traj_id": jnp.squeeze(
+                    transition.extras["state_extras"]["traj_id"][:-1]
+                ),
             },
             "state": state,
             "future_state": future_state,
@@ -329,14 +352,14 @@ class TrajectoryUniformSamplingQueue():
         }
 
         return transition._replace(
-            observation=jnp.squeeze(new_obs),   #this has shape (num_envs, episode_length-1, obs_size)
+            observation=jnp.squeeze(
+                new_obs
+            ),  # this has shape (num_envs, episode_length-1, obs_size)
             action=jnp.squeeze(transition.action[:-1]),
             reward=jnp.squeeze(transition.reward[:-1]),
             discount=jnp.squeeze(transition.discount[:-1]),
             extras=extras,
         )
-    
+
     def size(self, buffer_state: ReplayBufferState) -> int:
-        return (
-            buffer_state.insert_position - buffer_state.sample_position
-        )
+        return buffer_state.insert_position - buffer_state.sample_position

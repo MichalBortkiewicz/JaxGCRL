@@ -7,9 +7,9 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from brax.training import types
-from brax.training.types import Params
-from brax.training.types import PRNGKey
-from src.baselines.td3 import networks
+from brax.training.types import Params, PRNGKey
+
+from src.td3 import networks
 
 Transition = types.Transition
 

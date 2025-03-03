@@ -1,14 +1,13 @@
 import os
+import xml.etree.ElementTree as ET
 from typing import Tuple
 
-from brax import base
-from brax import math
+import jax
+import mujoco
+from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-import jax
 from jax import numpy as jnp
-import mujoco
-import xml.etree.ElementTree as ET
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py

@@ -1,9 +1,10 @@
+import jax
+import mujoco
 from brax import base
 from brax.envs.base import State
 from brax.io import mjcf
-import mujoco
-import jax
 from jax import numpy as jnp
+
 from envs.manipulation.arm_envs import ArmEnvs
 
 """
