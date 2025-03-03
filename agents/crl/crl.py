@@ -61,15 +61,23 @@ def save_params(path: str, params: Any):
 
 @dataclass
 class CRL:
+    """Contrastive Reinforcement Learning (CRL) agent."""
     policy_lr: float = 3e-4
     critic_lr: float = 3e-4
     alpha_lr: float = 3e-4
     batch_size: int = 256
+
+    # gamma 
     discounting: float = 0.99
+
     # forward CRL logsumexp penalty
     logsumexp_penalty_coeff: float = 0.1
+
     train_step_multiplier: int = 1
+
+    # hindsight experience replay
     use_her: bool = False
+
     disable_entropy_actor: bool = False
 
     max_replay_size: int = 10000
@@ -79,7 +87,10 @@ class CRL:
     n_hidden: int = 2
     skip_connections: int = 4
     use_relu: bool = False
+
+    # phi(s,a) and psi(g) repr dimension
     repr_dim: int = 64
+
     # layer norm
     use_ln: bool = False
 

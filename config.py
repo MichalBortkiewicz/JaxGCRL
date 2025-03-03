@@ -6,7 +6,7 @@ from flax.struct import dataclass
 from agents import CRL, PPO, SAC, TD3
 
 # agent configurations
-AgentConfig = Union[PPO, SAC, TD3, CRL]
+AgentConfig = Union[CRL, PPO, SAC, TD3]
 
 
 @dataclass
