@@ -7,7 +7,7 @@ We implemented a number of modifications and improvements to this algorithm. Amo
 - Choice of the contrastive loss, currently we have implemented: `binary`, `infonce`, `infonce_backward`, `symmetric_infonce`, `flat_infonce`, `flat_infonce_backward`, `forward_backward`, `dpo`. `ipo`, and `sppo` losses.
 - `logsumex_penalty`- this is a regularizing term applied to contrastive loss, that we have found improves training in most settings.
 
-All of the above, and more, can be found and modified  in `src/losses.py` file.
+All of the above, and more, can be found and modified  in `agents/crl/crl.py` file.
 
 
 

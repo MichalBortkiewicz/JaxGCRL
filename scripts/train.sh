@@ -8,10 +8,11 @@
 eval "$(conda shell.bash hook)"
 conda activate contrastive_rl
 
+method=crl
 env=ant
 
 for seed in 1 2 3 4 5 ; do
-  XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python training.py \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=.95 MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=0 python main.py "$method" \
     --wandb_project_name test --wandb_group first_run --exp_name test --num_evals 50 \
     --seed ${seed} --total_env_steps 10000000 --batch_size 256 --num_envs 512 \
     --discounting 0.99 --action_repeat 1 --env_name ${env} \

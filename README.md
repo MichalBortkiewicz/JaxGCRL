@@ -190,7 +190,7 @@ The core structure of the codebase is as follows:
 │   ├── <b>assets:</b> Contains XMLs for environments.
 │   └── <b>manipulation:</b> Contains all manipulation environments.
 ├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
-└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+└── <b>main.py:</b> Interface file that takes the name of an agent and runs with the specified configs.
 </code></pre>
 
 The architecture can be adjusted in `networks.py`.
