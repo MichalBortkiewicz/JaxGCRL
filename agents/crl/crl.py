@@ -16,7 +16,7 @@ from flax.struct import dataclass
 from flax.training.train_state import TrainState
 
 from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import CrlEvaluator
+from utils.evaluator import ActorEvaluator
 from utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .networks import Actor, Encoder
@@ -587,7 +587,7 @@ class CRL:
         )
 
         """Setting up evaluator"""
-        evaluator = CrlEvaluator(
+        evaluator = ActorEvaluator(
             deterministic_actor_step,
             eval_env,
             num_eval_envs=config.num_eval_envs,

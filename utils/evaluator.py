@@ -87,7 +87,8 @@ def generate_unroll(
     return final_state, data
 
 
-class CrlEvaluator:
+class ActorEvaluator:
+    """Single GPU evaluator that evaluates an arbitrary actor function. Used by the CRL agent."""
 
     def __init__(self, actor_step, eval_env, num_eval_envs, episode_length, key):
 

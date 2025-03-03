@@ -32,6 +32,36 @@ from envs.pusher2 import Pusher2
 from envs.reacher import Reacher
 from envs.simple_maze import SimpleMaze
 
+legal_envs = [
+    "ant",
+    "ant_random_start",
+    "ant_ball",
+    "ant_push",
+    "humanoid",
+    "reacher",
+    "cheetah",
+    "pusher_easy",
+    "pusher_hard",
+    "pusher_reacher",
+    "pusher2",
+    "arm_reach",
+    "arm_grasp",
+    "arm_push_easy",
+    "arm_push_hard",
+    "arm_binpick_easy",
+    "arm_binpick_hard",
+    "ant_ball_maze",
+    "ant_u_maze",
+    "ant_big_maze",
+    "ant_hardest_maze",
+    "humanoid_u_maze",
+    "humanoid_big_maze",
+    "humanoid_hardest_maze",
+    "simple_u_maze",
+    "simple_big_maze",
+    "simple_hardest_maze",
+]
+
 
 def create_env(env_name: str, backend: str = None, **kwargs) -> object:
     """
@@ -129,25 +159,7 @@ def get_env_config(args: argparse.Namespace):
         If the specified environment name is not in the list of legal environments or does not
         contain the word 'maze'.
     """
-    legal_envs = [
-        "reacher",
-        "cheetah",
-        "pusher_easy",
-        "pusher_hard",
-        "pusher_reacher",
-        "pusher2",
-        "ant",
-        "ant_push",
-        "ant_ball",
-        "humanoid",
-        "arm_reach",
-        "arm_grasp",
-        "arm_push_easy",
-        "arm_push_hard",
-        "arm_binpick_easy",
-        "arm_binpick_hard",
-    ]
-    if args.env_name not in legal_envs and "maze" not in args.env_name:
+    if args.env_name not in legal_envs:
         raise ValueError(f"Unknown environment: {args.env_name}")
 
     # TODO: round num_envs to nearest valid value instead of throwing error

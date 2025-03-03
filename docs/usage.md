@@ -1,7 +1,7 @@
 ## Experiments
 JaxGCRL is highly flexible in terms of parameters, allowing for a wide range of experimental setups. To run a basic experiment, you can start with:
 ```
-python training.py --env_name ant
+python training.py --env ant
 ```
 For a complete list of environments, refer to the [environments section](##Environments) or [source code](./utils.py#L66).
 
@@ -9,7 +9,7 @@ For a complete list of environments, refer to the [environments section](##Envir
 One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
 
 ```
-python training.py --env_name ant --num_envs 16 --batch_size 16
+python training.py --env ant --num_envs 16 --batch_size 16
 ```
 
 !!! note annotate "Replay buffer"
@@ -19,12 +19,12 @@ python training.py --env_name ant --num_envs 16 --batch_size 16
 
 You can customize the neural network architecture by adjusting the number of hidden layers (`n_hidden`), the width of hidden layers (`h_dim`) and the representation dimension (`repr_dim`):
 ```
-python training.py --env_name ant --h_dim 128 --n_hidden 3 --repr_dim 32
+python training.py --env ant --h_dim 128 --n_hidden 3 --repr_dim 32
 ```
 
 JaxGCRL supports various built-in energy functions and contrastive loss functions. For example, to use an L2 penalty with the InfoNCE-backward contrastive loss, you can run:
 ```
-python training.py --env_name ant --energy_fn l2 --contrastive_loss_fn infonce_backward
+python training.py --env ant --energy_fn l2 --contrastive_loss_fn infonce_backward
 ```
 For a full list of available energy functions and contrastive losses, see: [ [energy functions](./src/losses.py#L91) | [contrastive losses](./src/losses.py#L145) ]
 

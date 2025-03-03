@@ -6,8 +6,7 @@ import tyro
 from brax.io import model
 
 import wandb
-from config import Config
-from utils import MetricsRecorder, create_env
+from utils import MetricsRecorder, create_env, Config
 
 
 def main(config: Config):
@@ -48,7 +47,7 @@ def main(config: Config):
         mode="online" if config.run.log_wandb else "disabled",
     )
 
-    env = create_env(env_name=config.run.env_name, backend=config.run.backend)
+    env = create_env(env_name=config.run.env, backend=config.run.backend)
     if config.run.eval_env:
         eval_env = create_env(env_name=config.run.eval_env, backend=config.run.backend)
     else:

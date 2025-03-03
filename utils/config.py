@@ -1,9 +1,11 @@
 import os
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from flax.struct import dataclass
 
 from agents import CRL, PPO, SAC, TD3
+
+from .env import legal_envs
 
 # agent configurations
 AgentConfig = Union[CRL, PPO, SAC, TD3]
@@ -35,7 +37,7 @@ class RunConfig:
             Increasing the number of evals increases total training time
     """
 
-    env_name: str = "ant"
+    env: Literal[tuple(legal_envs)]
     total_env_steps: int = 1_000_000
     episode_length: int = 1001
     eval_env: Optional[str] = None
@@ -50,7 +52,7 @@ class RunConfig:
     log_wandb: bool = True
     wandb_project_name: str = "jaxgcrl"
     # online or offline
-    wandb_mode: str = "online"
+    wandb_mode: Literal["online", "offline"] = "online"
     wandb_group: str = "."
     checkpoint: bool = False
     visualization_interval: int = 5

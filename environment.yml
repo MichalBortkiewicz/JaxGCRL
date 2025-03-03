@@ -4,15 +4,15 @@ channels:
 dependencies:
   - python=3.10
   - jax=0.4.25
-  - scipy==1.12.0
-  - scikit-image==0.22.0
+  - scipy=1.12.0
+  - scikit-image=0.22.0
   - flax=0.8.3
   - chex=0.1.86
-  - dm-haiku==0.0.11
+  - dm-haiku=0.0.11
   - six=1.16.0
-  - statsmodels==0.14.1
-  - pyinstrument=4.6.2
-  - matplotlib=3.8.4
+  - statsmodels=0.14.1
+  - pyinstrument=4.6
+  - matplotlib=3.8
   - pytest=7.4.4
   - wandb
   - cuda-nvcc
@@ -23,7 +23,7 @@ dependencies:
     - mujoco==3.2.7
     - mujoco-mjx==3.2.7
     - stack-data==0.6.3
-    - jaxlib==0.4.25+cuda12.cudnn89
     - tyro==0.9.16
     - wandb_osh==1.2.2
+    - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
