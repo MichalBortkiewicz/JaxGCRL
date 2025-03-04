@@ -108,7 +108,7 @@ The `--log_wandb` flag logs metrics to Wandb. By default, metrics are logged to 
 
 1. Run example [`sweep`](https://docs.wandb.ai/guides/sweeps):
 ```bash
-wandb sweep --project exemplary_sweep ./scripts/sweep.yml
+wandb sweep --project example_sweep ./scripts/sweep.yml
 ```
 2. Then run `wandb agent` with :
 ```
@@ -171,6 +171,7 @@ The core structure of the codebase is as follows:
 ├── <b>agents/</b>
 │   ├── <b>crl/</b> 
 │   │   ├── <b>crl.py</b> CRL algorithm 
+│   │   ├── <b>losses.py</b> contrastive losses and energy functions
 │   │   └── <b>networks.py</b> CRL network architectures
 │   ├── <b>ppo/</b> 
 │   │   └── <b>ppo.py</b> PPO algorithm 
@@ -182,7 +183,8 @@ The core structure of the codebase is as follows:
 │       ├── <b>losses.py</b> TD3 loss functions
 │       └── <b>networks.py</b> TD3 network architectures
 ├── <b>utils/</b>
-│   ├── <b>utils.py</b>Logic for rendering and environment initialization
+│   ├── <b>config.py</b> Base run configs
+│   ├── <b>env.py</b> Logic for rendering and environment initialization
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
 ├── <b>envs/</b>
@@ -190,7 +192,7 @@ The core structure of the codebase is as follows:
 │   ├── <b>assets:</b> Contains XMLs for environments.
 │   └── <b>manipulation:</b> Contains all manipulation environments.
 ├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
-└── <b>main.py:</b> Interface file that takes the name of an agent and runs with the specified configs.
+└── <b>main.py:</b> Takes the name of an agent and runs with the specified configs.
 </code></pre>
 
 The architecture can be adjusted in `networks.py`.
