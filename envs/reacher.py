@@ -10,6 +10,7 @@ from jax import numpy as jnp
 # This is based on original Reacher environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/reacher.py
 
+
 class Reacher(PipelineEnv):
     def __init__(self, backend="generalized", dense_reward: bool = False, **kwargs):
         path = epath.resource_path("brax") / "envs/assets/reacher.xml"
@@ -55,7 +56,7 @@ class Reacher(PipelineEnv):
             "reward_dist": zero,
             "reward_ctrl": zero,
             "success": zero,
-            "dist": zero
+            "dist": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -80,11 +81,7 @@ class Reacher(PipelineEnv):
         else:
             reward = success
 
-        state.metrics.update(
-            reward_dist=reward_dist,
-            success=success,
-            dist=dist
-        )
+        state.metrics.update(reward_dist=reward_dist, success=success, dist=dist)
         return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:

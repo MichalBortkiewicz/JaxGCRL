@@ -28,7 +28,9 @@ class AntBall(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_ball.xml")
+        path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "assets", "ant_ball.xml"
+        )
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -70,13 +72,13 @@ class AntBall(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        self._object_idx = self.sys.link_names.index('object')
+        self._object_idx = self.sys.link_names.index("object")
         self.dense_reward = dense_reward
 
         self.state_dim = 31
         self.goal_indices = jnp.array([29, 30])
         self.goal_reach_thresh = 0.5
-        
+
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
 
@@ -115,7 +117,7 @@ class AntBall(PipelineEnv):
             "forward_reward": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -145,10 +147,10 @@ class AntBall(PipelineEnv):
         dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
         vel_to_target = (old_dist - dist) / self.dt
         success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
 
         if self.dense_reward:
-            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
         else:
             reward = success
 
@@ -166,7 +168,7 @@ class AntBall(PipelineEnv):
             forward_reward=forward_reward,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
@@ -188,8 +190,8 @@ class AntBall(PipelineEnv):
         return jnp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target and object location. Target is in a random position on a circle around ant. 
-            Object is in the middle between ant and target with small deviation."""
+        """Returns a target and object location. Target is in a random position on a circle around ant.
+        Object is in the middle between ant and target with small deviation."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
         dist = 5
         ang = jnp.pi * 2.0 * jax.random.uniform(rng1)

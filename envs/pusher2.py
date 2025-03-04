@@ -1,14 +1,14 @@
 import os
 
 import jax
-from brax import base, math
+from brax import base
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-from etils import epath
 from jax import numpy as jnp
 
 # This is based on original Pusher environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/pusher.py
+
 
 def safe_norm(x: jax.Array, axis=None):
     """
@@ -26,30 +26,37 @@ def safe_norm(x: jax.Array, axis=None):
 
     return n
 
+
 class Pusher2(PipelineEnv):
-    def __init__(self, backend='generalized', **kwargs):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "pusher2.xml")
+    def __init__(self, backend="generalized", **kwargs):
+        path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "assets", "pusher2.xml"
+        )
         sys = mjcf.load(path)
 
         n_frames = 5
 
-        if backend in ['spring', 'positional']:
+        if backend in ["spring", "positional"]:
             sys = sys.replace(dt=0.001)
             sys = sys.replace(
                 actuator=sys.actuator.replace(gear=jnp.array([20.0] * sys.act_size()))
             )
             n_frames = 50
 
-        kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
+        kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
         super().__init__(sys=sys, backend=backend, **kwargs)
 
         # The tips_arm body gets fused with r_wrist_roll_link, so we use the parent
         # r_wrist_flex_link for tips_arm_idx.
-        self._tips_arm_idx = self.sys.link_names.index('r_wrist_flex_link')
-        self._object_idxs = jnp.array([self.sys.link_names.index('object1'), self.sys.link_names.index('object2')])
-        self._goal_idxs = jnp.array([self.sys.link_names.index('goal1'), self.sys.link_names.index('goal2')])
-        
+        self._tips_arm_idx = self.sys.link_names.index("r_wrist_flex_link")
+        self._object_idxs = jnp.array(
+            [self.sys.link_names.index("object1"), self.sys.link_names.index("object2")]
+        )
+        self._goal_idxs = jnp.array(
+            [self.sys.link_names.index("goal1"), self.sys.link_names.index("goal2")]
+        )
+
         self.state_dim = 23
         self.goal_indices = jnp.array([10, 11, 12, 13, 14, 15])
 
@@ -59,25 +66,33 @@ class Pusher2(PipelineEnv):
         rng, rng1, rng2, rng3, rng4, rng5, rng6, rng7, rng8 = jax.random.split(rng, 9)
 
         # randomly orient the object
-        cylinder_pos1 = jnp.concatenate([
-            jax.random.uniform(rng, (1,), minval=-0.35, maxval=-0.05),
-            jax.random.uniform(rng1, (1,), minval=0.25, maxval=0.45 - 1e-6),
-        ])
+        cylinder_pos1 = jnp.concatenate(
+            [
+                jax.random.uniform(rng, (1,), minval=-0.35, maxval=-0.05),
+                jax.random.uniform(rng1, (1,), minval=0.25, maxval=0.45 - 1e-6),
+            ]
+        )
 
-        cylinder_pos2 = jnp.concatenate([
-            jax.random.uniform(rng2, (1,), minval=-0.35, maxval=-0.05),
-            jax.random.uniform(rng3, (1,), minval=0.45 + 1e-6, maxval=0.65),
-        ])
+        cylinder_pos2 = jnp.concatenate(
+            [
+                jax.random.uniform(rng2, (1,), minval=-0.35, maxval=-0.05),
+                jax.random.uniform(rng3, (1,), minval=0.45 + 1e-6, maxval=0.65),
+            ]
+        )
 
-        goal_pos1 = jnp.concatenate([
-            jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
-            jax.random.uniform(rng5, (1,), minval=-0.15, maxval=0.375 - 1e-6),
-        ])
+        goal_pos1 = jnp.concatenate(
+            [
+                jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
+                jax.random.uniform(rng5, (1,), minval=-0.15, maxval=0.375 - 1e-6),
+            ]
+        )
 
-        goal_pos2 = jnp.concatenate([
-            jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
-            jax.random.uniform(rng7, (1,), minval=0.375 + 1e-6, maxval=0.9),
-        ])
+        goal_pos2 = jnp.concatenate(
+            [
+                jax.random.uniform(rng4, (1,), minval=-0.70, maxval=0.30),
+                jax.random.uniform(rng7, (1,), minval=0.375 + 1e-6, maxval=0.9),
+            ]
+        )
 
         # constrain minimum distance of object to goal
         norm1 = safe_norm(cylinder_pos1 - goal_pos1)
@@ -88,7 +103,9 @@ class Pusher2(PipelineEnv):
         scale2 = jnp.where(norm2 < 0.17, 0.17 / norm2, 1.0)
         cylinder_pos2 *= scale2
 
-        qpos = qpos.at[-8:].set(jnp.concatenate([cylinder_pos1, goal_pos1, cylinder_pos2, goal_pos2]))
+        qpos = qpos.at[-8:].set(
+            jnp.concatenate([cylinder_pos1, goal_pos1, cylinder_pos2, goal_pos2])
+        )
         qvel = jax.random.uniform(
             rng6, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
         )
@@ -99,11 +116,11 @@ class Pusher2(PipelineEnv):
         obs = self._get_obs(pipeline_state)
         reward, done, zero = jnp.zeros(3)
         metrics = {
-          'reward_dist': zero, 
-          'reward_ctrl': zero, 
-          'reward_near': zero,
-          'success': zero,
-          'success_easy': zero,
+            "reward_dist": zero,
+            "reward_ctrl": zero,
+            "reward_near": zero,
+            "success": zero,
+            "success_easy": zero,
         }
 
         state = State(pipeline_state, obs, reward, done, metrics)
@@ -143,12 +160,18 @@ class Pusher2(PipelineEnv):
             base.Transform.create(pos=self.sys.link.inertia.transform.pos)
         )
 
-        return jnp.concatenate([
-            # state
-            pipeline_state.q[:7], # Rotations of arm joints [7, ]
-            x_i.pos[self._tips_arm_idx], # Arm tip position [3, ]
-            x_i.pos[self._object_idxs].reshape(-1), # Movable object position [3 * num_objects, ]
-            pipeline_state.qd[:7], # Rotational velocities of arm joints [7, ]
-            # goal
-            x_i.pos[self._goal_idxs].reshape(-1), # This is the position we want the object to end up in [3 * num_objects, ]
-        ])
+        return jnp.concatenate(
+            [
+                # state
+                pipeline_state.q[:7],  # Rotations of arm joints [7, ]
+                x_i.pos[self._tips_arm_idx],  # Arm tip position [3, ]
+                x_i.pos[self._object_idxs].reshape(
+                    -1
+                ),  # Movable object position [3 * num_objects, ]
+                pipeline_state.qd[:7],  # Rotational velocities of arm joints [7, ]
+                # goal
+                x_i.pos[self._goal_idxs].reshape(
+                    -1
+                ),  # This is the position we want the object to end up in [3 * num_objects, ]
+            ]
+        )

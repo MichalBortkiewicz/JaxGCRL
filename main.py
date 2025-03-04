@@ -6,7 +6,7 @@ import tyro
 from brax.io import model
 
 import wandb
-from utils import MetricsRecorder, create_env, Config
+from utils import Config, MetricsRecorder, create_env
 
 
 def main(config: Config):
@@ -86,7 +86,11 @@ def main(config: Config):
     ]
 
     metrics_recorder = MetricsRecorder(
-        config.run.total_env_steps, metrics_to_collect, run_dir, config.run.exp_name, mode=config.run.wandb_mode
+        config.run.total_env_steps,
+        metrics_to_collect,
+        run_dir,
+        config.run.exp_name,
+        mode=config.run.wandb_mode,
     )
 
     _, params, _ = config.agent.train_fn(

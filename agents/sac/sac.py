@@ -37,10 +37,10 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
+from agents.sac import networks as sac_networks
 from envs.wrappers import TrajectoryIdWrapper
 from utils.evaluator import Evaluator
 from utils.replay_buffer import QueueBase, Sample
-from agents.sac import networks as sac_networks
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]

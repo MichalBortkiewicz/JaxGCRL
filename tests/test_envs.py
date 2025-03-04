@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import jax
 import pytest
 
@@ -9,26 +7,28 @@ from utils import create_env
 # python -m pytest to run them
 
 
-ENVS = ["reacher", 
-        "cheetah", 
-        "pusher_easy", 
-        "pusher_hard", 
-        "pusher_reacher", 
-        "pusher2",
-        "ant", 
-        "ant_u_maze",
-        "ant_big_maze",
-        "ant_push", 
-        "ant_ball", 
-        "ant_ball_u_maze",
-        "ant_ball_big_maze",
-        "humanoid", 
-        "arm_reach", 
-        "arm_grasp", 
-        "arm_push_easy", 
-        "arm_push_hard", 
-        "arm_binpick_easy", 
-        "arm_binpick_hard"]
+ENVS = [
+    "reacher",
+    "cheetah",
+    "pusher_easy",
+    "pusher_hard",
+    "pusher_reacher",
+    "pusher2",
+    "ant",
+    "ant_u_maze",
+    "ant_big_maze",
+    "ant_push",
+    "ant_ball",
+    "ant_ball_u_maze",
+    "ant_ball_big_maze",
+    "humanoid",
+    "arm_reach",
+    "arm_grasp",
+    "arm_push_easy",
+    "arm_push_hard",
+    "arm_binpick_easy",
+    "arm_binpick_hard",
+]
 
 
 @pytest.mark.parametrize("env_name", ["aaaa", "", "fake_env"])
@@ -41,6 +41,7 @@ def test_error_on_wrong_maze():
     with pytest.raises(ValueError, match=f"Unknown maze layout: fake_maze"):
         create_env(env_name="ant_fake_maze")
 
+
 @pytest.mark.parametrize("env_name", ENVS)
 class TestEnvironment:
     def test_initialization(self, env_name):
@@ -51,7 +52,6 @@ class TestEnvironment:
 
         assert hasattr(env, "state_dim")
         assert hasattr(env, "goal_indices")
-        
 
     def test_environment_reset(self, env_name):
         env = create_env(env_name=env_name)
@@ -79,6 +79,3 @@ class TestEnvironment:
 
             assert not jax.numpy.isnan(state.obs).any()
             assert not jax.numpy.isinf(state.obs).any()
-
-    
-        

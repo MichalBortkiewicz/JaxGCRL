@@ -48,7 +48,12 @@ class MLP(linen.Module):
     def __call__(self, data: jnp.ndarray):
         hidden = data
         for i, hidden_size in enumerate(self.layer_sizes):
-            hidden = linen.Dense(hidden_size, name=f"hidden_{i}", kernel_init=self.kernel_init, use_bias=self.bias)(hidden)
+            hidden = linen.Dense(
+                hidden_size,
+                name=f"hidden_{i}",
+                kernel_init=self.kernel_init,
+                use_bias=self.bias,
+            )(hidden)
             if i != len(self.layer_sizes) - 1 or self.activate_final:
                 if self.layer_norm:
                     hidden = linen.LayerNorm()(hidden)

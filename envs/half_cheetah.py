@@ -10,6 +10,7 @@ from jax import numpy as jnp
 # This is based on original Half Cheetah environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/half_cheetah.py
 
+
 class Halfcheetah(PipelineEnv):
     def __init__(
         self,
@@ -21,7 +22,9 @@ class Halfcheetah(PipelineEnv):
         dense_reward: bool = False,
         **kwargs
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "half_cheetah.xml")
+        path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "assets", "half_cheetah.xml"
+        )
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -72,7 +75,7 @@ class Halfcheetah(PipelineEnv):
             "reward_run": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -92,7 +95,7 @@ class Halfcheetah(PipelineEnv):
 
         dist = jnp.linalg.norm(obs[:1] - obs[-1:])
         success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
 
         if self.dense_reward:
             reward = ctrl_cost - dist
@@ -106,12 +109,10 @@ class Halfcheetah(PipelineEnv):
             reward_ctrl=-ctrl_cost,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
 
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Returns the environment observations."""
