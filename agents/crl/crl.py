@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from absl import logging
+import logging
 from brax import base, envs
 from brax.training import types
 from brax.v1 import envs as envs_v1
@@ -78,9 +78,6 @@ class CRL:
 
     train_step_multiplier: int = 1
 
-    # hindsight experience replay
-    use_her: bool = False
-
     disable_entropy_actor: bool = False
 
     max_replay_size: int = 10000
@@ -97,7 +94,7 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
-    loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = (
+    contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = (
         "fwd_infonce"
     )
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
@@ -514,7 +511,8 @@ class CRL:
             current_step = int(training_state.env_steps.item())
 
             metrics = evaluator.run_evaluation(training_state, metrics)
-            logging.info(f"step: {current_step}, metrics: {metrics}")
+            logging.info(f"step: {current_step}")
+            logging.info(metrics)
 
             do_render = ne % config.visualization_interval == 0
             make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)

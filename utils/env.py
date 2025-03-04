@@ -8,7 +8,7 @@ from typing import List
 import flax.linen as nn
 import jax
 import wandb_osh
-from absl import logging
+import logging
 from brax.io import html
 from matplotlib import pyplot as plt
 from wandb_osh.hooks import TriggerWandbSyncHook
@@ -33,7 +33,7 @@ from envs.pusher2 import Pusher2
 from envs.reacher import Reacher
 from envs.simple_maze import SimpleMaze
 
-legal_envs = [
+legal_envs = (
     "ant",
     "ant_random_start",
     "ant_ball",
@@ -61,7 +61,7 @@ legal_envs = [
     "simple_u_maze",
     "simple_big_maze",
     "simple_hardest_maze",
-]
+)
 
 
 def create_env(env_name: str, backend: str = None, **kwargs) -> object:

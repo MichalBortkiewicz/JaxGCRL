@@ -27,7 +27,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from absl import logging
+import logging
 from brax import base, envs
 from brax.training import acting, gradients, pmap, types
 from brax.training.acme import running_statistics, specs

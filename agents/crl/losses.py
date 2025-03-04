@@ -123,7 +123,7 @@ def update_critic(config, networks, transitions, training_state, key):
 
         # InfoNCE
         logits = energy_fn(config["energy_fn"], sa_repr[:, None, :], g_repr[None, :, :])
-        critic_loss = contrastive_loss_fn(config["loss_fn"], logits)
+        critic_loss = contrastive_loss_fn(config["contrastive_loss_fn"], logits)
 
         # logsumexp regularisation
         logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)

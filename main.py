@@ -1,6 +1,7 @@
+import logging
 import os
 import pickle
-from pprint import pprint
+import pprint
 
 import tyro
 from brax.io import model
@@ -27,6 +28,11 @@ def main(config: Config):
     Initializes wandb logging if enabled. Runs training with profiling and
     saves profiling results.
     """
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-8s|  %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     info = {**vars(config.run), **vars(config.agent)}
 
     utd_ratio = (
@@ -38,10 +44,7 @@ def main(config: Config):
     info["utd_ratio"] = utd_ratio
     info["agent"] = type(config.agent).__name__
 
-    print()
-    print("Arguments:")
-    pprint(info)
-    print()
+    logging.info("Arguments:\n%s", pprint.pformat(info))
 
     wandb.init(
         project=config.run.wandb_project_name,

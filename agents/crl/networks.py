@@ -1,6 +1,6 @@
 import flax.linen as nn
 import jax.numpy as jnp
-from absl import logging
+import logging
 from flax.linen.initializers import variance_scaling
 
 

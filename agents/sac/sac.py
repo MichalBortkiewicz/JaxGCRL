@@ -25,7 +25,7 @@ import flax
 import jax
 import jax.numpy as jnp
 import optax
-from absl import logging
+import logging
 from brax import base, envs
 from brax.io import model
 from brax.training import gradients, pmap, types

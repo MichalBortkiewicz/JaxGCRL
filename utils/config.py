@@ -15,7 +15,7 @@ class RunConfig:
     """General run configs
     Args:
         seed: random seed
-        env_name: the name of the environment to use
+        env: the name of the environment to use
         total_env_steps: the total number of environment steps to run
         episode_length: the maximum length of an episode
             NOTE: `num_envs * (episode_length - 1)` must be divisible by
@@ -36,25 +36,44 @@ class RunConfig:
             Increasing the number of evals increases total training time
     """
 
-    env: Literal[tuple(legal_envs)]
+    # environment to use
+    env: Literal[legal_envs]
+
+    # total number of environment steps to run
     total_env_steps: int = 1_000_000
+
+    # maximum length of an episode
     episode_length: int = 1001
-    eval_env: Optional[Literal[tuple(legal_envs)]] = None
+
+    # environment to use for evaluation
+    eval_env: Optional[Literal[legal_envs]] = None
+
+    # number of envs to run in parallel during training
     num_envs: int = 128
+
+    # number of envs to run in parallel during evaluation
     num_eval_envs: int = 128
+
     action_repeat: int = 1
+
+    # total number of evals during training
     num_evals: int = 50
 
     seed: int = 0
-    exp_name: str = "run"
     backend: Optional[Literal["mjx", "spring", "positional", "generalized"]] = None
+
+    # wandb logging
+    exp_name: str = "run"
     log_wandb: bool = True
     wandb_project_name: str = "jaxgcrl"
+    wandb_group: str = "."
+
     # online or offline
     wandb_mode: Literal["online", "offline"] = "online"
-    wandb_group: str = "."
-    checkpoint: bool = False
+
+    # render frequency
     visualization_interval: int = 5
+
     vis_length: int = 1000
     checkpoint_logdir: Optional[str] = None
     max_devices_per_host: int = 1
