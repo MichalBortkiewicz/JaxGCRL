@@ -286,7 +286,6 @@ class TD3:
             Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
-        checkpoint_logdir: Optional[str] = None,
     ):
         """TD3 training."""
         process_id = jax.process_index()
@@ -816,12 +815,12 @@ class TD3:
 
             # Eval and logging
             if process_id == 0:
-                if checkpoint_logdir:
+                if config.checkpoint_logdir:
                     # Save current policy.
                     params = _unpmap(
                         (training_state.normalizer_params, training_state.policy_params)
                     )
-                    path = f"{checkpoint_logdir}_td3_{current_step}.pkl"
+                    path = f"{configcheckpoint_logdir}_td3_{current_step}.pkl"
                     model.save_params(path, params)
 
                 # Run evals.

@@ -125,7 +125,6 @@ class PPO:
             Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
-        checkpoint_logdir: Optional[str] = None,
     ):
         """PPO training.
 
@@ -134,7 +133,6 @@ class PPO:
           eval_env: an optional train_env for eval only, defaults to `train_env`
           randomization_fn: a user-defined callback function that generates randomized environments
           progress_fn: a user-defined callback function for reporting/plotting metrics
-          checkpoint_logdir: the directory to save checkpoints
 
         Returns:
           Tuple of (make_policy function, network params, metrics)

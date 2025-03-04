@@ -39,7 +39,7 @@ class RunConfig:
     env: Literal[tuple(legal_envs)]
     total_env_steps: int = 1_000_000
     episode_length: int = 1001
-    eval_env: Optional[str] = None
+    eval_env: Optional[Literal[tuple(legal_envs)]] = None
     num_envs: int = 128
     num_eval_envs: int = 128
     action_repeat: int = 1

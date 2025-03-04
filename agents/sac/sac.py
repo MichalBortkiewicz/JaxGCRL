@@ -291,7 +291,6 @@ class SAC:
             Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
-        checkpoint_logdir: Optional[str] = None,
     ):
         process_id = jax.process_index()
         local_devices_to_use = jax.local_device_count()
@@ -798,12 +797,12 @@ class SAC:
 
             # Eval and logging
             if process_id == 0:
-                if checkpoint_logdir:
+                if config.checkpoint_logdir:
                     # Save current policy.
                     params = _unpmap(
                         (training_state.normalizer_params, training_state.policy_params)
                     )
-                    path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
+                    path = f"{config.checkpoint_logdir}_sac_{current_step}.pkl"
                     model.save_params(path, params)
 
                 # Run evals.
