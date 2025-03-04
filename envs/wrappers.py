@@ -1,5 +1,5 @@
 import jax
-from brax.envs import Wrapper, PipelineEnv, State
+from brax.envs import PipelineEnv, State, Wrapper
 from jax import numpy as jnp
 
 

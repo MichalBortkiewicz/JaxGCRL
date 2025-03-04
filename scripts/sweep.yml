@@ -1,4 +1,4 @@
-program: training.py
+program: main.py
 method: bayes
 metric:
   goal: maximize
@@ -10,8 +10,9 @@ parameters:
     distribution: uniform
   contrastive_loss_fn:
     values:
-      - "symmetric_infonce"
-      - "infonce_backward"
+      - "fwd_infonce"
+      - "bwd_infonce"
+      - "sym_infonce"
     distribution: categorical
   seed:
     min: 0
@@ -24,6 +25,7 @@ command:
   - ${env}
   - python
   - ${program}
+  - "crl"
   - "--episode_length"
   - "1000"
   - "--num_envs"

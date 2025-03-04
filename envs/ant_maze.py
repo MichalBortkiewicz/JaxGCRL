@@ -1,14 +1,12 @@
 import os
-from typing import Tuple
+import xml.etree.ElementTree as ET
 
-from brax import base
-from brax import math
+import jax
+import mujoco
+from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-import jax
 from jax import numpy as jnp
-import mujoco
-import xml.etree.ElementTree as ET
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
@@ -108,7 +106,9 @@ def make_maze(maze_layout_name, maze_size_scaling):
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
 
-    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant_maze.xml")
+    xml_path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "assets", "ant_maze.xml"
+    )
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
@@ -125,9 +125,17 @@ def make_maze(maze_layout_name, maze_size_scaling):
                     "geom",
                     name="block_%d_%d" % (i, j),
                     pos="%f %f %f"
-                    % (i * maze_size_scaling, j * maze_size_scaling, MAZE_HEIGHT / 2 * maze_size_scaling),
+                    % (
+                        i * maze_size_scaling,
+                        j * maze_size_scaling,
+                        MAZE_HEIGHT / 2 * maze_size_scaling,
+                    ),
                     size="%f %f %f"
-                    % (0.5 * maze_size_scaling, 0.5 * maze_size_scaling, MAZE_HEIGHT / 2 * maze_size_scaling),
+                    % (
+                        0.5 * maze_size_scaling,
+                        0.5 * maze_size_scaling,
+                        MAZE_HEIGHT / 2 * maze_size_scaling,
+                    ),
                     type="box",
                     material="",
                     contype="1",
@@ -159,7 +167,9 @@ class AntMaze(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals = make_maze(
+            maze_layout_name, maze_size_scaling
+        )
 
         sys = mjcf.loads(xml_string)
         self.possible_starts = possible_starts
@@ -183,7 +193,11 @@ class AntMaze(PipelineEnv):
 
         if backend == "positional":
             # TODO: does the same actuator strength work as in spring
-            sys = sys.replace(actuator=sys.actuator.replace(gear=200 * jnp.ones_like(sys.actuator.gear)))
+            sys = sys.replace(
+                actuator=sys.actuator.replace(
+                    gear=200 * jnp.ones_like(sys.actuator.gear)
+                )
+            )
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
@@ -197,7 +211,9 @@ class AntMaze(PipelineEnv):
         self._healthy_z_range = healthy_z_range
         self._contact_force_range = contact_force_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
+        self._exclude_current_positions_from_observation = (
+            exclude_current_positions_from_observation
+        )
         self.dense_reward = dense_reward
         self.state_dim = 29
         self.goal_indices = jnp.array([0, 1])
@@ -212,7 +228,9 @@ class AntMaze(PipelineEnv):
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        q = self.sys.init_q + jax.random.uniform(rng, (self.sys.q_size(),), minval=low, maxval=hi)
+        q = self.sys.init_q + jax.random.uniform(
+            rng, (self.sys.q_size(),), minval=low, maxval=hi
+        )
         qd = hi * jax.random.normal(rng1, (self.sys.qd_size(),))
 
         # set the start and target q, qd
@@ -294,7 +312,9 @@ class AntMaze(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
+        return state.replace(
+            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
+        )
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""

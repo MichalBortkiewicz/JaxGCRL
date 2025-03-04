@@ -1,40 +1,40 @@
 import os
-from typing import Tuple
-from brax import base
-from brax import math
+import xml.etree.ElementTree as ET
+
+import jax
+import mujoco
+from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-import jax
 from jax import numpy as jnp
-import mujoco
-import xml.etree.ElementTree as ET
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 
-RESET = R = 'r'
-GOAL = G = 'g'
-BALL = B = 'b'
+RESET = R = "r"
+GOAL = G = "g"
+BALL = B = "b"
 
 
-U_MAZE = [[1, 1, 1, 1, 1],
-          [1, R, G, B, 1],
-          [1, 1, 1, G, 1],
-          [1, G, G, G, 1],
-          [1, 1, 1, 1, 1]]
+U_MAZE = [
+    [1, 1, 1, 1, 1],
+    [1, R, G, B, 1],
+    [1, 1, 1, G, 1],
+    [1, G, G, G, 1],
+    [1, 1, 1, 1, 1],
+]
 
 
-
-BIG_MAZE = [[1, 1, 1, 1, 1, 1, 1, 1],
-            [1, R, 0, 1, 1, G, G, 1],
-            [1, 0, 0, 1, G, G, G, 1],
-            [1, 1, B, G, B, 1, 1, 1],
-            [1, G, G, 1, G, G, G, 1],
-            [1, G, 1, G, G, 1, G, 1],
-            [1, G, G, G, 1, G, G, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1]]
-
-
+BIG_MAZE = [
+    [1, 1, 1, 1, 1, 1, 1, 1],
+    [1, R, 0, 1, 1, G, G, 1],
+    [1, 0, 0, 1, G, G, G, 1],
+    [1, 1, B, G, B, 1, 1, 1],
+    [1, G, G, 1, G, G, G, 1],
+    [1, G, 1, G, G, 1, G, 1],
+    [1, G, G, G, 1, G, G, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1],
+]
 
 
 MAZE_HEIGHT = 0.5
@@ -58,8 +58,10 @@ def make_maze(maze_layout_name, maze_size_scaling):
         maze_layout = BIG_MAZE
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
-    
-    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_ball.xml")
+
+    xml_path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "assets", "ant_ball.xml"
+    )
 
     possible_starts = find(maze_layout, maze_size_scaling, RESET)
     possible_goals = find(maze_layout, maze_size_scaling, GOAL)
@@ -73,14 +75,21 @@ def make_maze(maze_layout_name, maze_size_scaling):
             struct = maze_layout[i][j]
             if struct == 1:
                 ET.SubElement(
-                    worldbody, "geom",
+                    worldbody,
+                    "geom",
                     name="block_%d_%d" % (i, j),
-                    pos="%f %f %f" % (i * maze_size_scaling,
-                                    j * maze_size_scaling,
-                                    MAZE_HEIGHT / 2 * maze_size_scaling),
-                    size="%f %f %f" % (0.5 * maze_size_scaling,
-                                        0.5 * maze_size_scaling,
-                                        MAZE_HEIGHT / 2 * maze_size_scaling),
+                    pos="%f %f %f"
+                    % (
+                        i * maze_size_scaling,
+                        j * maze_size_scaling,
+                        MAZE_HEIGHT / 2 * maze_size_scaling,
+                    ),
+                    size="%f %f %f"
+                    % (
+                        0.5 * maze_size_scaling,
+                        0.5 * maze_size_scaling,
+                        MAZE_HEIGHT / 2 * maze_size_scaling,
+                    ),
                     type="box",
                     material="",
                     contype="1",
@@ -90,7 +99,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
 
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
-    
+
     return xml_string, possible_starts, possible_goals, possible_balls
 
 
@@ -112,7 +121,9 @@ class AntBallMaze(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals, possible_balls = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals, possible_balls = make_maze(
+            maze_layout_name, maze_size_scaling
+        )
 
         sys = mjcf.loads(xml_string)
         self.possible_starts = possible_starts
@@ -158,13 +169,13 @@ class AntBallMaze(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        self._object_idx = self.sys.link_names.index('object')
+        self._object_idx = self.sys.link_names.index("object")
         self.dense_reward = dense_reward
 
         self.state_dim = 31
         self.goal_indices = jnp.array([28, 29])
         self.goal_reach_thresh = 0.5
-        
+
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
 
@@ -206,7 +217,7 @@ class AntBallMaze(PipelineEnv):
             "forward_reward": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -236,10 +247,10 @@ class AntBallMaze(PipelineEnv):
         dist = jnp.linalg.norm(obs[-2:] - obs[-4:-2])
         vel_to_target = (old_dist - dist) / self.dt
         success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
 
         if self.dense_reward:
-            reward = 10*vel_to_target + healthy_reward - ctrl_cost - contact_cost
+            reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
         else:
             reward = success
 
@@ -257,7 +268,7 @@ class AntBallMaze(PipelineEnv):
             forward_reward=forward_reward,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
@@ -277,7 +288,6 @@ class AntBallMaze(PipelineEnv):
         object_position = pipeline_state.x.pos[self._object_idx][:2]
 
         return jnp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
-    
 
     def _random_target(self, rng: jax.Array) -> jax.Array:
         """Returns a random target location chosen from possibilities specified in the maze layout."""
@@ -287,7 +297,7 @@ class AntBallMaze(PipelineEnv):
     def _random_start(self, rng: jax.Array) -> jax.Array:
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_starts))
         return jnp.array(self.possible_starts[idx])[0]
-    
+
     def _random_ball(self, rng: jax.Array) -> jax.Array:
         idx = jax.random.randint(rng, (1,), 0, len(self.possible_balls))
         return jnp.array(self.possible_balls[idx])[0]

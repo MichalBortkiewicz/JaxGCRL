@@ -108,7 +108,7 @@ The `--log_wandb` flag logs metrics to Wandb. By default, metrics are logged to 
 
 1. Run example [`sweep`](https://docs.wandb.ai/guides/sweeps):
 ```bash
-wandb sweep --project exemplary_sweep ./scripts/sweep.yml
+wandb sweep --project example_sweep ./scripts/sweep.yml
 ```
 2. Then run `wandb agent` with :
 ```
@@ -153,14 +153,14 @@ To add new environments: add an XML to `envs/assets`, add a python environment f
 
 We currently support following algorithms:
 
-| Algorithm                                     | How to run                             | Code                                     |
-|-----------------------------------------------|----------------------------------------|------------------------------------------|
-| [CRL](https://arxiv.org/abs/2206.07568)       | `python training.py ...`               | [link](./src/train.py)                   |
-| [SAC](https://arxiv.org/abs/1801.01290)       | `python training_sac.py ...`           | [link](./src/baselines/sac.py)           |
-| [SAC + HER](https://arxiv.org/abs/1707.01495) | `python training_sac.py ... --use_her` | [link](./src/baselines/sac.py)           |
-| [TD3](https://arxiv.org/pdf/1802.09477)       | `python training_td3.py ...`           | [link](./src/baselines/td3/td3_train.py) |
-| [TD3 + HER](https://arxiv.org/abs/1707.01495) | `python training_td3.py ... --use_her` | [link](./src/baselines/td3/td3_train.py) |
-| [PPO](https://arxiv.org/abs/1707.06347)       | `python training_ppo.py ...`           | [link](./src/baselines/ppo.py)           |
+| Algorithm                                       | How to run                               | Code                                       |
+| ----------------------------------------------- | ---------------------------------------- | ------------------------------------------ |
+| [CRL](https://arxiv.org/abs/2206.07568)         | `python main.py crl ...`                 | [link](./agents/crl/)                      |
+| [PPO](https://arxiv.org/abs/1707.06347)         | `python main.py ppo ...`                 | [link](./agents/ppo/)                      |
+| [SAC](https://arxiv.org/abs/1801.01290)         | `python main.py sac ...`                 | [link](./agents/sac/)                      |
+| [SAC + HER](https://arxiv.org/abs/1707.01495)   | `python main.py sac ... --use_her`       | [link](./agents/sac/)                      |
+| [TD3](https://arxiv.org/pdf/1802.09477)         | `python main.py td3 ...`                 | [link](./agents/td3/)                      |
+| [TD3 + HER](https://arxiv.org/abs/1707.01495)   | `python main.py td3 ... --use_her`       | [link](./agents/td3/)                      |
 
 
 ## Code Structure 📝
@@ -168,17 +168,31 @@ We currently support following algorithms:
 The core structure of the codebase is as follows:
 
 <pre><code>
-├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
-│   ├── <b>train.py:</b> Main file. Defines energy functions + losses, and networks. Collects trajectories, trains networks, runs evaluations.
+├── <b>agents/</b>
+│   ├── <b>crl/</b> 
+│   │   ├── <b>crl.py</b> CRL algorithm 
+│   │   ├── <b>losses.py</b> contrastive losses and energy functions
+│   │   └── <b>networks.py</b> CRL network architectures
+│   ├── <b>ppo/</b> 
+│   │   └── <b>ppo.py</b> PPO algorithm 
+│   ├── <b>sac/</b> 
+│   │   ├── <b>sac.py</b> SAC algorithm
+│   │   └── <b>networks.py</b> SAC network architectures
+│   └── <b>td3/</b> 
+│       ├── <b>td3.py</b> TD3 algorithm
+│       ├── <b>losses.py</b> TD3 loss functions
+│       └── <b>networks.py</b> TD3 network architectures
+├── <b>utils/</b>
+│   ├── <b>config.py</b> Base run configs
+│   ├── <b>env.py</b> Logic for rendering and environment initialization
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
-├── <b>envs:</b> Environments (python files and XMLs)
+├── <b>envs/</b>
 │   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here.
 │   ├── <b>assets:</b> Contains XMLs for environments.
 │   └── <b>manipulation:</b> Contains all manipulation environments.
 ├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
-├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
-└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+└── <b>main.py:</b> Takes the name of an agent and runs with the specified configs.
 </code></pre>
 
 The architecture can be adjusted in `networks.py`.
