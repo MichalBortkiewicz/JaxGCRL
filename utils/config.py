@@ -1,4 +1,3 @@
-import os
 from typing import Literal, Optional, Union
 
 from flax.struct import dataclass
@@ -47,8 +46,8 @@ class RunConfig:
     num_evals: int = 50
 
     seed: int = 0
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    backend: Optional[str] = None
+    exp_name: str = "run"
+    backend: Optional[Literal["mjx", "spring", "positional", "generalized"]] = None
     log_wandb: bool = True
     wandb_project_name: str = "jaxgcrl"
     # online or offline

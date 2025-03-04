@@ -1,7 +1,7 @@
 import pickle
 import random
 import time
-from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
+from typing import Any, Callable, Literal, NamedTuple, Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
@@ -20,6 +20,7 @@ from envs.wrappers import TrajectoryIdWrapper
 from utils.evaluator import ActorEvaluator
 from utils.replay_buffer import TrajectoryUniformSamplingQueue
 
+from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 
 Metrics = types.Metrics
@@ -96,6 +97,11 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
+    loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = (
+        "fwd_infonce"
+    )
+    energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
+
     def check_config(self, config):
         """
         episode_length: the maximum length of an episode
@@ -115,7 +121,6 @@ class CRL:
             Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
-        checkpoint_logdir: Optional[str] = None,
     ):
 
         self.check_config(config)
@@ -336,150 +341,32 @@ class CRL:
             )[0]
 
         @jax.jit
-        def update_actor_and_alpha(transitions, training_state, key):
-            def actor_loss(actor_params, critic_params, log_alpha, transitions, key):
-                obs = (
-                    transitions.observation
-                )  # expected_shape = self.batch_size, obs_size + goal_size
-                state = obs[:, :state_size]
-                future_state = transitions.extras["future_state"]
-                goal = future_state[:, train_env.goal_indices]
-                observation = jnp.concatenate([state, goal], axis=1)
-
-                means, log_stds = actor.apply(actor_params, observation)
-                stds = jnp.exp(log_stds)
-                x_ts = means + stds * jax.random.normal(
-                    key, shape=means.shape, dtype=means.dtype
-                )
-                action = nn.tanh(x_ts)
-                log_prob = jax.scipy.stats.norm.logpdf(x_ts, loc=means, scale=stds)
-                log_prob -= jnp.log((1 - jnp.square(action)) + 1e-6)
-                log_prob = log_prob.sum(-1)  # dimension = B
-
-                sa_encoder_params, g_encoder_params = (
-                    critic_params["sa_encoder"],
-                    critic_params["g_encoder"],
-                )
-                sa_repr = sa_encoder.apply(
-                    sa_encoder_params, jnp.concatenate([state, action], axis=-1)
-                )
-                g_repr = g_encoder.apply(g_encoder_params, goal)
-
-                qf_pi = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
-
-                actor_loss = jnp.mean(jnp.exp(log_alpha) * log_prob - (qf_pi))
-
-                return actor_loss, log_prob
-
-            def alpha_loss(alpha_params, log_prob):
-                alpha = jnp.exp(alpha_params["log_alpha"])
-                alpha_loss = alpha * jnp.mean(
-                    jax.lax.stop_gradient(-log_prob - target_entropy)
-                )
-                return jnp.mean(alpha_loss)
-
-            (actorloss, log_prob), actor_grad = jax.value_and_grad(
-                actor_loss, has_aux=True
-            )(
-                training_state.actor_state.params,
-                training_state.critic_state.params,
-                training_state.alpha_state.params["log_alpha"],
-                transitions,
-                key,
-            )
-            new_actor_state = training_state.actor_state.apply_gradients(
-                grads=actor_grad
-            )
-
-            alphaloss, alpha_grad = jax.value_and_grad(alpha_loss)(
-                training_state.alpha_state.params, log_prob
-            )
-            new_alpha_state = training_state.alpha_state.apply_gradients(
-                grads=alpha_grad
-            )
-
-            training_state = training_state.replace(
-                actor_state=new_actor_state, alpha_state=new_alpha_state
-            )
-
-            metrics = {
-                "sample_entropy": -log_prob,
-                "actor_loss": actorloss,
-                "alph_aloss": alphaloss,
-                "log_alpha": training_state.alpha_state.params["log_alpha"],
-            }
-
-            return training_state, metrics
-
-        @jax.jit
-        def update_critic(transitions, training_state, key):
-            def critic_loss(critic_params, transitions, key):
-                sa_encoder_params, g_encoder_params = (
-                    critic_params["sa_encoder"],
-                    critic_params["g_encoder"],
-                )
-
-                state = transitions.observation[:, :state_size]
-                action = transitions.action
-
-                sa_repr = sa_encoder.apply(
-                    sa_encoder_params, jnp.concatenate([state, action], axis=-1)
-                )
-                g_repr = g_encoder.apply(
-                    g_encoder_params, transitions.observation[:, state_size:]
-                )
-
-                # InfoNCE
-                logits = -jnp.sqrt(
-                    jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1)
-                )  # shape = BxB
-                critic_loss = -jnp.mean(
-                    jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1)
-                )
-
-                # logsumexp regularisation
-                logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)
-                critic_loss += self.logsumexp_penalty_coeff * jnp.mean(logsumexp**2)
-
-                I = jnp.eye(logits.shape[0])
-                correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
-                logits_pos = jnp.sum(logits * I) / jnp.sum(I)
-                logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
-
-                return critic_loss, (logsumexp, I, correct, logits_pos, logits_neg)
-
-            (loss, (logsumexp, I, correct, logits_pos, logits_neg)), grad = (
-                jax.value_and_grad(critic_loss, has_aux=True)(
-                    training_state.critic_state.params, transitions, key
-                )
-            )
-            new_critic_state = training_state.critic_state.apply_gradients(grads=grad)
-            training_state = training_state.replace(critic_state=new_critic_state)
-
-            metrics = {
-                "categorical_accuracy": jnp.mean(correct),
-                "logits_pos": logits_pos,
-                "logits_neg": logits_neg,
-                "logsumexp": logsumexp.mean(),
-                "critic_loss": loss,
-            }
-
-            return training_state, metrics
-
-        @jax.jit
         def sgd_step(carry, transitions):
             training_state, key = carry
-            (
-                key,
-                critic_key,
-                actor_key,
-            ) = jax.random.split(key, 3)
+            key, critic_key, actor_key = jax.random.split(key, 3)
+
+            context = dict(
+                **vars(self),
+                **vars(config),
+                state_size=state_size,
+                action_size=action_size,
+                goal_size=goal_size,
+                obs_size=obs_size,
+                goal_indices=train_env.goal_indices,
+                target_entropy=target_entropy,
+            )
+
+            networks = dict(
+                actor=actor,
+                sa_encoder=sa_encoder,
+                g_encoder=g_encoder,
+            )
 
             training_state, actor_metrics = update_actor_and_alpha(
-                transitions, training_state, actor_key
+                context, networks, transitions, training_state, actor_key
             )
             training_state, critic_metrics = update_critic(
-                transitions, training_state, critic_key
+                context, networks, transitions, training_state, critic_key
             )
             training_state = training_state.replace(
                 gradient_steps=training_state.gradient_steps + 1
@@ -641,22 +528,22 @@ class CRL:
                 do_render=do_render,
             )
 
-            if config.checkpoint:
+            if config.checkpoint_logdir:
                 # Save current policy and critic params.
                 params = (
                     training_state.alpha_state.params,
                     training_state.actor_state.params,
                     training_state.critic_state.params,
                 )
-                path = f"{config.ckpt_dir}/step_{int(training_state.env_steps)}.pkl"
+                path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
                 save_params(path, params)
 
-        if config.checkpoint:
+        if config.checkpoint_logdir:
             # Save current policy and critic params.
             params = (
                 training_state.alpha_state.params,
                 training_state.actor_state.params,
                 training_state.critic_state.params,
             )
-            path = f"{config.ckpt_dir}/final.pkl"
+            path = f"{config.checkpoint_logdir}/final.pkl"
             save_params(path, params)

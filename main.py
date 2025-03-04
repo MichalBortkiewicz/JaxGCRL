@@ -27,17 +27,21 @@ def main(config: Config):
     Initializes wandb logging if enabled. Runs training with profiling and
     saves profiling results.
     """
-    print("Arguments:")
-    pprint(vars(config.agent))
-    info = vars(config)
+    info = {**vars(config.run), **vars(config.agent)}
+
     utd_ratio = (
         config.run.num_envs
         * config.run.episode_length
         * config.agent.train_step_multiplier
         / config.agent.batch_size
     ) / (config.run.num_envs * config.agent.unroll_length)
-    print(f"Updates per environment step: {utd_ratio}")
     info["utd_ratio"] = utd_ratio
+    info["agent"] = type(config.agent).__name__
+
+    print()
+    print("Arguments:")
+    pprint(info)
+    print()
 
     wandb.init(
         project=config.run.wandb_project_name,
