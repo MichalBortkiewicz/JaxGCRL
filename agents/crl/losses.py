@@ -95,10 +95,11 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
     )
 
     metrics = {
-        "sample_entropy": -log_prob,
+        "entropy": -log_prob,
         "actor_loss": actor_loss,
-        "alph_aloss": alpha_loss,
+        "alpha_loss": alpha_loss,
         "log_alpha": training_state.alpha_state.params["log_alpha"],
+        "alpha": jnp.exp(training_state.alpha_state.params["log_alpha"]),
     }
 
     return training_state, metrics
