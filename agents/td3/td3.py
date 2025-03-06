@@ -278,6 +278,9 @@ class TD3:
             // (num_evals_after_init * env_steps_per_actor_step)
         )
 
+        logging.info("num_evals_after_init: %s", num_evals_after_init)
+        logging.info("num_training_steps_per_epoch: %s", num_training_steps_per_epoch)
+
         assert config.num_envs % device_count == 0
         env = train_env
         if isinstance(env, envs.Env):
@@ -768,7 +771,7 @@ class TD3:
                     params = _unpmap(
                         (training_state.normalizer_params, training_state.policy_params)
                     )
-                    path = f"{configcheckpoint_logdir}_td3_{current_step}.pkl"
+                    path = f"{config.checkpoint_logdir}_td3_{current_step}.pkl"
                     model.save_params(path, params)
 
                 # Run evals.
