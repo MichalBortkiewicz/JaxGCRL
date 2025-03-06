@@ -210,12 +210,12 @@ class TD3:
 
     learning_rate: float = 3e-4
     discounting: float = 0.9
-    batch_size: int = 64
+    batch_size: int = 256
     normalize_observations: bool = False
     reward_scaling: float = 1.0
     tau: float = 0.005
     min_replay_size: int = 0
-    max_replay_size: Optional[int] = None
+    max_replay_size: Optional[int] = 10000
     deterministic_eval: bool = False
     train_step_multiplier: int = 1
     unroll_length: int = 50

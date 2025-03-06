@@ -1,4 +1,4 @@
-name: contrastive_rl
+name: jaxgcrl
 channels:
   - conda-forge
 dependencies:
@@ -15,14 +15,17 @@ dependencies:
   - matplotlib=3.8
   - pytest=7.4.4
   - wandb
-  - cuda-nvcc
-  - cudnn=9.7
+  - cuda-nvcc=12.8
+  - cudnn=8.9
   - pip
   - pip:
     - brax==0.12.1
     - mujoco==3.2.7
     - mujoco-mjx==3.2.7
     - stack-data==0.6.3
+    - nvidia-cufft-cu12==11.2.0.44
+    - nvidia-cusolver-cu12==11.6.0.99
+    - nvidia-cuda-cupti-cu12==12.4.99
     - tyro==0.9.16
     - wandb_osh==1.2.2
     - jaxlib==0.4.25+cuda12.cudnn89

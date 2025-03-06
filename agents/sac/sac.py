@@ -219,7 +219,7 @@ class SAC:
     # target update rate
     tau: float = 0.005
     min_replay_size: int = 0
-    max_replay_size: Optional[int] = None
+    max_replay_size: Optional[int] = 10000
     deterministic_eval: bool = False
     train_step_multiplier: int = 1
     unroll_length: int = 50
