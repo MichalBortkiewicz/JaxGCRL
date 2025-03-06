@@ -461,7 +461,7 @@ class SAC:
             )
 
             new_target_q_params = jax.tree_util.tree_map(
-                lambda x, y: x * (1 - tau) + y * tau,
+                lambda x, y: x * (1 - self.tau) + y * self.tau,
                 training_state.target_q_params,
                 q_params,
             )
