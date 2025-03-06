@@ -724,7 +724,6 @@ class TD3:
                 ),
                 training_metrics={},
             )
-            logging.info(metrics)
             progress_fn(
                 0,
                 metrics,
@@ -781,7 +780,6 @@ class TD3:
                     ),
                     training_metrics,
                 )
-                logging.info(metrics)
                 do_render = (eval_epoch_num % config.visualization_interval) == 0
                 progress_fn(
                     current_step,

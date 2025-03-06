@@ -602,7 +602,6 @@ class CRL:
 
             metrics = evaluator.run_evaluation(training_state, metrics)
             logging.info("step: %d", current_step)
-            logging.info("metrics: %s", metrics)
 
             do_render = ne % config.visualization_interval == 0
             make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)
