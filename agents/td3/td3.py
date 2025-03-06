@@ -210,7 +210,7 @@ class TD3:
 
     learning_rate: float = 3e-4
     discounting: float = 0.9
-    batch_size: int = 256
+    batch_size: int = 64
     normalize_observations: bool = False
     reward_scaling: float = 1.0
     tau: float = 0.005
