@@ -18,17 +18,29 @@ steps within minutes on a single GPU.
 The codebase is organized into several key files and directories. Below is an overview of the structure and most important files:
 
 <pre><code>
-├── <b>src:</b> Algorithm code (training, network, replay buffer, etc.)
-│   ├── <b>train.py:</b> Main file. Defines energy functions + losses, and networks. Collects trajectories, trains networks, runs evaluations.
+├── <b>agents/</b>
+│   ├── <b>crl/</b> 
+│   │   ├── <b>crl.py</b> CRL algorithm 
+│   │   └── <b>networks.py</b> CRL network architectures
+│   ├── <b>ppo/</b> 
+│   │   └── <b>ppo.py</b> PPO algorithm 
+│   ├── <b>sac/</b> 
+│   │   ├── <b>sac.py</b> SAC algorithm
+│   │   └── <b>networks.py</b> SAC network architectures
+│   └── <b>td3/</b> 
+│       ├── <b>td3.py</b> TD3 algorithm
+│       ├── <b>losses.py</b> TD3 loss functions
+│       └── <b>networks.py</b> TD3 network architectures
+├── <b>utils/</b>
+│   ├── <b>utils.py</b>Logic for rendering and environment initialization
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
-├── <b>envs:</b> Environments (python files and XMLs)
-│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here
-│   ├── <b>assets:</b> Contains XMLs for environments
-│   └── <b>manipulation:</b> Contains all manipulation environments
-├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters
-├── <b>utils.py:</b> Logic for script argument processing, rendering, environment names, etc.
-└── <b>training.py:</b> Interface file that processes script arguments, calls train.py, initializes wandb, etc.
+├── <b>envs/</b>
+│   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here.
+│   ├── <b>assets:</b> Contains XMLs for environments.
+│   └── <b>manipulation:</b> Contains all manipulation environments.
+├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
+└── <b>main.py:</b> Interface file that takes the name of an agent and runs with the specified configs.
 </code></pre>
 
 

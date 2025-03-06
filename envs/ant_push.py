@@ -1,17 +1,17 @@
 import os
 from typing import Tuple
 
-from brax import base
-from brax import math
+import jax
+import mujoco
+from brax import base, math
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
-import jax
 from jax import numpy as jnp
-import mujoco
 
 # This is based on original Ant environment from Brax
 # https://github.com/google/brax/blob/main/brax/envs/ant.py
 # The original idea for environment comes from https://arxiv.org/pdf/1805.08296
+
 
 class AntPush(PipelineEnv):
     def __init__(
@@ -29,7 +29,9 @@ class AntPush(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets', "ant_push.xml")
+        path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "assets", "ant_push.xml"
+        )
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -59,7 +61,7 @@ class AntPush(PipelineEnv):
         self._exclude_current_positions_from_observation = (
             exclude_current_positions_from_observation
         )
-        self._object_idx = self.sys.link_names.index('movable')
+        self._object_idx = self.sys.link_names.index("movable")
         self.dense_reward = dense_reward
         self.state_dim = 31
         self.goal_indices = jnp.array([0, 1])
@@ -103,7 +105,7 @@ class AntPush(PipelineEnv):
             "forward_reward": zero,
             "dist": zero,
             "success": zero,
-            "success_easy": zero
+            "success_easy": zero,
         }
         state = State(pipeline_state, obs, reward, done, metrics)
         return state
@@ -112,8 +114,6 @@ class AntPush(PipelineEnv):
         """Run one timestep of the environment's dynamics."""
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
-
-
 
         velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
         forward_reward = velocity[0]
@@ -134,7 +134,7 @@ class AntPush(PipelineEnv):
         dist = jnp.linalg.norm(obs[:2] - obs[-2:])
         vel_to_target = (old_dist - dist) / self.dt
         success = jnp.array(dist < self.goal_reach_thresh, dtype=float)
-        success_easy = jnp.array(dist < 2., dtype=float)
+        success_easy = jnp.array(dist < 2.0, dtype=float)
 
         if self.dense_reward:
             reward = 10 * vel_to_target + healthy_reward - ctrl_cost - contact_cost
@@ -155,7 +155,7 @@ class AntPush(PipelineEnv):
             forward_reward=forward_reward,
             dist=dist,
             success=success,
-            success_easy=success_easy
+            success_easy=success_easy,
         )
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
@@ -178,13 +178,13 @@ class AntPush(PipelineEnv):
         return jnp.concatenate([qpos] + [qvel] + [object_position] + [target_pos])
 
     def _random_target(self, rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
-        """Returns a target location. """
+        """Returns a target location."""
         rng, rng1, rng2 = jax.random.split(rng, 3)
-        target_x = 16.
-        target_y = 8.
+        target_x = 16.0
+        target_y = 8.0
 
         target_pos = jax.random.permutation(rng1, jnp.array([target_x, target_y]))
-        noise = 2. * jax.random.uniform(rng2, shape=(2,))
+        noise = 2.0 * jax.random.uniform(rng2, shape=(2,))
 
         target_pos += noise
 
