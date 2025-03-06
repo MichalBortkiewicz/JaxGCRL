@@ -20,7 +20,7 @@ The primary purpose of our work is to enable easy and rapid research on self-sup
 
 ### Adding new contrastive objective
 For instance, to register a new contrastive objective ("`your_loss`") for CRL, you need to:
-1. Register new function `your_loss` in `contrastive_loss_fn` function (`agents/crl/losses.py`):
+1. Register the new function `your_loss` in the `contrastive_loss_fn` function (`agents/crl/losses.py`):
 ```python
 ...
 if name == "your_loss":
