@@ -291,7 +291,7 @@ class MetricsRecorder:
             metrics[key] = 0
         else:
             if math.isnan(metrics[key]):
-                raise Exception(f"Metric: {key} is Nan")
+                raise Exception(f"Metric: {key} is NaN in metrics: {metrics}")
 
 
 def render(make_policy, params, env, exp_dir, exp_name, num_steps):

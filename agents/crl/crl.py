@@ -22,6 +22,7 @@ from utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
+import functools
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -47,6 +48,80 @@ class Transition(NamedTuple):
     reward: jnp.ndarray
     discount: jnp.ndarray
     extras: jnp.ndarray = ()
+
+
+@functools.partial(jax.jit, static_argnames=("buffer_config"))
+def flatten_batch(buffer_config, transition, sample_key):
+
+    gamma, state_size, goal_indices = buffer_config
+
+    # Because it's vmaped transition.obs.shape is of shape (episode_len, obs_dim)
+    seq_len = transition.observation.shape[0]
+    arrangement = jnp.arange(seq_len)
+    is_future_mask = jnp.array(
+        arrangement[:, None] < arrangement[None], dtype=jnp.float32
+    )  # upper triangular matrix of shape seq_len, seq_len where all non-zero entries are 1
+    discount = gamma ** jnp.array(
+        arrangement[None] - arrangement[:, None], dtype=jnp.float32
+    )
+    probs = is_future_mask * discount
+
+    # probs is an upper triangular matrix of shape seq_len, seq_len of the form:
+    #    [[0.        , 0.99      , 0.98010004, 0.970299  , 0.960596 ],
+    #    [0.        , 0.        , 0.99      , 0.98010004, 0.970299  ],
+    #    [0.        , 0.        , 0.        , 0.99      , 0.98010004],
+    #    [0.        , 0.        , 0.        , 0.        , 0.99      ],
+    #    [0.        , 0.        , 0.        , 0.        , 0.        ]]
+    # assuming seq_len = 5
+    # the same result can be obtained using probs = is_future_mask * (gamma ** jnp.cumsum(is_future_mask, axis=-1))
+
+    single_trajectories = jnp.concatenate(
+        [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
+        axis=0,
+    )
+    # array of seq_len x seq_len where a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
+    # timesteps collected from the same episode will have the same traj_id. All rows of the single_trajectories are same.
+
+    probs = (
+        probs * jnp.equal(single_trajectories, single_trajectories.T)
+        + jnp.eye(seq_len) * 1e-5
+    )
+    # ith row of probs will be non zero only for time indices that
+    # 1) are greater than i
+    # 2) have the same traj_id as the ith time index
+
+    goal_index = jax.random.categorical(sample_key, jnp.log(probs))
+    future_state = jnp.take(
+        transition.observation, goal_index[:-1], axis=0
+    )  # the last goal_index cannot be considered as there is no future.
+    future_action = jnp.take(transition.action, goal_index[:-1], axis=0)
+    goal = future_state[:, goal_indices]
+    future_state = future_state[:, :state_size]
+    state = transition.observation[:-1, :state_size]  # all states are considered
+    new_obs = jnp.concatenate([state, goal], axis=1)
+
+    extras = {
+        "policy_extras": {},
+        "state_extras": {
+            "truncation": jnp.squeeze(
+                transition.extras["state_extras"]["truncation"][:-1]
+            ),
+            "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
+        },
+        "state": state,
+        "future_state": future_state,
+        "future_action": future_action,
+    }
+
+    return transition._replace(
+        observation=jnp.squeeze(
+            new_obs
+        ),  # this has shape (num_envs, episode_length-1, obs_size)
+        action=jnp.squeeze(transition.action[:-1]),
+        reward=jnp.squeeze(transition.reward[:-1]),
+        discount=jnp.squeeze(transition.discount[:-1]),
+        extras=extras,
+    )
 
 
 def load_params(path: str):
@@ -94,9 +169,9 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
-    contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = (
-        "fwd_infonce"
-    )
+    contrastive_loss_fn: Literal[
+        "fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"
+    ] = "fwd_infonce"
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
 
     def check_config(self, config):
@@ -143,6 +218,23 @@ class CRL:
         num_training_steps_per_epoch = (
             config.total_env_steps - num_prefill_env_steps
         ) // (config.num_evals * env_steps_per_actor_step)
+
+        assert (
+            num_training_steps_per_epoch > 0
+        ), "total_env_steps too small for given num_envs and episode_length"
+
+        logging.info(
+            "num_prefill_env_steps: %d",
+            num_prefill_env_steps,
+        )
+        logging.info(
+            "num_prefill_actor_steps: %d",
+            num_prefill_actor_steps,
+        )
+        logging.info(
+            "num_training_steps_per_epoch: %d",
+            num_training_steps_per_epoch,
+        )
 
         random.seed(config.seed)
         np.random.seed(config.seed)
@@ -338,7 +430,7 @@ class CRL:
             )[0]
 
         @jax.jit
-        def sgd_step(carry, transitions):
+        def update_networks(carry, transitions):
             training_state, key = carry
             key, critic_key, actor_key = jax.random.split(key, 3)
 
@@ -403,9 +495,7 @@ class CRL:
             batch_keys = jax.random.split(
                 sampling_key, transitions.observation.shape[0]
             )
-            transitions = jax.vmap(
-                TrajectoryUniformSamplingQueue.flatten_crl_fn, in_axes=(None, 0, 0)
-            )(
+            transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
                 (self.discounting, state_size, tuple(train_env.goal_indices)),
                 transitions,
                 batch_keys,
@@ -429,7 +519,7 @@ class CRL:
                 training_state,
                 _,
             ), metrics = jax.lax.scan(
-                sgd_step, (training_state, training_key), transitions
+                update_networks, (training_state, training_key), transitions
             )
 
             return (
@@ -511,8 +601,8 @@ class CRL:
             current_step = int(training_state.env_steps.item())
 
             metrics = evaluator.run_evaluation(training_state, metrics)
-            logging.info(f"step: {current_step}")
-            logging.info(metrics)
+            logging.info("step: %d", current_step)
+            logging.info("metrics: %s", metrics)
 
             do_render = ne % config.visualization_interval == 0
             make_policy = lambda param: lambda obs, rng: actor.apply(param, obs)

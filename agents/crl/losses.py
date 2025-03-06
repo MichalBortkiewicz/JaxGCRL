@@ -5,11 +5,11 @@ import jax.numpy as jnp
 
 def energy_fn(name, x, y):
     if name == "norm":
-        return -jnp.sqrt(jnp.sum((x - y) ** 2, axis=-1))
+        return -jnp.sqrt(jnp.sum((x - y) ** 2, axis=-1) + 1e-6)
     elif name == "dot":
         return jnp.sum(x * y, axis=-1)
     elif name == "cosine":
-        return jnp.sum(x * y, axis=-1) / (jnp.linalg.norm(x) * jnp.linalg.norm(y))
+        return jnp.sum(x * y, axis=-1) / (jnp.linalg.norm(x) * jnp.linalg.norm(y) + 1e-6)
     elif name == "l2":
         return -jnp.sum((x - y) ** 2, axis=-1)
     else:
@@ -99,7 +99,6 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         "actor_loss": actor_loss,
         "alpha_loss": alpha_loss,
         "log_alpha": training_state.alpha_state.params["log_alpha"],
-        "alpha": jnp.exp(training_state.alpha_state.params["log_alpha"]),
     }
 
     return training_state, metrics

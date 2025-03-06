@@ -80,7 +80,7 @@ def main(config: Config):
         "eval/episode_success_easy",
         "eval/episode_success_hard",
         "training/actor_loss",
-        "training/alpha",
+        "training/log_alpha",
         "training/alpha_loss",
         "training/critic_loss",
         "training/entropy",

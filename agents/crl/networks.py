@@ -17,6 +17,7 @@ class Encoder(nn.Module):
     @nn.compact
     def __call__(self, data: jnp.ndarray):
 
+        logging.info("encoder input shape: %s", data.shape)
         lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
@@ -76,7 +77,7 @@ class Actor(nn.Module):
         lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
 
-        logging.info(f"x.shape: {x.shape}")
+        logging.info("actor input shape: %s", x.shape)
         for i in range(self.network_depth):
             x = nn.Dense(
                 self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init

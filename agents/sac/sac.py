@@ -37,10 +37,10 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
-from agents.sac import networks as sac_networks
+from agents.sac import networks
 from envs.wrappers import TrajectoryIdWrapper
 from utils.evaluator import Evaluator
-from utils.replay_buffer import QueueBase, Sample
+from utils.replay_buffer import QueueBase, Sample, TrajectoryUniformSamplingQueue
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -86,120 +86,68 @@ ReplayBufferState = Any
 _PMAP_AXIS_NAME = "i"
 
 
-class TrajectoryUniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
-    """Implements an uniform sampling limited-size replay queue BUT WITH TRAJECTORIES."""
-
-    def sample_internal(
-        self, buffer_state: ReplayBufferState
-    ) -> Tuple[ReplayBufferState, Sample]:
-        if buffer_state.data.shape != self._data_shape:
-            raise ValueError(
-                f"Data shape expected by the replay buffer ({self._data_shape}) does "
-                f"not match the shape of the buffer state ({buffer_state.data.shape})"
-            )
-        key, sample_key, shuffle_key = jax.random.split(buffer_state.key, 3)
-        # NOTE: this is the number of envs to sample but it can be modified if there is OOM
-        shape = self.num_envs
-
-        # Sampling envs idxs
-        envs_idxs = jax.random.choice(
-            sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False
+@functools.partial(jax.jit, static_argnames=["config", "env"])
+def flatten_batch(
+    config, env, transition: Transition, sample_key: PRNGKey
+) -> Transition:
+    if config.use_her:
+        # Find truncation indexes if present
+        seq_len = transition.observation.shape[0]
+        arrangement = jnp.arange(seq_len)
+        is_future_mask = jnp.array(
+            arrangement[:, None] < arrangement[None], dtype=jnp.float32
+        )
+        single_trajectories = jnp.concatenate(
+            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
+            axis=0,
         )
 
-        @functools.partial(jax.jit, static_argnames=("rows", "cols"))
-        def create_matrix(rows, cols, min_val, max_val, rng_key):
-            rng_key, subkey = jax.random.split(rng_key)
-            start_values = jax.random.randint(
-                subkey, shape=(rows,), minval=min_val, maxval=max_val
-            )
-            row_indices = jnp.arange(cols)
-            matrix = start_values[:, jnp.newaxis] + row_indices
-            return matrix
+        # final_step_mask.shape == (seq_len, seq_len)
+        final_step_mask = (
+            is_future_mask * jnp.equal(single_trajectories, single_trajectories.T)
+            + jnp.eye(seq_len) * 1e-5
+        )
+        final_step_mask = jnp.logical_and(
+            final_step_mask,
+            transition.extras["state_extras"]["truncation"][None, :],
+        )
+        non_zero_columns = jnp.nonzero(final_step_mask, size=seq_len)[1]
 
-        @jax.jit
-        def create_batch(arr_2d, indices):
-            return jnp.take(arr_2d, indices, axis=0, mode="wrap")
+        # If final state is not present use original goal (i.e. don't change anything)
+        new_goals_idx = jnp.where(non_zero_columns == 0, arrangement, non_zero_columns)
+        binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
 
-        create_batch_vmaped = jax.vmap(create_batch, in_axes=(1, 0))
-
-        matrix = create_matrix(
-            shape,
-            self.episode_length,
-            buffer_state.sample_position,
-            buffer_state.insert_position - self.episode_length,
-            sample_key,
+        new_goals = (
+            binary_mask[:, None]
+            * transition.observation[new_goals_idx][:, env.goal_indices]
+            + jnp.logical_not(binary_mask)[:, None]
+            * transition.observation[new_goals_idx][:, env.state_dim :]
         )
 
-        batch = create_batch_vmaped(buffer_state.data[:, envs_idxs, :], matrix)
-        transitions = self._unflatten_fn(batch)
-        return buffer_state.replace(key=key), transitions
+        # Transform observation
+        state = transition.observation[:, : env.state_dim]
+        new_obs = jnp.concatenate([state, new_goals], axis=1)
 
-    @staticmethod
-    @functools.partial(jax.jit, static_argnames=["config", "env"])
-    def flatten_crl_fn(
-        config, env, transition: Transition, sample_key: PRNGKey
-    ) -> Transition:
-        if config.use_her:
-            # Find truncation indexes if present
-            seq_len = transition.observation.shape[0]
-            arrangement = jnp.arange(seq_len)
-            is_future_mask = jnp.array(
-                arrangement[:, None] < arrangement[None], dtype=jnp.float32
-            )
-            single_trajectories = jnp.concatenate(
-                [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T]
-                * seq_len,
-                axis=0,
-            )
+        # Recalculate reward
+        dist = jnp.linalg.norm(
+            new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1
+        )
+        new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
 
-            # final_step_mask.shape == (seq_len, seq_len)
-            final_step_mask = (
-                is_future_mask * jnp.equal(single_trajectories, single_trajectories.T)
-                + jnp.eye(seq_len) * 1e-5
-            )
-            final_step_mask = jnp.logical_and(
-                final_step_mask,
-                transition.extras["state_extras"]["truncation"][None, :],
-            )
-            non_zero_columns = jnp.nonzero(final_step_mask, size=seq_len)[1]
+        # Transform next observation
+        next_state = transition.next_observation[:, : env.state_dim]
+        new_next_obs = jnp.concatenate([next_state, new_goals], axis=1)
 
-            # If final state is not present use original goal (i.e. don't change anything)
-            new_goals_idx = jnp.where(
-                non_zero_columns == 0, arrangement, non_zero_columns
-            )
-            binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
+        return transition._replace(
+            observation=jnp.squeeze(new_obs),
+            next_observation=jnp.squeeze(new_next_obs),
+            reward=jnp.squeeze(new_reward),
+        )
 
-            new_goals = (
-                binary_mask[:, None]
-                * transition.observation[new_goals_idx][:, env.goal_indices]
-                + jnp.logical_not(binary_mask)[:, None]
-                * transition.observation[new_goals_idx][:, env.state_dim :]
-            )
-
-            # Transform observation
-            state = transition.observation[:, : env.state_dim]
-            new_obs = jnp.concatenate([state, new_goals], axis=1)
-
-            # Recalculate reward
-            dist = jnp.linalg.norm(
-                new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1
-            )
-            new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
-
-            # Transform next observation
-            next_state = transition.next_observation[:, : env.state_dim]
-            new_next_obs = jnp.concatenate([next_state, new_goals], axis=1)
-
-            return transition._replace(
-                observation=jnp.squeeze(new_obs),
-                next_observation=jnp.squeeze(new_next_obs),
-                reward=jnp.squeeze(new_reward),
-            )
-
-        return transition
+    return transition
 
 
-@flax.struct.dataclass
+@dataclass
 class TrainingState:
     """Contains training state for the learner."""
 
@@ -223,7 +171,7 @@ def _init_training_state(
     key: PRNGKey,
     obs_size: int,
     local_devices_to_use: int,
-    sac_network: sac_networks.SACNetworks,
+    sac_network: networks.SACNetworks,
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
@@ -304,8 +252,8 @@ class SAC:
             local_devices_to_use,
             device_count,
         )
-        network_factory: types.NetworkFactory[sac_networks.SACNetworks] = (
-            sac_networks.make_sac_networks
+        network_factory: types.NetworkFactory[networks.SACNetworks] = (
+            networks.make_sac_networks
         )
 
         if self.min_replay_size >= config.total_env_steps:
@@ -375,7 +323,7 @@ class SAC:
             layer_norm=self.use_ln,
             hidden_layer_sizes=[self.h_dim] * self.n_hidden,
         )
-        make_policy = sac_networks.make_inference_fn(sac_network)
+        make_policy = networks.make_inference_fn(sac_network)
 
         alpha_optimizer = optax.adam(learning_rate=3e-4)
 
@@ -601,12 +549,11 @@ class SAC:
             batch_keys = jax.random.split(
                 sampling_key, transitions.observation.shape[0]
             )
-            transitions = jax.vmap(
-                TrajectoryUniformSamplingQueue.flatten_crl_fn,
-                in_axes=(None, None, 0, 0),
-            )(self, env, transitions, batch_keys)
+            transitions = jax.vmap(flatten_batch, in_axes=(None, None, 0, 0))(
+                self, env, transitions, batch_keys
+            )
 
-            # Shuffle transitions and reshape them into (number_of_sgd_steps, batch_size, ...)
+            # Shuffle transitions and reshape them into (num_update_steps, batch_size, ...)
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),
                 transitions,

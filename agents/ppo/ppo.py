@@ -489,7 +489,7 @@ class PPO:
 
         # Run initial eval
         metrics = {}
-        if process_id == 0 and self.num_evals > 1:
+        if process_id == 0 and config.num_evals > 1:
             metrics = evaluator.run_evaluation(
                 _unpmap(
                     (

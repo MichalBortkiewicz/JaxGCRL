@@ -40,7 +40,7 @@ class RunConfig:
     env: Literal[legal_envs]
 
     # total number of environment steps to run
-    total_env_steps: int = 1_000_000
+    total_env_steps: int = 10_000_000
 
     # maximum length of an episode
     episode_length: int = 1001
@@ -49,10 +49,10 @@ class RunConfig:
     eval_env: Optional[Literal[legal_envs]] = None
 
     # number of envs to run in parallel during training
-    num_envs: int = 128
+    num_envs: int = 256
 
     # number of envs to run in parallel during evaluation
-    num_eval_envs: int = 128
+    num_eval_envs: int = 256
 
     action_repeat: int = 1
 
