@@ -32,7 +32,8 @@ The codebase is organized into several key files and directories. Below is an ov
 │       ├── <b>losses.py</b> TD3 loss functions
 │       └── <b>networks.py</b> TD3 network architectures
 ├── <b>utils/</b>
-│   ├── <b>utils.py</b>Logic for rendering and environment initialization
+│   ├── <b>config.py</b>Base run configuration for all agents
+│   ├── <b>env.py</b>Logic for rendering and environment initialization
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
 ├── <b>envs/</b>

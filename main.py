@@ -7,7 +7,8 @@ import tyro
 from brax.io import model
 
 import wandb
-from utils import Config, MetricsRecorder, create_env
+from utils.config import Config
+from utils.env import MetricsRecorder, create_env
 
 
 def main(config: Config):

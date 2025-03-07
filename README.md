@@ -72,7 +72,7 @@ The following code demonstrates how to interact with the environment:
 
 ```python
 import jax
-from utils import create_env
+from utils.env import create_env
 
 key = jax.random.PRNGKey(0)
 
