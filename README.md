@@ -29,7 +29,7 @@ We provide blazingly fast goal-conditioned environments based on [MJX](https://m
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
 
 - **Blazingly Fast Training** - Train 10 million environment steps in 10 
-  minutes on a single GPU, up to 22$\times$ faster than prior implementations.
+  minutes on a single GPU, up to $22\times$ faster than prior implementations.
 - **Comprehensive Benchmarking** - Includes 10+ diverse environments and multiple pre-implemented baselines for out-of-the-box evaluation.
 - **Modular Implementation** - Designed for clarity and scalability, 
   allowing for easy modification of algorithms.
