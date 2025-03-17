@@ -3,11 +3,8 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
-  - jax=0.4.25
   - scipy=1.12.0
   - scikit-image=0.22.0
-  - flax=0.8.3
-  - chex=0.1.86
   - dm-haiku=0.0.11
   - six=1.16.0
   - statsmodels=0.14.1
@@ -17,6 +14,8 @@ dependencies:
   - wandb
   - cuda-nvcc=12.8
   - cudnn=8.9
+  - flax
+  - chex
   - pip
   - pip:
     - brax==0.12.1
@@ -28,6 +27,7 @@ dependencies:
     - nvidia-cuda-cupti-cu12==12.4.99
     - tyro==0.9.16
     - wandb_osh==1.2.2
+    - jax==0.4.25
     - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
     - scikit-learn==1.6.1
