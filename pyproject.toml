@@ -1,0 +1,26 @@
+[project]
+name = "jaxgcrl"
+version = "0.1.0"
+description = "Blazingly fast goal-conditioned environments based on MJX and BRAX."
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "jax==0.4.25",
+    "flax>=0.8.3",
+    "brax>=0.12.1",
+    "mujoco==3.2.7",
+    "mujoco-mjx==3.2.7",
+    "scipy>=1.12.0",
+    "matplotlib==3.8.4",
+    "tyro>=0.9.16",
+    "wandb",
+    "wandb_osh",
+]
+
+[project.scripts]
+jaxgcrl = "run:cli"
+
+[tool.setuptools]
+packages = ["jaxgcrl"]
+py-modules = ["run"]
+

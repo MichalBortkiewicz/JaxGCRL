@@ -1,4 +1,5 @@
 import argparse
+import logging
 import math
 import os
 from collections import namedtuple
@@ -8,30 +9,30 @@ from typing import List
 import flax.linen as nn
 import jax
 import wandb_osh
-import logging
 from brax.io import html
 from matplotlib import pyplot as plt
 from wandb_osh.hooks import TriggerWandbSyncHook
 
 import wandb
-from envs.ant import Ant
-from envs.ant_ball import AntBall
-from envs.ant_ball_maze import AntBallMaze
-from envs.ant_maze import AntMaze
-from envs.ant_push import AntPush
-from envs.half_cheetah import Halfcheetah
-from envs.humanoid import Humanoid
-from envs.humanoid_maze import HumanoidMaze
-from envs.manipulation.arm_binpick_easy import ArmBinpickEasy
-from envs.manipulation.arm_binpick_hard import ArmBinpickHard
-from envs.manipulation.arm_grasp import ArmGrasp
-from envs.manipulation.arm_push_easy import ArmPushEasy
-from envs.manipulation.arm_push_hard import ArmPushHard
-from envs.manipulation.arm_reach import ArmReach
-from envs.pusher import Pusher, PusherReacher
-from envs.pusher2 import Pusher2
-from envs.reacher import Reacher
-from envs.simple_maze import SimpleMaze
+from jaxgcrl.envs.ant import Ant
+from jaxgcrl.envs.ant_ball import AntBall
+from jaxgcrl.envs.ant_ball_maze import AntBallMaze
+from jaxgcrl.envs.ant_maze import AntMaze
+from jaxgcrl.envs.ant_push import AntPush
+from jaxgcrl.envs.half_cheetah import Halfcheetah
+from jaxgcrl.envs.humanoid import Humanoid
+from jaxgcrl.envs.humanoid_maze import HumanoidMaze
+from jaxgcrl.envs.manipulation.arm_binpick_easy import ArmBinpickEasy
+from jaxgcrl.envs.manipulation.arm_binpick_hard import ArmBinpickHard
+from jaxgcrl.envs.manipulation.arm_grasp import ArmGrasp
+from jaxgcrl.envs.manipulation.arm_push_easy import ArmPushEasy
+from jaxgcrl.envs.manipulation.arm_push_hard import ArmPushHard
+from jaxgcrl.envs.manipulation.arm_reach import ArmReach
+from jaxgcrl.envs.pusher import Pusher, PusherReacher
+from jaxgcrl.envs.pusher2 import Pusher2
+from jaxgcrl.envs.reacher import Reacher
+from jaxgcrl.envs.simple_maze import SimpleMaze
+
 
 legal_envs = (
     "ant",
@@ -98,7 +99,8 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
             )
         elif "ant" in env_name:
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-            env = AntMaze(backend=backend or "spring", maze_layout_name=env_name[4:])
+            env = AntMaze(backend=backend or "spring",
+                          maze_layout_name=env_name[4:])
         elif "humanoid" in env_name:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
             env = HumanoidMaze(
@@ -106,7 +108,8 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
             )
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
-            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:])
+            env = SimpleMaze(backend=backend or "spring",
+                             maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
@@ -235,7 +238,8 @@ class MetricsRecorder:
 
     def plot_progress(self):
         num_plots = len(self.y_data)
-        num_rows = (num_plots + 1) // 2  # Calculate number of rows needed for 2 columns
+        # Calculate number of rows needed for 2 columns
+        num_rows = (num_plots + 1) // 2
 
         fig, axs = plt.subplots(num_rows, 2, figsize=(15, 5 * num_rows))
 
@@ -246,7 +250,8 @@ class MetricsRecorder:
             axs[row, col].set_xlim(self.min_x, self.max_x)
             axs[row, col].set_xlabel("# environment steps")
             axs[row, col].set_ylabel(key)
-            axs[row, col].errorbar(self.x_data, y_values, yerr=self.y_data_err[key])
+            axs[row, col].errorbar(self.x_data, y_values,
+                                   yerr=self.y_data_err[key])
             axs[row, col].set_title(f"{key}: {y_values[-1]:.3f}")
 
         # Hide any empty subplots
@@ -272,7 +277,8 @@ class MetricsRecorder:
             self.ensure_metric(metrics, key)
 
         if do_render:
-            render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
+            render(make_policy, params, env,
+                   self.exp_dir, self.exp_name, num_steps)
 
         self.record(
             num_steps,

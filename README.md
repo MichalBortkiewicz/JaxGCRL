@@ -133,19 +133,19 @@ We currently support a variety of continuous control environments:
 
 | Environment     | Env name                                                                 | Code                                              |
 | :-------------- | :----------------------------------------------------------------------: | :-----------------------------------------------: |
-| Reacher         | `reacher`                                                                | [link](./envs/reacher.py)                         |
-| Half Cheetah    | `cheetah`                                                                | [link](./envs/half_cheetah.py)                    |
-| Pusher          | `pusher_easy` <br> `pusher_hard`                                         | [link](./envs/pusher.py)                          |
-| Ant             | `ant`                                                                    | [link](./envs/ant.py)                             |
-| Ant Maze        | `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`                 | [link](./envs/ant_maze.py)                        |
-| Ant Soccer      | `ant_ball`                                                               | [link](./envs/ant_ball.py)                        |
-| Ant Push        | `ant_push`                                                               | [link](./envs/ant_push.py)                        |
-| Humanoid        | `humanoid`                                                               | [link](./envs/humanoid.py)                        |
-| Humanoid Maze   | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze`   | [link](./envs/humanoid_maze.py)                   |
-| Arm Reach       | `arm_reach`                                                              | [link](./envs/manipulation/arm_reach.py)          |
-| Arm Grasp       | `arm_grasp`                                                              | [link](./envs/manipulation/arm_grasp.py)          |
-| Arm Push        | `arm_push_easy` <br> `arm_push_hard`                                     | [link](./envs/manipulation/arm_push_easy.py)      |
-| Arm Binpick     | `arm_binpick_easy` <br> `arm_binpick_hard`                               | [link](./envs/manipulation/arm_binpick_easy.py)   |
+| Reacher         | `reacher`                                                                | [link](./jaxgcrl/envs/reacher.py)                         |
+| Half Cheetah    | `cheetah`                                                                | [link](./jaxgcrl/envs/half_cheetah.py)                    |
+| Pusher          | `pusher_easy` <br> `pusher_hard`                                         | [link](./jaxgcrl/envs/pusher.py)                          |
+| Ant             | `ant`                                                                    | [link](./jaxgcrl/envs/ant.py)                             |
+| Ant Maze        | `ant_u_maze` <br> `ant_big_maze` <br> `ant_hardest_maze`                 | [link](./jaxgcrl/envs/ant_maze.py)                        |
+| Ant Soccer      | `ant_ball`                                                               | [link](./jaxgcrl/envs/ant_ball.py)                        |
+| Ant Push        | `ant_push`                                                               | [link](./jaxgcrl/envs/ant_push.py)                        |
+| Humanoid        | `humanoid`                                                               | [link](./jaxgcrl/envs/humanoid.py)                        |
+| Humanoid Maze   | `humanoid_u_maze` <br> `humanoid_big_maze` <br>`humanoid_hardest_maze`   | [link](./jaxgcrl/envs/humanoid_maze.py)                   |
+| Arm Reach       | `arm_reach`                                                              | [link](./jaxgcrl/envs/manipulation/arm_reach.py)          |
+| Arm Grasp       | `arm_grasp`                                                              | [link](./jaxgcrl/envs/manipulation/arm_grasp.py)          |
+| Arm Push        | `arm_push_easy` <br> `arm_push_hard`                                     | [link](./jaxgcrl/envs/manipulation/arm_push_easy.py)      |
+| Arm Binpick     | `arm_binpick_easy` <br> `arm_binpick_hard`                               | [link](./jaxgcrl/envs/manipulation/arm_binpick_easy.py)   |
 
 To add new environments: add an XML to `envs/assets`, add a python environment file in `envs`, and register the environment name in `utils.py`.
 
@@ -155,12 +155,12 @@ We currently support following algorithms:
 
 | Algorithm                                       | How to run                               | Code                                       |
 | ----------------------------------------------- | ---------------------------------------- | ------------------------------------------ |
-| [CRL](https://arxiv.org/abs/2206.07568)         | `python main.py crl ...`                 | [link](./agents/crl/)                      |
-| [PPO](https://arxiv.org/abs/1707.06347)         | `python main.py ppo ...`                 | [link](./agents/ppo/)                      |
-| [SAC](https://arxiv.org/abs/1801.01290)         | `python main.py sac ...`                 | [link](./agents/sac/)                      |
-| [SAC + HER](https://arxiv.org/abs/1707.01495)   | `python main.py sac ... --use_her`       | [link](./agents/sac/)                      |
-| [TD3](https://arxiv.org/pdf/1802.09477)         | `python main.py td3 ...`                 | [link](./agents/td3/)                      |
-| [TD3 + HER](https://arxiv.org/abs/1707.01495)   | `python main.py td3 ... --use_her`       | [link](./agents/td3/)                      |
+| [CRL](https://arxiv.org/abs/2206.07568)         | `python run.py crl ...`                 | [link](./jaxgcrl/agents/crl/)                      |
+| [PPO](https://arxiv.org/abs/1707.06347)         | `python run.py ppo ...`                 | [link](./jaxgcrl/agents/ppo/)                      |
+| [SAC](https://arxiv.org/abs/1801.01290)         | `python run.py sac ...`                 | [link](./jaxgcrl/agents/sac/)                      |
+| [SAC + HER](https://arxiv.org/abs/1707.01495)   | `python run.py sac ... --use_her`       | [link](./jaxgcrl/agents/sac/)                      |
+| [TD3](https://arxiv.org/pdf/1802.09477)         | `python run.py td3 ...`                 | [link](./jaxgcrl/agents/td3/)                      |
+| [TD3 + HER](https://arxiv.org/abs/1707.01495)   | `python run.py td3 ... --use_her`       | [link](./jaxgcrl/agents/td3/)                      |
 
 
 ## Code Structure 📝
@@ -168,6 +168,8 @@ We currently support following algorithms:
 The core structure of the codebase is as follows:
 
 <pre><code>
+<b>run.py:</b> Takes the name of an agent and runs with the specified configs.
+<b>agents/</b>
 ├── <b>agents/</b>
 │   ├── <b>crl/</b> 
 │   │   ├── <b>crl.py</b> CRL algorithm 
@@ -191,8 +193,7 @@ The core structure of the codebase is as follows:
 │   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here.
 │   ├── <b>assets:</b> Contains XMLs for environments.
 │   └── <b>manipulation:</b> Contains all manipulation environments.
-├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
-└── <b>main.py:</b> Takes the name of an agent and runs with the specified configs.
+└── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
 </code></pre>
 
 The architecture can be adjusted in `networks.py`.

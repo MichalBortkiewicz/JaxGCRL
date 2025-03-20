@@ -2,7 +2,7 @@ from typing import Literal, Optional, Union
 
 from flax.struct import dataclass
 
-from agents import CRL, PPO, SAC, TD3
+from jaxgcrl.agents import CRL, PPO, SAC, TD3
 
 from .env import legal_envs
 

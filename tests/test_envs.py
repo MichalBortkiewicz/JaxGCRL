@@ -1,7 +1,7 @@
 import jax
 import pytest
 
-from utils.env import create_env
+from jaxgcrl.utils.env import create_env
 
 # Sanity check tests for all environments
 # python -m pytest to run them

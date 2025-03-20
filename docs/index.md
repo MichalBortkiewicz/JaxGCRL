@@ -18,9 +18,12 @@ steps within minutes on a single GPU.
 The codebase is organized into several key files and directories. Below is an overview of the structure and most important files:
 
 <pre><code>
+<b>run.py:</b> Takes the name of an agent and runs with the specified configs.
+<b>agents/</b>
 ├── <b>agents/</b>
 │   ├── <b>crl/</b> 
 │   │   ├── <b>crl.py</b> CRL algorithm 
+│   │   ├── <b>losses.py</b> contrastive losses and energy functions
 │   │   └── <b>networks.py</b> CRL network architectures
 │   ├── <b>ppo/</b> 
 │   │   └── <b>ppo.py</b> PPO algorithm 
@@ -32,18 +35,16 @@ The codebase is organized into several key files and directories. Below is an ov
 │       ├── <b>losses.py</b> TD3 loss functions
 │       └── <b>networks.py</b> TD3 network architectures
 ├── <b>utils/</b>
-│   ├── <b>config.py</b>Base run configuration for all agents
-│   ├── <b>env.py</b>Logic for rendering and environment initialization
+│   ├── <b>config.py</b> Base run configs
+│   ├── <b>env.py</b> Logic for rendering and environment initialization
 │   ├── <b>replay_buffer.py:</b> Contains replay buffer, including logic for state, action, and goal sampling for training.
 │   └── <b>evaluator.py:</b> Runs evaluation and collects metrics.
 ├── <b>envs/</b>
 │   ├── <b>ant.py, humanoid.py, ...:</b> Most environments are here.
 │   ├── <b>assets:</b> Contains XMLs for environments.
 │   └── <b>manipulation:</b> Contains all manipulation environments.
-├── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
-└── <b>main.py:</b> Interface file that takes the name of an agent and runs with the specified configs.
+└── <b>scripts/train.sh:</b> Modify to choose environment and hyperparameters.
 </code></pre>
-
 
 ## Paper: Accelerating Goal-Conditioned RL Algorithms and Research
 ![teaser](imgs/teaser.jpg)

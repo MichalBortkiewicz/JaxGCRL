@@ -2,7 +2,7 @@ import jax
 from brax import base
 from jax import numpy as jnp
 
-from envs.manipulation.arm_envs import ArmEnvs
+from .arm_envs import ArmEnvs
 
 """
 Grasp: Close fingers on opposite sides of a cube.

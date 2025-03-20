@@ -32,10 +32,10 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
-from agents.td3 import losses as losses, networks as networks
-from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import Evaluator
-from utils.replay_buffer import QueueBase, Sample, TrajectoryUniformSamplingQueue
+from . import losses as losses, networks as networks
+from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
+from jaxgcrl.utils.evaluator import Evaluator
+from jaxgcrl.utils.replay_buffer import QueueBase, Sample, TrajectoryUniformSamplingQueue
 
 Metrics = types.Metrics
 # Transition = types.Transition

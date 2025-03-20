@@ -18,14 +18,13 @@ See: https://arxiv.org/pdf/1812.05905.pdf
 """
 
 import functools
+import logging
 import time
-from typing import Any, Callable, Generic, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple, Union
 
-import flax
 import jax
 import jax.numpy as jnp
 import optax
-import logging
 from brax import base, envs
 from brax.io import model
 from brax.training import gradients, pmap, types
@@ -37,10 +36,12 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
-from agents.sac import networks
-from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import Evaluator
-from utils.replay_buffer import QueueBase, Sample, TrajectoryUniformSamplingQueue
+from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
+from jaxgcrl.utils.evaluator import Evaluator
+from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
+
+from . import networks
+
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -98,13 +99,15 @@ def flatten_batch(
             arrangement[:, None] < arrangement[None], dtype=jnp.float32
         )
         single_trajectories = jnp.concatenate(
-            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
+            [transition.extras["state_extras"]
+                ["traj_id"][:, jnp.newaxis].T] * seq_len,
             axis=0,
         )
 
         # final_step_mask.shape == (seq_len, seq_len)
         final_step_mask = (
-            is_future_mask * jnp.equal(single_trajectories, single_trajectories.T)
+            is_future_mask *
+            jnp.equal(single_trajectories, single_trajectories.T)
             + jnp.eye(seq_len) * 1e-5
         )
         final_step_mask = jnp.logical_and(
@@ -114,14 +117,15 @@ def flatten_batch(
         non_zero_columns = jnp.nonzero(final_step_mask, size=seq_len)[1]
 
         # If final state is not present use original goal (i.e. don't change anything)
-        new_goals_idx = jnp.where(non_zero_columns == 0, arrangement, non_zero_columns)
+        new_goals_idx = jnp.where(
+            non_zero_columns == 0, arrangement, non_zero_columns)
         binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
 
         new_goals = (
             binary_mask[:, None]
             * transition.observation[new_goals_idx][:, env.goal_indices]
             + jnp.logical_not(binary_mask)[:, None]
-            * transition.observation[new_goals_idx][:, env.state_dim :]
+            * transition.observation[new_goals_idx][:, env.state_dim:]
         )
 
         # Transform observation
@@ -130,7 +134,7 @@ def flatten_batch(
 
         # Recalculate reward
         dist = jnp.linalg.norm(
-            new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1
+            new_obs[:, env.state_dim:] - new_obs[:, env.goal_indices], axis=1
         )
         new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
 
@@ -236,7 +240,8 @@ class SAC:
         train_env: Union[envs_v1.Env, envs.Env],
         eval_env: Optional[Union[envs_v1.Env, envs.Env]] = None,
         randomization_fn: Optional[
-            Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
+            Callable[[base.System, jnp.ndarray],
+                     Tuple[base.System, base.System]]
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     ):
@@ -313,7 +318,7 @@ class SAC:
         obs_size = env.observation_size
         action_size = env.action_size
 
-        normalize_fn = lambda x, y: x
+        def normalize_fn(x, y): return x
         if self.normalize_observations:
             normalize_fn = running_statistics.normalize
         sac_network = network_factory(
@@ -484,7 +489,8 @@ class SAC:
             buffer_state: ReplayBufferState,
             key: PRNGKey,
         ) -> Tuple[
-            TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics
+            TrainingState, Union[envs.State,
+                                 envs_v1.State], ReplayBufferState, Metrics
         ]:
             experience_key, training_key = jax.random.split(key)
             normalizer_params, env_state, buffer_state = get_experience(
@@ -543,7 +549,8 @@ class SAC:
             buffer_state: ReplayBufferState,
             key: PRNGKey,
         ) -> Tuple[TrainingState, ReplayBufferState, Metrics]:
-            experience_key, training_key, sampling_key = jax.random.split(key, 3)
+            experience_key, training_key, sampling_key = jax.random.split(
+                key, 3)
             buffer_state, transitions = replay_buffer.sample(buffer_state)
 
             batch_keys = jax.random.split(
@@ -561,7 +568,8 @@ class SAC:
             permutation = jax.random.permutation(
                 experience_key, len(transitions.observation)
             )
-            transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
+            transitions = jax.tree_util.tree_map(
+                lambda x: x[permutation], transitions)
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
                 transitions,
@@ -659,7 +667,8 @@ class SAC:
         local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
 
         # Env init
-        env_keys = jax.random.split(env_key, config.num_envs // jax.process_count())
+        env_keys = jax.random.split(
+            env_key, config.num_envs // jax.process_count())
         env_keys = jnp.reshape(
             env_keys, (local_devices_to_use, -1) + env_keys.shape[1:]
         )
@@ -674,7 +683,8 @@ class SAC:
             eval_env = env
         if randomization_fn is not None:
             v_randomization_fn = functools.partial(
-                randomization_fn, rng=jax.random.split(eval_key, config.num_eval_envs)
+                randomization_fn, rng=jax.random.split(
+                    eval_key, config.num_eval_envs)
             )
         eval_env = TrajectoryIdWrapper(eval_env)
         eval_env = wrap_for_training(
@@ -686,7 +696,8 @@ class SAC:
 
         evaluator = Evaluator(
             eval_env,
-            functools.partial(make_policy, deterministic=self.deterministic_eval),
+            functools.partial(
+                make_policy, deterministic=self.deterministic_eval),
             num_eval_envs=config.num_eval_envs,
             episode_length=config.episode_length,
             action_repeat=config.action_repeat,
@@ -721,7 +732,8 @@ class SAC:
         )
 
         replay_size = (
-            jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
+            jnp.sum(jax.vmap(replay_buffer.size)(
+                buffer_state)) * jax.process_count()
         )
         logging.info("replay size after prefill %s", replay_size)
         assert replay_size >= self.min_replay_size
@@ -746,7 +758,8 @@ class SAC:
                 if config.checkpoint_logdir:
                     # Save current policy.
                     params = _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
+                        (training_state.normalizer_params,
+                         training_state.policy_params)
                     )
                     path = f"{config.checkpoint_logdir}_sac_{current_step}.pkl"
                     model.save_params(path, params)
@@ -754,17 +767,20 @@ class SAC:
                 # Run evals.
                 metrics = evaluator.run_evaluation(
                     _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
+                        (training_state.normalizer_params,
+                         training_state.policy_params)
                     ),
                     training_metrics,
                 )
-                do_render = (eval_epoch_num % config.visualization_interval) == 0
+                do_render = (eval_epoch_num %
+                             config.visualization_interval) == 0
                 progress_fn(
                     current_step,
                     metrics,
                     make_policy,
                     _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
+                        (training_state.normalizer_params,
+                         training_state.policy_params)
                     ),
                     unwrapped_env,
                     do_render,

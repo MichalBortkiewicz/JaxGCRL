@@ -1,7 +1,7 @@
 ## Experiments
 JaxGCRL is highly flexible in terms of parameters, allowing for a wide range of experimental setups. To run a basic experiment, you can start with:
 ```
-python main.py crl --env ant
+python run.py crl --env ant
 ```
 For a complete list of environments, refer to the [environments section](##Environments) or [source code](./utils.py#L66).
 
@@ -9,7 +9,7 @@ For a complete list of environments, refer to the [environments section](##Envir
 One of JaxGCRL's key features is its ability to run parallel environments for data collection. If your GPU has limited memory, you can reduce the number of parallel environments with the following parameter:
 
 ```
-python main.py crl --env ant --num_envs 16 --batch_size 16
+python run.py crl --env ant --num_envs 16 --batch_size 16
 ```
 
 !!! note annotate "Replay buffer"
@@ -19,12 +19,12 @@ python main.py crl --env ant --num_envs 16 --batch_size 16
 
 You can customize the neural network architecture by adjusting the number of hidden layers (`n_hidden`), the width of hidden layers (`h_dim`) and the representation dimension (`repr_dim`):
 ```
-python main.py crl --env ant --h_dim 128 --n_hidden 3 --repr_dim 32
+python run.py crl --env ant --h_dim 128 --n_hidden 3 --repr_dim 32
 ```
 
 JaxGCRL supports various built-in energy functions and contrastive loss functions for CRL. For example, to use an L2 penalty with the InfoNCE-backward contrastive loss, you can run:
 ```
-python main.py crl --env ant --energy_fn l2 --contrastive_loss_fn bwd_infonce
+python run.py crl --env ant --energy_fn l2 --contrastive_loss_fn bwd_infonce
 ```
 For a full list of available energy functions and contrastive losses, see `./agents/crl/losses.py`.
 
@@ -32,7 +32,7 @@ JaxGCRL offers many other useful parameters, such as `total_env_steps`, `batch_s
 
 You can also find additional information about main arguments and hyperparameters by running:
 
-```python main.py crl --help```
+```python run.py crl --help```
 
 
 To execute multiple experiments, you can use a bash script.
@@ -40,7 +40,7 @@ For example, the script below runs experiments to test the performance of differ
 ```bash
 for c_loss in binary infonce flatnce fb dp; do
 	for seed in 1 2 3 4 5; do
-		python main.py crl --seed ${seed} \
+		python run.py crl --seed ${seed} \
 		--wandb_project_name crl --wandb_group contrastive_loss_experiments \ 
 		--exp_name ${c_loss} \
 		--contrastive_loss_fn ${c_loss} --energy_fn norm \
