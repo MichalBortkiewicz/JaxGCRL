@@ -1,9 +1,10 @@
 [project]
 name = "jaxgcrl"
-version = "0.2.0"
+version = "0.2.5"
 description = "Blazingly fast goal-conditioned environments based on MJX and BRAX."
 readme = "README.md"
-requires-python = ">=3.10,<3.11"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
 dependencies = [
     "jax==0.4.25",
     "flax>=0.8.3",
@@ -21,6 +22,10 @@ dependencies = [
 jaxgcrl = "run:cli"
 
 [tool.setuptools]
-packages = ["jaxgcrl"]
+packages = { find = {} }
+include-package-data = true
 py-modules = ["run"]
+
+[tool.setuptools.package-data]
+"jaxgcrl.envs" = ["**/assets/*"]
 
