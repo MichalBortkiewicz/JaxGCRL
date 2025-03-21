@@ -29,7 +29,7 @@ if name == "your_loss":
 ```
 2. Run training with your new contrastive objective:
 ```shell
-python main.py crl --contrastive_loss_fn "your_loss"
+python run.py crl --contrastive_loss_fn "your_loss"
 ```
 ### Using a custom model architecture.
 

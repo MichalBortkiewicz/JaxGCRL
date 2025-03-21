@@ -31,3 +31,4 @@ dependencies:
     - jaxlib==0.4.25+cuda12.cudnn89
     - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
     - scikit-learn==1.6.1
+    - -e .

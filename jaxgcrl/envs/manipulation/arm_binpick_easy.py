@@ -2,7 +2,7 @@ import jax
 from brax import base
 from jax import numpy as jnp
 
-from envs.manipulation.arm_envs import ArmEnvs
+from .arm_envs import ArmEnvs
 
 """
 Binpick-Easy: Move a cube from a random location in the blue bin to the center of the red bin.

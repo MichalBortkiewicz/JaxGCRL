@@ -37,8 +37,8 @@ from brax.v1 import envs as envs_v1
 from etils import epath
 from orbax import checkpoint as ocp
 
-from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import Evaluator
+from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
+from jaxgcrl.utils.evaluator import Evaluator
 
 InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
 Metrics = types.Metrics

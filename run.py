@@ -7,8 +7,8 @@ import tyro
 from brax.io import model
 
 import wandb
-from utils.config import Config
-from utils.env import MetricsRecorder, create_env
+from jaxgcrl.utils.config import Config
+from jaxgcrl.utils.env import MetricsRecorder, create_env
 
 
 def main(config: Config):
@@ -105,7 +105,7 @@ def main(config: Config):
     model.save_params(ckpt_dir + "/final", params)
 
 
-if __name__ == "__main__":
+def cli():
     tyro.cli(
         main,
         config=(
@@ -114,3 +114,6 @@ if __name__ == "__main__":
             tyro.conf.ConsolidateSubcommandArgs,
         ),
     )
+
+if __name__ == "__main__":
+    cli()

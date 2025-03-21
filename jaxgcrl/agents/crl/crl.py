@@ -16,9 +16,9 @@ from etils import epath
 from flax.struct import dataclass
 from flax.training.train_state import TrainState
 
-from envs.wrappers import TrajectoryIdWrapper
-from utils.evaluator import ActorEvaluator
-from utils.replay_buffer import TrajectoryUniformSamplingQueue
+from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
+from jaxgcrl.utils.evaluator import ActorEvaluator
+from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder

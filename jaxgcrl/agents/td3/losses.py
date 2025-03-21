@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from brax.training import types
 from brax.training.types import Params, PRNGKey
 
-from agents.td3 import networks
+from . import networks
 
 Transition = types.Transition
 
