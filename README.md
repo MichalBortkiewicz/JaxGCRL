@@ -38,7 +38,10 @@ quick experimentation with goal-conditioned self-supervised reinforcement learni
 
 
 ## Installation 📂
-To perform an editable install of the package, run:
+
+#### Editable Install (Recommended)
+
+After cloning the repository, run one of the following commands.
 
 With GPU on Linux:
 ```bash
@@ -47,8 +50,11 @@ pip install -e . -f https://storage.googleapis.com/jax-releases/jax_releases.htm
 
 With CPU on Mac:
 ```bash
+export SDKROOT="$(xcrun --show-sdk-path)" # may be needed to build brax dependencies
 pip install -e . 
 ```
+
+#### PyPI
 
 The package is also available on PyPI:
 ```bash
