@@ -1,16 +1,20 @@
 [project]
 name = "jaxgcrl"
-version = "0.2.7"
+version = "0.2.8"
 description = "Blazingly fast goal-conditioned environments based on MJX and BRAX."
 readme = "README.md"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
-  "brax>=0.12.1",
-  "flax>=0.8.3",
+  "pip>=25.0.1",
   "jax==0.4.25",
   "jaxlib==0.4.25+cuda12.cudnn89; platform_system == 'Linux'",
+  "nvidia-cudnn-cu11>=8.9,<9.0; platform_system == 'Linux'",
+  "nvidia-cuda-cupti-cu12>=12.4; platform_system == 'Linux'",
+  "nvidia-cusolver-cu12>=11.7.3.90; platform_system == 'Linux'",
   "jaxlib==0.4.25; platform_system != 'Linux'",
+  "flax>=0.8.3",
+  "brax>=0.12.1",
   "matplotlib==3.8.4",
   "mujoco==3.2.7",
   "mujoco-mjx==3.2.7",
@@ -29,6 +33,9 @@ homepage = "https://michalbortkiewicz.github.io/JaxGCRL/"
 
 [tool.uv]
 find-links = [ "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ]
+
+[[tool.uv.index]]
+url = "https://pypi.nvidia.com/"
 
 [build-system]
 requires = [ "setuptools", "wheel" ]
