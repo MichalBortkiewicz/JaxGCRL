@@ -15,7 +15,7 @@
 </p>
 
 
-<p align="center"><img src="imgs/grid_transparent.png" width=85%></p>
+<p align="center"><img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/grid_transparent.png" width=85%></p>
 
 <center>
 
@@ -137,8 +137,8 @@ wandb agent <previous_command_output>
 We also render videos of the learned policies as `wandb` artifacts. 
 
 <p align="center">
-  <img src="imgs/wandb.png" width=55% />
-  <img src="imgs/push.gif" width=40%  /> 
+  <img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/wandb.png" width=55% />
+  <img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/push.gif" width=40%  /> 
 </p>
 
 <h2 name="envs" id="envs">Environments 🌎</h2>

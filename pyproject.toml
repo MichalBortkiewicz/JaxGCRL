@@ -3,7 +3,7 @@ name = "jaxgcrl"
 version = "0.2.7"
 description = "Blazingly fast goal-conditioned environments based on MJX and BRAX."
 readme = "README.md"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
   "brax>=0.12.1",
@@ -50,4 +50,7 @@ target-version = "py310"
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.setuptools.package-data]
+"jaxgcrl.envs" = ["**/assets/*"]
 
