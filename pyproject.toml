@@ -51,6 +51,3 @@ target-version = "py310"
 quote-style = "double"
 indent-style = "space"
 
-[tool.setuptools.package-data]
-"jaxgcrl.envs" = ["**/assets/*"]
-
