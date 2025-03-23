@@ -106,9 +106,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
 
-    xml_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "assets", "humanoid_maze.xml"
-    )
+    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "humanoid_maze.xml")
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
@@ -164,9 +162,7 @@ class HumanoidMaze(PipelineEnv):
         maze_size_scaling=2.0,  # Was 4.0 for antmaze -- just trying to make it tractable
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals = make_maze(
-            maze_layout_name, maze_size_scaling
-        )
+        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
         sys = mjcf.loads(xml_string)
         self.possible_starts = possible_starts
         self.possible_goals = possible_goals
@@ -219,9 +215,7 @@ class HumanoidMaze(PipelineEnv):
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
         self._target_ind = self.sys.link_names.index("target")
 
         self.state_dim = 268
@@ -232,9 +226,7 @@ class HumanoidMaze(PipelineEnv):
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        qpos = self.sys.init_q + jax.random.uniform(
-            rng1, [self.sys.q_size()], minval=low, maxval=hi
-        )
+        qpos = self.sys.init_q + jax.random.uniform(rng1, [self.sys.q_size()], minval=low, maxval=hi)
         qvel = jax.random.uniform(rng2, [self.sys.qd_size()], minval=low, maxval=hi)
 
         # Set the start and target qpos and qvel
@@ -314,9 +306,7 @@ class HumanoidMaze(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
     def _get_obs(self, pipeline_state: base.State, action: jax.Array) -> jax.Array:
         """Observes humanoid body position, velocities, and angles."""
@@ -328,22 +318,14 @@ class HumanoidMaze(PipelineEnv):
 
         com, inertia, mass_sum, x_i = self._com(pipeline_state)
         cinr = x_i.replace(pos=x_i.pos - com).vmap().do(inertia)
-        com_inertia = jnp.hstack(
-            [cinr.i.reshape((cinr.i.shape[0], -1)), inertia.mass[:, None]]
-        )
+        com_inertia = jnp.hstack([cinr.i.reshape((cinr.i.shape[0], -1)), inertia.mass[:, None]])
 
-        xd_i = (
-            base.Transform.create(pos=x_i.pos - pipeline_state.x.pos)
-            .vmap()
-            .do(pipeline_state.xd)
-        )
+        xd_i = base.Transform.create(pos=x_i.pos - pipeline_state.x.pos).vmap().do(pipeline_state.xd)
         com_vel = inertia.mass[:, None] * xd_i.vel / mass_sum
         com_ang = xd_i.ang
         com_velocity = jnp.hstack([com_vel, com_ang])
 
-        qfrc_actuator = actuator.to_tau(
-            self.sys, action, pipeline_state.q, pipeline_state.qd
-        )
+        qfrc_actuator = actuator.to_tau(self.sys, action, pipeline_state.q, pipeline_state.qd)
 
         target_pos = pipeline_state.x.pos[-1][:2]
         # external_contact_forces are excluded
@@ -364,8 +346,7 @@ class HumanoidMaze(PipelineEnv):
         if self.backend in ["spring", "positional"]:
             inertia = inertia.replace(
                 i=jax.vmap(jnp.diag)(
-                    jax.vmap(jnp.diagonal)(inertia.i)
-                    ** (1 - self.sys.spring_inertia_scale)
+                    jax.vmap(jnp.diagonal)(inertia.i) ** (1 - self.sys.spring_inertia_scale)
                 ),
                 mass=inertia.mass ** (1 - self.sys.spring_mass_scale),
             )

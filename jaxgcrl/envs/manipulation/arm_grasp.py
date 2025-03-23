@@ -29,9 +29,7 @@ class ArmGrasp(ArmEnvs):
         self.goal_indices = jnp.array(
             [16, 17, 18, 19, 20, 21, 22]
         )  # Left and right fingertip positions, and fingertip distance
-        self.completion_goal_indices = jnp.array(
-            [16, 17, 18, 19, 20, 21, 22]
-        )  # Identical
+        self.completion_goal_indices = jnp.array([16, 17, 18, 19, 20, 21, 22])  # Identical
         self.state_dim = 24
 
         self.arm_noise_scale = 0
@@ -39,9 +37,7 @@ class ArmGrasp(ArmEnvs):
 
     def _get_initial_state(self, rng):
         rng, subkey1, subkey2 = jax.random.split(rng, 3)
-        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(
-            subkey1, [2], minval=-1
-        )
+        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(subkey1, [2], minval=-1)
         cube_q_remaining = self.sys.init_q[2:7]
         target_q = self.sys.init_q[7:14]
         arm_q_default = jnp.array(
@@ -65,9 +61,7 @@ class ArmGrasp(ArmEnvs):
         )  # The cube itself is 0.06 wide, but we want the centers of the fingertips to be slightly farther apart
 
         goal = jnp.concatenate(
-            [left_fingertip_goal_pos]
-            + [right_fingertip_goal_pos]
-            + [gripper_openness_goal]
+            [left_fingertip_goal_pos] + [right_fingertip_goal_pos] + [gripper_openness_goal]
         )
         return goal
 
@@ -82,9 +76,7 @@ class ArmGrasp(ArmEnvs):
 
         gripper_openness = obs[22]
         goal_gripper_openness = goal[9]
-        gripper_openness_difference = jnp.linalg.norm(
-            gripper_openness - goal_gripper_openness
-        )
+        gripper_openness_difference = jnp.linalg.norm(gripper_openness - goal_gripper_openness)
 
         success = jnp.array(
             jnp.all(
@@ -121,18 +113,16 @@ class ArmGrasp(ArmEnvs):
         )
         return success, success_easy, success_hard
 
-    def _update_goal_visualization(
-        self, pipeline_state: base.State, goal: jax.Array
-    ) -> base.State:
-        updated_q = pipeline_state.q.at[7:10].set(
+    def _update_goal_visualization(self, pipeline_state: base.State, goal: jax.Array) -> base.State:
+        updated_q = pipeline_state.q.at[
+            7:10
+        ].set(
             goal[:3]
         )  # Only set the position, not orientation (we set the left marker and the right marker is automatically offset)
         updated_pipeline_state = pipeline_state.replace(qpos=updated_q)
         return updated_pipeline_state
 
-    def _get_obs(
-        self, pipeline_state: base.State, goal: jax.Array, timestep
-    ) -> jax.Array:
+    def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
         Observation space (24-dim)
          - q_subset (10-dim): 3-dim cube position, 7-dim joint angles
@@ -154,16 +144,14 @@ class ArmGrasp(ArmEnvs):
         left_fingertip_x_pos = pipeline_state.x.pos[left_fingertip_index]
         right_fingertip_index = 12  # Right finger is 11, fingertip is 12
         right_fingertip_x_pos = pipeline_state.x.pos[right_fingertip_index]
-        fingertip_distance = jnp.linalg.norm(
-            right_fingertip_x_pos - left_fingertip_x_pos
-        )[
+        fingertip_distance = jnp.linalg.norm(right_fingertip_x_pos - left_fingertip_x_pos)[
             None
         ]  # [None] expands dims from 0 to 1
 
         # Index -4 and -2 to get the fingers, rather than fingertips
-        gripper_force = (pipeline_state.qfrc_actuator[jnp.array([-4, -2])]).mean(
-            keepdims=True
-        ) * 0.1  # Normalize it from range [-20, 20] to [-2, 2]
+        gripper_force = (
+            (pipeline_state.qfrc_actuator[jnp.array([-4, -2])]).mean(keepdims=True) * 0.1
+        )  # Normalize it from range [-20, 20] to [-2, 2]
 
         return jnp.concatenate(
             [q_subset]

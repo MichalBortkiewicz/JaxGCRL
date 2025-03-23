@@ -20,11 +20,9 @@ class Halfcheetah(PipelineEnv):
         exclude_current_positions_from_observation=False,
         backend="mjx",
         dense_reward: bool = False,
-        **kwargs
+        **kwargs,
     ):
-        path = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), "assets", "half_cheetah.xml"
-        )
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "half_cheetah.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -42,9 +40,7 @@ class Halfcheetah(PipelineEnv):
         self._forward_reward_weight = forward_reward_weight
         self._ctrl_cost_weight = ctrl_cost_weight
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
         self.dense_reward = dense_reward
         self.state_dim = 18
         self.goal_indices = jnp.array([0])
@@ -55,9 +51,7 @@ class Halfcheetah(PipelineEnv):
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        qpos = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
-        )
+        qpos = self.sys.init_q + jax.random.uniform(rng1, (self.sys.q_size(),), minval=low, maxval=hi)
         qvel = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
         _, target = self._random_target(rng)
@@ -85,9 +79,7 @@ class Halfcheetah(PipelineEnv):
         pipeline_state0 = state.pipeline_state
         pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-        x_velocity = (
-            pipeline_state.x.pos[0, 0] - pipeline_state0.x.pos[0, 0]
-        ) / self.dt
+        x_velocity = (pipeline_state.x.pos[0, 0] - pipeline_state0.x.pos[0, 0]) / self.dt
         forward_reward = self._forward_reward_weight * x_velocity
         ctrl_cost = self._ctrl_cost_weight * jnp.sum(jnp.square(action))
 

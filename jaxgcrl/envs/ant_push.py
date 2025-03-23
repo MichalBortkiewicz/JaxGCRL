@@ -29,9 +29,7 @@ class AntPush(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        path = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), "assets", "ant_push.xml"
-        )
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant_push.xml")
         sys = mjcf.load(path)
 
         n_frames = 5
@@ -58,9 +56,7 @@ class AntPush(PipelineEnv):
         self._healthy_z_range = healthy_z_range
         self._contact_force_range = contact_force_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
         self._object_idx = self.sys.link_names.index("movable")
         self.dense_reward = dense_reward
         self.state_dim = 31
@@ -76,9 +72,7 @@ class AntPush(PipelineEnv):
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        q = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=low, maxval=hi
-        )
+        q = self.sys.init_q + jax.random.uniform(rng1, (self.sys.q_size(),), minval=low, maxval=hi)
         qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
         # set the target q, qd
@@ -157,9 +151,7 @@ class AntPush(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""

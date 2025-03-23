@@ -128,21 +128,14 @@ def make_policy_network(
         return policy_module.apply(policy_params, obs)
 
     dummy_obs = jnp.zeros((1, obs_size))
-    return networks.FeedForwardNetwork(
-        init=lambda key: policy_module.init(key, dummy_obs), apply=apply
-    )
+    return networks.FeedForwardNetwork(init=lambda key: policy_module.init(key, dummy_obs), apply=apply)
 
 
 def make_inference_fn(sac_networks: SACNetworks):
     """Creates params and inference function for the SAC agent."""
 
-    def make_policy(
-        params: types.PolicyParams, deterministic: bool = False
-    ) -> types.Policy:
-
-        def policy(
-            observations: types.Observation, key_sample: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
+    def make_policy(params: types.PolicyParams, deterministic: bool = False) -> types.Policy:
+        def policy(observations: types.Observation, key_sample: PRNGKey) -> Tuple[types.Action, types.Extra]:
             logits = sac_networks.policy_network.apply(*params, observations)
             if deterministic:
                 return sac_networks.parametric_action_distribution.mode(logits), {}
@@ -165,9 +158,7 @@ def make_sac_networks(
     layer_norm: bool = False,
 ) -> SACNetworks:
     """Make SAC networks."""
-    parametric_action_distribution = distribution.NormalTanhDistribution(
-        event_size=action_size
-    )
+    parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
     policy_network = make_policy_network(
         parametric_action_distribution.param_size,
         observation_size,

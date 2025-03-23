@@ -10,9 +10,7 @@ from jax import numpy as jnp
 
 
 class Pusher(PipelineEnv):
-    def __init__(
-        self, backend="generalized", kind="easy", dense_reward: bool = False, **kwargs
-    ):
+    def __init__(self, backend="generalized", kind="easy", dense_reward: bool = False, **kwargs):
         path = epath.resource_path("brax") / "envs/assets/pusher.xml"
         sys = mjcf.load(path)
         n_frames = 5
@@ -20,9 +18,7 @@ class Pusher(PipelineEnv):
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.001})
 
-            sys = sys.replace(
-                actuator=sys.actuator.replace(gear=jnp.array([20.0] * sys.act_size()))
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=jnp.array([20.0] * sys.act_size())))
             n_frames = 50
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
@@ -75,9 +71,7 @@ class Pusher(PipelineEnv):
         cylinder_pos *= scale
         qpos = qpos.at[-4:].set(jnp.concatenate([cylinder_pos, goal_pos]))
 
-        qvel = jax.random.uniform(
-            rng4, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
-        )
+        qvel = jax.random.uniform(rng4, (self.sys.qd_size(),), minval=-0.005, maxval=0.005)
         qvel = qvel.at[-4:].set(0.0)
 
         pipeline_state = self.pipeline_init(qpos, qvel)
@@ -98,9 +92,7 @@ class Pusher(PipelineEnv):
 
     def step(self, state: State, action: jax.Array) -> State:
         assert state.pipeline_state is not None
-        x_i = state.pipeline_state.x.vmap().do(
-            base.Transform.create(pos=self.sys.link.inertia.transform.pos)
-        )
+        x_i = state.pipeline_state.x.vmap().do(base.Transform.create(pos=self.sys.link.inertia.transform.pos))
         vec_1 = x_i.pos[self._object_idx] - x_i.pos[self._tips_arm_idx]
         vec_2 = x_i.pos[self._object_idx] - x_i.pos[self._goal_idx]
 
@@ -131,9 +123,7 @@ class Pusher(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observes pusher body position and velocities."""
-        x_i = pipeline_state.x.vmap().do(
-            base.Transform.create(pos=self.sys.link.inertia.transform.pos)
-        )
+        x_i = pipeline_state.x.vmap().do(base.Transform.create(pos=self.sys.link.inertia.transform.pos))
         return jnp.concatenate(
             [
                 # state
@@ -142,9 +132,7 @@ class Pusher(PipelineEnv):
                 x_i.pos[self._object_idx],  # Movable object position [3, ]
                 pipeline_state.qd[:7],  # Rotational velocities of arm joints [7, ]
                 # goal
-                x_i.pos[
-                    self._goal_idx
-                ],  # This is the position we want the object to end up in [3, ]
+                x_i.pos[self._goal_idx],  # This is the position we want the object to end up in [3, ]
             ]
         )
 
@@ -160,9 +148,7 @@ class PusherReacher(PipelineEnv):
 
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.001})
-            sys = sys.replace(
-                actuator=sys.actuator.replace(gear=jnp.array([20.0] * sys.act_size()))
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=jnp.array([20.0] * sys.act_size())))
             n_frames = 50
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
@@ -205,9 +191,7 @@ class PusherReacher(PipelineEnv):
         cylinder_pos *= scale
         qpos = qpos.at[-4:].set(jnp.concatenate([cylinder_pos, goal_pos]))
 
-        qvel = jax.random.uniform(
-            rng4, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
-        )
+        qvel = jax.random.uniform(rng4, (self.sys.qd_size(),), minval=-0.005, maxval=0.005)
         qvel = qvel.at[-4:].set(0.0)
 
         pipeline_state = self.pipeline_init(qpos, qvel)
@@ -228,15 +212,11 @@ class PusherReacher(PipelineEnv):
 
     def step(self, state: State, action: jax.Array) -> State:
         assert state.pipeline_state is not None
-        x_i = state.pipeline_state.x.vmap().do(
-            base.Transform.create(pos=self.sys.link.inertia.transform.pos)
-        )
+        x_i = state.pipeline_state.x.vmap().do(base.Transform.create(pos=self.sys.link.inertia.transform.pos))
         vec_1 = x_i.pos[self._object_idx] - x_i.pos[self._tips_arm_idx]
         vec_2 = x_i.pos[self._object_idx] - x_i.pos[self._goal_idx]
 
-        arm_to_goal_dist = math.safe_norm(
-            x_i.pos[self._goal_idx] - x_i.pos[self._tips_arm_idx]
-        )
+        arm_to_goal_dist = math.safe_norm(x_i.pos[self._goal_idx] - x_i.pos[self._tips_arm_idx])
 
         reward_dist = -arm_to_goal_dist
         reward = reward_dist
@@ -255,9 +235,7 @@ class PusherReacher(PipelineEnv):
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observes pusher body position and velocities."""
-        x_i = pipeline_state.x.vmap().do(
-            base.Transform.create(pos=self.sys.link.inertia.transform.pos)
-        )
+        x_i = pipeline_state.x.vmap().do(base.Transform.create(pos=self.sys.link.inertia.transform.pos))
         return jnp.concatenate(
             [
                 # state

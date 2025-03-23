@@ -1,3 +1,5 @@
+import functools
+import logging
 import pickle
 import random
 import time
@@ -8,7 +10,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import logging
 from brax import base, envs
 from brax.training import types
 from brax.v1 import envs as envs_v1
@@ -22,7 +23,6 @@ from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-import functools
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -52,7 +52,6 @@ class Transition(NamedTuple):
 
 @functools.partial(jax.jit, static_argnames=("buffer_config"))
 def flatten_batch(buffer_config, transition, sample_key):
-
     gamma, state_size, goal_indices = buffer_config
 
     # Because it's vmaped transition.obs.shape is of shape (episode_len, obs_dim)
@@ -61,9 +60,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     is_future_mask = jnp.array(
         arrangement[:, None] < arrangement[None], dtype=jnp.float32
     )  # upper triangular matrix of shape seq_len, seq_len where all non-zero entries are 1
-    discount = gamma ** jnp.array(
-        arrangement[None] - arrangement[:, None], dtype=jnp.float32
-    )
+    discount = gamma ** jnp.array(arrangement[None] - arrangement[:, None], dtype=jnp.float32)
     probs = is_future_mask * discount
 
     # probs is an upper triangular matrix of shape seq_len, seq_len of the form:
@@ -82,10 +79,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     # array of seq_len x seq_len where a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
     # timesteps collected from the same episode will have the same traj_id. All rows of the single_trajectories are same.
 
-    probs = (
-        probs * jnp.equal(single_trajectories, single_trajectories.T)
-        + jnp.eye(seq_len) * 1e-5
-    )
+    probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
     # ith row of probs will be non zero only for time indices that
     # 1) are greater than i
     # 2) have the same traj_id as the ith time index
@@ -103,9 +97,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     extras = {
         "policy_extras": {},
         "state_extras": {
-            "truncation": jnp.squeeze(
-                transition.extras["state_extras"]["truncation"][:-1]
-            ),
+            "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
             "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
         },
         "state": state,
@@ -114,9 +106,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     }
 
     return transition._replace(
-        observation=jnp.squeeze(
-            new_obs
-        ),  # this has shape (num_envs, episode_length-1, obs_size)
+        observation=jnp.squeeze(new_obs),  # this has shape (num_envs, episode_length-1, obs_size)
         action=jnp.squeeze(transition.action[:-1]),
         reward=jnp.squeeze(transition.reward[:-1]),
         discount=jnp.squeeze(transition.discount[:-1]),
@@ -169,9 +159,7 @@ class CRL:
     # layer norm
     use_ln: bool = False
 
-    contrastive_loss_fn: Literal[
-        "fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"
-    ] = "fwd_infonce"
+    contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
 
     def check_config(self, config):
@@ -180,9 +168,9 @@ class CRL:
             NOTE: `num_envs * (episode_length - 1)` must be divisible by
             `batch_size` due to the way data is stored in replay buffer.
         """
-        assert (
-            config.num_envs * (config.episode_length - 1) % self.batch_size == 0
-        ), "num_envs * (episode_length - 1) must be divisible by batch_size"
+        assert config.num_envs * (config.episode_length - 1) % self.batch_size == 0, (
+            "num_envs * (episode_length - 1) must be divisible by batch_size"
+        )
 
     def train_fn(
         self,
@@ -194,7 +182,6 @@ class CRL:
         ] = None,
         progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     ):
-
         self.check_config(config)
 
         unwrapped_env = train_env
@@ -215,13 +202,13 @@ class CRL:
         env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
         num_prefill_actor_steps = np.ceil(self.min_replay_size / self.unroll_length)
-        num_training_steps_per_epoch = (
-            config.total_env_steps - num_prefill_env_steps
-        ) // (config.num_evals * env_steps_per_actor_step)
+        num_training_steps_per_epoch = (config.total_env_steps - num_prefill_env_steps) // (
+            config.num_evals * env_steps_per_actor_step
+        )
 
-        assert (
-            num_training_steps_per_epoch > 0
-        ), "total_env_steps too small for given num_envs and episode_length"
+        assert num_training_steps_per_epoch > 0, (
+            "total_env_steps too small for given num_envs and episode_length"
+        )
 
         logging.info(
             "num_prefill_env_steps: %d",
@@ -239,9 +226,7 @@ class CRL:
         random.seed(config.seed)
         np.random.seed(config.seed)
         key = jax.random.PRNGKey(config.seed)
-        key, buffer_key, eval_env_key, env_key, actor_key, sa_key, g_key = (
-            jax.random.split(key, 7)
-        )
+        key, buffer_key, eval_env_key, env_key, actor_key, sa_key, g_key = jax.random.split(key, 7)
 
         env_keys = jax.random.split(env_key, config.num_envs)
         env_state = jax.jit(train_env.reset)(env_keys)
@@ -252,9 +237,9 @@ class CRL:
         state_size = train_env.state_dim
         goal_size = len(train_env.goal_indices)
         obs_size = state_size + goal_size
-        assert (
-            obs_size == train_env.observation_size
-        ), f"obs_size: {obs_size}, observation_size: {train_env.observation_size}"
+        assert obs_size == train_env.observation_size, (
+            f"obs_size: {obs_size}, observation_size: {train_env.observation_size}"
+        )
 
         # Network setup
         # Actor
@@ -280,9 +265,7 @@ class CRL:
             use_relu=self.use_relu,
             use_ln=self.use_ln,
         )
-        sa_encoder_params = sa_encoder.init(
-            sa_key, np.ones([1, state_size + action_size])
-        )
+        sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
         g_encoder = Encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
@@ -367,10 +350,7 @@ class CRL:
         def actor_step(actor_state, env, env_state, key, extra_fields):
             means, log_stds = actor.apply(actor_state.params, env_state.obs)
             stds = jnp.exp(log_stds)
-            actions = nn.tanh(
-                means
-                + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype)
-            )
+            actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
 
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
@@ -398,9 +378,7 @@ class CRL:
                 )
                 return (env_state, next_key), transition
 
-            (env_state, _), data = jax.lax.scan(
-                f, (env_state, key), (), length=self.unroll_length
-            )
+            (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -457,9 +435,7 @@ class CRL:
             training_state, critic_metrics = update_critic(
                 context, networks, transitions, training_state, critic_key
             )
-            training_state = training_state.replace(
-                gradient_steps=training_state.gradient_steps + 1
-            )
+            training_state = training_state.replace(gradient_steps=training_state.gradient_steps + 1)
 
             metrics = {}
             metrics.update(actor_metrics)
@@ -472,9 +448,7 @@ class CRL:
 
         @jax.jit
         def training_step(training_state, env_state, buffer_state, key):
-            experience_key1, experience_key2, sampling_key, training_key = (
-                jax.random.split(key, 4)
-            )
+            experience_key1, experience_key2, sampling_key, training_key = jax.random.split(key, 4)
 
             # update buffer
             env_state, buffer_state = get_experience(
@@ -492,9 +466,7 @@ class CRL:
             buffer_state, transitions = replay_buffer.sample(buffer_state)
 
             # process transitions for training
-            batch_keys = jax.random.split(
-                sampling_key, transitions.observation.shape[0]
-            )
+            batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
             transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
                 (self.discounting, state_size, tuple(train_env.goal_indices)),
                 transitions,
@@ -505,9 +477,7 @@ class CRL:
             )
 
             # permute transitions
-            permutation = jax.random.permutation(
-                experience_key2, len(transitions.observation)
-            )
+            permutation = jax.random.permutation(experience_key2, len(transitions.observation))
             transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
@@ -516,11 +486,12 @@ class CRL:
 
             # take actor-step worth of training-step
             (
-                training_state,
-                _,
-            ), metrics = jax.lax.scan(
-                update_networks, (training_state, training_key), transitions
-            )
+                (
+                    training_state,
+                    _,
+                ),
+                metrics,
+            ) = jax.lax.scan(update_networks, (training_state, training_key), transitions)
 
             return (
                 training_state,
@@ -540,10 +511,13 @@ class CRL:
                 ts, es, bs, k = carry
                 k, train_key = jax.random.split(k, 2)
                 (
-                    ts,
-                    es,
-                    bs,
-                ), metrics = training_step(ts, es, bs, train_key)
+                    (
+                        ts,
+                        es,
+                        bs,
+                    ),
+                    metrics,
+                ) = training_step(ts, es, bs, train_key)
                 return (ts, es, bs, k), metrics
 
             (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
@@ -574,7 +548,6 @@ class CRL:
         training_walltime = 0
         logging.info("starting training....")
         for ne in range(config.num_evals):
-
             t = time.time()
 
             key, epoch_key = jax.random.split(key)
@@ -589,9 +562,7 @@ class CRL:
             epoch_training_time = time.time() - t
             training_walltime += epoch_training_time
 
-            sps = (
-                env_steps_per_actor_step * num_training_steps_per_epoch
-            ) / epoch_training_time
+            sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
             metrics = {
                 "training/sps": sps,
                 "training/walltime": training_walltime,

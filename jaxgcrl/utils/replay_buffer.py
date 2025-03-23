@@ -74,9 +74,7 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
             )
         self._size = min(self._data_shape[0], self._size + insert_size)
 
-    def insert_internal(
-        self, buffer_state: ReplayBufferState, samples: Sample
-    ) -> ReplayBufferState:
+    def insert_internal(self, buffer_state: ReplayBufferState, samples: Sample) -> ReplayBufferState:
         """Insert data in the replay buffer.
 
         Args:
@@ -113,9 +111,7 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
             sample_position=sample_position,
         )
 
-    def sample_internal(
-        self, buffer_state: ReplayBufferState
-    ) -> Tuple[ReplayBufferState, Sample]:
+    def sample_internal(self, buffer_state: ReplayBufferState) -> Tuple[ReplayBufferState, Sample]:
         raise NotImplementedError(f"{self.__class__}.sample() is not implemented.")
 
     def size(self, buffer_state: ReplayBufferState) -> int:
@@ -144,7 +140,6 @@ class TrajectoryUniformSamplingQueue:
         num_envs: int,
         episode_length: int,
     ):
-
         self._flatten_fn = jax.vmap(jax.vmap(lambda x: flatten_util.ravel_pytree(x)[0]))
         dummy_flatten, self._unflatten_fn = flatten_util.ravel_pytree(dummy_data_sample)
         self._unflatten_fn = jax.vmap(jax.vmap(self._unflatten_fn))
@@ -201,9 +196,7 @@ class TrajectoryUniformSamplingQueue:
                 f"doesn't match the expected value ({self._data_shape})"
             )
 
-        update = self._flatten_fn(
-            samples
-        )  # Updates has shape (unroll_len, num_envs, self._data_shape[-1])
+        update = self._flatten_fn(samples)  # Updates has shape (unroll_len, num_envs, self._data_shape[-1])
         data = buffer_state.data  # shape = (max_replay_size, num_envs, data_size)
 
         # If needed, roll the buffer to make sure there's enough space to fit
@@ -215,8 +208,8 @@ class TrajectoryUniformSamplingQueue:
 
         # Update the buffer and the control numbers.
         data = jax.lax.dynamic_update_slice_in_dim(data, update, position, axis=0)
-        position = (position + len(update)) % (
-            len(data) + 1
+        position = (
+            (position + len(update)) % (len(data) + 1)
         )  # so whenever roll happens, position becomes len(data), else it is increased by len(update), what is the use of doing % (len(data) + 1)??
         sample_position = jnp.maximum(
             0, buffer_state.sample_position + roll
@@ -244,16 +237,12 @@ class TrajectoryUniformSamplingQueue:
         shape = self.num_envs
 
         # Sampling envs idxs
-        envs_idxs = jax.random.choice(
-            sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False
-        )
+        envs_idxs = jax.random.choice(sample_key, jnp.arange(self.num_envs), shape=(shape,), replace=False)
 
         @functools.partial(jax.jit, static_argnames=("rows", "cols"))
         def create_matrix(rows, cols, min_val, max_val, rng_key):
             rng_key, subkey = jax.random.split(rng_key)
-            start_values = jax.random.randint(
-                subkey, shape=(rows,), minval=min_val, maxval=max_val
-            )
+            start_values = jax.random.randint(subkey, shape=(rows,), minval=min_val, maxval=max_val)
             row_indices = jnp.arange(cols)
             matrix = start_values[:, jnp.newaxis] + row_indices
             return matrix
@@ -287,5 +276,3 @@ class TrajectoryUniformSamplingQueue:
 
     def size(self, buffer_state: ReplayBufferState) -> int:
         return buffer_state.insert_position - buffer_state.sample_position
-
-

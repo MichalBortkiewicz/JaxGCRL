@@ -33,7 +33,6 @@ from jaxgcrl.envs.pusher2 import Pusher2
 from jaxgcrl.envs.reacher import Reacher
 from jaxgcrl.envs.simple_maze import SimpleMaze
 
-
 legal_envs = (
     "ant",
     "ant_random_start",
@@ -94,22 +93,16 @@ def create_env(env_name: str, backend: str = None, **kwargs) -> object:
         env = AntPush(backend=backend or "mjx")
     elif "maze" in env_name:
         if "ant_ball" in env_name:
-            env = AntBallMaze(
-                backend=backend or "spring", maze_layout_name=env_name[9:]
-            )
+            env = AntBallMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         elif "ant" in env_name:
             # Possible env_name = {'ant_u_maze', 'ant_big_maze', 'ant_hardest_maze'}
-            env = AntMaze(backend=backend or "spring",
-                          maze_layout_name=env_name[4:])
+            env = AntMaze(backend=backend or "spring", maze_layout_name=env_name[4:])
         elif "humanoid" in env_name:
             # Possible env_name = {'humanoid_u_maze', 'humanoid_big_maze', 'humanoid_hardest_maze'}
-            env = HumanoidMaze(
-                backend=backend or "spring", maze_layout_name=env_name[9:]
-            )
+            env = HumanoidMaze(backend=backend or "spring", maze_layout_name=env_name[9:])
         else:
             # Possible env_name = {'simple_u_maze', 'simple_big_maze', 'simple_hardest_maze'}
-            env = SimpleMaze(backend=backend or "spring",
-                             maze_layout_name=env_name[7:])
+            env = SimpleMaze(backend=backend or "spring", maze_layout_name=env_name[7:])
     elif env_name == "cheetah":
         env = Halfcheetah()
     elif env_name == "pusher_easy":
@@ -168,9 +161,7 @@ def get_env_config(args: argparse.Namespace):
 
     # TODO: round num_envs to nearest valid value instead of throwing error
     if ((args.episode_length - 1) * args.num_envs) % args.batch_size != 0:
-        raise ValueError(
-            "(episode_length - 1) * num_envs must be divisible by batch_size"
-        )
+        raise ValueError("(episode_length - 1) * num_envs must be divisible by batch_size")
 
     args_dict = vars(args)
     Config = namedtuple("Config", [*args_dict.keys()])
@@ -250,8 +241,7 @@ class MetricsRecorder:
             axs[row, col].set_xlim(self.min_x, self.max_x)
             axs[row, col].set_xlabel("# environment steps")
             axs[row, col].set_ylabel(key)
-            axs[row, col].errorbar(self.x_data, y_values,
-                                   yerr=self.y_data_err[key])
+            axs[row, col].errorbar(self.x_data, y_values, yerr=self.y_data_err[key])
             axs[row, col].set_title(f"{key}: {y_values[-1]:.3f}")
 
         # Hide any empty subplots
@@ -277,16 +267,11 @@ class MetricsRecorder:
             self.ensure_metric(metrics, key)
 
         if do_render:
-            render(make_policy, params, env,
-                   self.exp_dir, self.exp_name, num_steps)
+            render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
 
         self.record(
             num_steps,
-            {
-                key: value
-                for key, value in metrics.items()
-                if key in self.metrics_to_collect
-            },
+            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
         )
         self.log_wandb()
         self.print_progress()
@@ -340,18 +325,14 @@ def render(make_policy, params, env, exp_dir, exp_name, num_steps):
     for i in range(5000):
         rollout.append(state.pipeline_state)
         key, subkey = jax.random.split(key)
-        action, _ = jit_policy(
-            state.obs[None], subkey
-        )  # Policy requires batched dimension
+        action, _ = jit_policy(state.obs[None], subkey)  # Policy requires batched dimension
         action = action[0]  # Remove batch dimension
         state = jit_env_step(state, action)
         if i % 1000 == 0:
             key, subkey = jax.random.split(key)
             state = jit_env_reset(rng=subkey)
 
-    url = html.render(
-        env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024
-    )
+    url = html.render(env.sys.tree_replace({"opt.timestep": env.dt}), rollout, height=1024)
     with open(os.path.join(exp_dir, f"{exp_name}_{num_steps}.html"), "w") as file:
         file.write(url)
     wandb.log({"render": wandb.Html(url)})

@@ -19,14 +19,14 @@ class TD3Networks:
 def make_inference_fn(td3_networks: TD3Networks):
     """Creates params and inference function for the TD3 agent."""
 
-    def make_policy(params: types.PolicyParams, exploration_noise=0.0, noise_clip=0.0, deterministic=False) -> types.Policy:  # type: ignore
-        def policy(
-            observations: types.Observation, key_noise: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
+    def make_policy(
+        params: types.PolicyParams, exploration_noise=0.0, noise_clip=0.0, deterministic=False
+    ) -> types.Policy:  # type: ignore
+        def policy(observations: types.Observation, key_noise: PRNGKey) -> Tuple[types.Action, types.Extra]:
             actions = td3_networks.policy_network.apply(*params, observations)
-            noise = (
-                jax.random.normal(key_noise, actions.shape) * exploration_noise
-            ).clip(-noise_clip, noise_clip)
+            noise = (jax.random.normal(key_noise, actions.shape) * exploration_noise).clip(
+                -noise_clip, noise_clip
+            )
             return actions + noise, {}
 
         return policy
@@ -84,9 +84,7 @@ def make_policy_network(
         return linen.tanh(raw_actions)
 
     dummy_obs = jnp.zeros((1, obs_size))
-    return FeedForwardNetwork(
-        init=lambda key: policy_module.init(key, dummy_obs), apply=apply
-    )
+    return FeedForwardNetwork(init=lambda key: policy_module.init(key, dummy_obs), apply=apply)
 
 
 def make_td3_networks(

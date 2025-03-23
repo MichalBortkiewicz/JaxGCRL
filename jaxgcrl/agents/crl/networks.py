@@ -1,6 +1,7 @@
+import logging
+
 import flax.linen as nn
 import jax.numpy as jnp
-import logging
 from flax.linen.initializers import variance_scaling
 
 
@@ -16,7 +17,6 @@ class Encoder(nn.Module):
 
     @nn.compact
     def __call__(self, data: jnp.ndarray):
-
         logging.info("encoder input shape: %s", data.shape)
         lecun_unfirom = variance_scaling(1 / 3, "fan_in", "uniform")
         bias_init = nn.initializers.zeros
@@ -33,9 +33,7 @@ class Encoder(nn.Module):
 
         x = data
         for i in range(self.network_depth):
-            x = nn.Dense(
-                self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init
-            )(x)
+            x = nn.Dense(self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
             x = normalize(x)
             x = activation(x)
 
@@ -79,9 +77,7 @@ class Actor(nn.Module):
 
         logging.info("actor input shape: %s", x.shape)
         for i in range(self.network_depth):
-            x = nn.Dense(
-                self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init
-            )(x)
+            x = nn.Dense(self.network_width, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
             x = normalize(x)
             x = activation(x)
 
@@ -92,12 +88,8 @@ class Actor(nn.Module):
                     x = x + skip
                     skip = x
 
-        mean = nn.Dense(
-            self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init
-        )(x)
-        log_std = nn.Dense(
-            self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init
-        )(x)
+        mean = nn.Dense(self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
+        log_std = nn.Dense(self.action_size, kernel_init=lecun_unfirom, bias_init=bias_init)(x)
 
         log_std = nn.tanh(log_std)
         log_std = self.LOG_STD_MIN + 0.5 * (self.LOG_STD_MAX - self.LOG_STD_MIN) * (
