@@ -3,6 +3,7 @@ name = "jaxgcrl"
 version = "0.2.7"
 description = "Blazingly fast goal-conditioned environments based on MJX and BRAX."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
   "brax>=0.12.1",
@@ -22,6 +23,9 @@ dependencies = [
 
 [project.scripts]
 jaxgcrl = "run:cli"
+
+[project.urls]
+homepage = "https://michalbortkiewicz.github.io/JaxGCRL/"
 
 [tool.uv]
 find-links = [ "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ]
