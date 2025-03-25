@@ -45,7 +45,7 @@ After cloning the repository, run one of the following commands.
 
 With GPU on Linux:
 ```bash
-pip install -e . -f https://storage.googleapis.com/jax-releases/jax_releases.html
+pip install -e . -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 With CPU on Mac:
@@ -58,7 +58,7 @@ pip install -e .
 
 The package is also available on PyPI:
 ```bash
-pip install jaxgcrl -f https://storage.googleapis.com/jax-releases/jax_releases.html
+pip install jaxgcrl -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 <h3 name="start" id="start">Quick Start 🚀 </h3>
