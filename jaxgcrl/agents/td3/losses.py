@@ -58,8 +58,7 @@ def make_losses(
         )
         target_q = jnp.min(next_q1_q2, axis=-1)
         target_q = jax.lax.stop_gradient(
-            transitions.reward * reward_scaling
-            + transitions.discount * discounting * target_q
+            transitions.reward * reward_scaling + transitions.discount * discounting * target_q
         )
 
         q_error = current_q1_q2 - jnp.expand_dims(target_q, -1)
@@ -75,20 +74,12 @@ def make_losses(
     ) -> jnp.ndarray:
         """Calculates the TD3 actor loss."""
 
-        new_actions = policy_network.apply(
-            normalizer_params, policy_params, transitions.observation
-        )
-        q_new_actions = q_network.apply(
-            normalizer_params, q_params, transitions.observation, new_actions
-        )
+        new_actions = policy_network.apply(normalizer_params, policy_params, transitions.observation)
+        q_new_actions = q_network.apply(normalizer_params, q_params, transitions.observation, new_actions)
         q_new_actions, _ = jnp.split(q_new_actions, 2, axis=-1)
-        lmbda = jax.lax.stop_gradient(
-            bc * alpha / jnp.mean(jnp.abs(q_new_actions)) + (1 - bc)
-        )
+        lmbda = jax.lax.stop_gradient(bc * alpha / jnp.mean(jnp.abs(q_new_actions)) + (1 - bc))
         q_mean = jnp.mean(q_new_actions)
-        return -lmbda * q_mean + bc * mean_squared_error(
-            new_actions, transitions.action
-        )
+        return -lmbda * q_mean + bc * mean_squared_error(new_actions, transitions.action)
 
     def mean_squared_error(predictions, targets):
         return jnp.mean(jnp.square(predictions - targets))

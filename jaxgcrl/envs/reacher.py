@@ -20,9 +20,7 @@ class Reacher(PipelineEnv):
 
         if backend in ["spring", "positional"]:
             sys = sys.tree_replace({"opt.timestep": 0.005})
-            sys = sys.replace(
-                actuator=sys.actuator.replace(gear=jnp.array([25.0, 25.0]))
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=jnp.array([25.0, 25.0])))
             n_frames = 4
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
@@ -36,12 +34,8 @@ class Reacher(PipelineEnv):
     def reset(self, rng: jax.Array) -> State:
         rng, rng1, rng2 = jax.random.split(rng, 3)
 
-        q = self.sys.init_q + jax.random.uniform(
-            rng1, (self.sys.q_size(),), minval=-0.1, maxval=0.1
-        )
-        qd = jax.random.uniform(
-            rng2, (self.sys.qd_size(),), minval=-0.005, maxval=0.005
-        )
+        q = self.sys.init_q + jax.random.uniform(rng1, (self.sys.q_size(),), minval=-0.1, maxval=0.1)
+        qd = jax.random.uniform(rng2, (self.sys.qd_size(),), minval=-0.005, maxval=0.005)
 
         # set the target q, qd
         _, target = self._random_target(rng)
@@ -66,11 +60,7 @@ class Reacher(PipelineEnv):
         obs = self._get_obs(pipeline_state)
 
         target_pos = pipeline_state.x.pos[2]
-        tip_pos = (
-            pipeline_state.x.take(1)
-            .do(base.Transform.create(pos=jnp.array([0.11, 0, 0])))
-            .pos
-        )
+        tip_pos = pipeline_state.x.take(1).do(base.Transform.create(pos=jnp.array([0.11, 0, 0]))).pos
         tip_to_target = target_pos - tip_pos
         dist = jnp.linalg.norm(tip_to_target)
         reward_dist = -math.safe_norm(tip_to_target)
@@ -88,16 +78,8 @@ class Reacher(PipelineEnv):
         """Returns egocentric observation of target and arm body."""
         theta = pipeline_state.q[:2]
         target_pos = pipeline_state.x.pos[2]
-        tip_pos = (
-            pipeline_state.x.take(1)
-            .do(base.Transform.create(pos=jnp.array([0.11, 0, 0])))
-            .pos
-        )
-        tip_vel = (
-            base.Transform.create(pos=jnp.array([0.11, 0, 0]))
-            .do(pipeline_state.xd.take(1))
-            .vel
-        )
+        tip_pos = pipeline_state.x.take(1).do(base.Transform.create(pos=jnp.array([0.11, 0, 0]))).pos
+        tip_vel = base.Transform.create(pos=jnp.array([0.11, 0, 0])).do(pipeline_state.xd.take(1)).vel
         return jnp.concatenate(
             [
                 # state

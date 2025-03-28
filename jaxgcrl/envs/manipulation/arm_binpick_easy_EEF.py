@@ -38,14 +38,10 @@ class ArmBinpickEasyEEF(ArmEnvs):
 
     def _get_initial_state(self, rng):
         rng, subkey1, subkey2 = jax.random.split(rng, 3)
-        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(
-            subkey1, [2], minval=-1
-        )
+        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(subkey1, [2], minval=-1)
         cube_q_remaining = self.sys.init_q[2:7]
         target_q = self.sys.init_q[7:14]
-        eef_q_default = jnp.array(
-            [0, 0.6, 0.2, 0.04, 0.04]
-        )  # Start closer to the relevant area
+        eef_q_default = jnp.array([0, 0.6, 0.2, 0.04, 0.04])  # Start closer to the relevant area
         eef_q = eef_q_default + self.eef_noise_scale * jax.random.uniform(
             subkey2, [self.sys.q_size() - 14], minval=-1
         )
@@ -72,18 +68,12 @@ class ArmBinpickEasyEEF(ArmEnvs):
         success_hard = jnp.array(dist < 0.03, dtype=float)
         return success, success_easy, success_hard
 
-    def _update_goal_visualization(
-        self, pipeline_state: base.State, goal: jax.Array
-    ) -> base.State:
-        updated_q = pipeline_state.q.at[7:10].set(
-            goal[:3]
-        )  # Only set the position, not orientation
+    def _update_goal_visualization(self, pipeline_state: base.State, goal: jax.Array) -> base.State:
+        updated_q = pipeline_state.q.at[7:10].set(goal[:3])  # Only set the position, not orientation
         updated_pipeline_state = pipeline_state.replace(qpos=updated_q)
         return updated_pipeline_state
 
-    def _get_obs(
-        self, pipeline_state: base.State, goal: jax.Array, timestep
-    ) -> jax.Array:
+    def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
         Observation space (11-dim)
          - q_subset (3-dim): cube position
@@ -104,18 +94,11 @@ class ArmBinpickEasyEEF(ArmEnvs):
         left_finger_x_pos = pipeline_state.x.pos[left_finger_index]
         right_finger_index = 4
         right_finger_x_pos = pipeline_state.x.pos[right_finger_index]
-        finger_distance = jnp.linalg.norm(
-            right_finger_x_pos - left_finger_x_pos, keepdims=True
-        )
-        gripper_force = (pipeline_state.qfrc_actuator[:-2]).mean(
-            keepdims=True
-        ) * 0.1  # Normalize it from range [-20, 20] to [-2, 2]
+        finger_distance = jnp.linalg.norm(right_finger_x_pos - left_finger_x_pos, keepdims=True)
+        gripper_force = (
+            (pipeline_state.qfrc_actuator[:-2]).mean(keepdims=True) * 0.1
+        )  # Normalize it from range [-20, 20] to [-2, 2]
 
         return jnp.concatenate(
-            [q_subset]
-            + [eef_x_pos]
-            + [eef_xd_vel]
-            + [finger_distance]
-            + [gripper_force]
-            + [goal]
+            [q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [gripper_force] + [goal]
         )

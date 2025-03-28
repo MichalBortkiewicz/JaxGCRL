@@ -48,18 +48,14 @@ class Evaluator(acting.Evaluator):
         for fn, suffix in aggregating_fns:
             metrics.update(
                 {
-                    f"eval/episode_{name}{suffix}": (
-                        fn(value) if aggregate_episodes else value
-                    )
+                    f"eval/episode_{name}{suffix}": (fn(value) if aggregate_episodes else value)
                     for name, value in eval_metrics.episode_metrics.items()
                 }
             )
 
         # We check in how many env there was at least one step where there was success
         if "success" in eval_metrics.episode_metrics:
-            metrics["eval/episode_success_any"] = np.mean(
-                eval_metrics.episode_metrics["success"] > 0.0
-            )
+            metrics["eval/episode_success_any"] = np.mean(eval_metrics.episode_metrics["success"] > 0.0)
 
         metrics["eval/avg_episode_length"] = np.mean(eval_metrics.episode_steps)
         metrics["eval/epoch_eval_time"] = epoch_eval_time
@@ -70,17 +66,13 @@ class Evaluator(acting.Evaluator):
         return metrics  # pytype: disable=bad-return-type  # jax-ndarray
 
 
-def generate_unroll(
-    actor_step, training_state, env, env_state, unroll_length, extra_fields=()
-):
+def generate_unroll(actor_step, training_state, env, env_state, unroll_length, extra_fields=()):
     """Collect trajectories of given unroll_length."""
 
     @jax.jit
     def f(carry, unused_t):
         state = carry
-        nstate, transition = actor_step(
-            training_state, env, state, extra_fields=extra_fields
-        )
+        nstate, transition = actor_step(training_state, env, state, extra_fields=extra_fields)
         return nstate, transition
 
     final_state, data = jax.lax.scan(f, env_state, (), length=unroll_length)
@@ -91,7 +83,6 @@ class ActorEvaluator:
     """Single GPU evaluator that evaluates an arbitrary actor function. Used by the CRL agent."""
 
     def __init__(self, actor_step, eval_env, num_eval_envs, episode_length, key):
-
         self._key = key
         self._eval_walltime = 0.0
 
@@ -148,9 +139,7 @@ class ActorEvaluator:
 
         # We check in how many env there was at least one step where there was success
         if "success" in eval_metrics.episode_metrics:
-            metrics["eval/episode_success_any"] = np.mean(
-                eval_metrics.episode_metrics["success"] > 0.0
-            )
+            metrics["eval/episode_success_any"] = np.mean(eval_metrics.episode_metrics["success"] > 0.0)
 
         metrics["eval/avg_episode_length"] = np.mean(eval_metrics.episode_steps)
         metrics["eval/epoch_eval_time"] = epoch_eval_time

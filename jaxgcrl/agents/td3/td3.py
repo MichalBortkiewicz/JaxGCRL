@@ -15,13 +15,13 @@
 """TD3 training."""
 
 import functools
+import logging
 import time
-from typing import Any, Callable, Generic, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 import optax
-import logging
 from brax import base, envs
 from brax.io import model
 from brax.training import gradients, pmap, types
@@ -32,10 +32,12 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
-from . import losses as losses, networks as networks
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import Evaluator
-from jaxgcrl.utils.replay_buffer import QueueBase, Sample, TrajectoryUniformSamplingQueue
+from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
+
+from . import losses as losses
+from . import networks as networks
 
 Metrics = types.Metrics
 # Transition = types.Transition
@@ -44,9 +46,7 @@ State = Union[envs.State, envs_v1.State]
 
 
 def soft_update(target_params: Params, online_params: Params, tau) -> Params:
-    return jax.tree_util.tree_map(
-        lambda x, y: (1 - tau) * x + tau * y, target_params, online_params
-    )
+    return jax.tree_util.tree_map(lambda x, y: (1 - tau) * x + tau * y, target_params, online_params)
 
 
 class Transition(NamedTuple):
@@ -89,16 +89,12 @@ _PMAP_AXIS_NAME = "i"
 
 
 @functools.partial(jax.jit, static_argnames=["config", "env"])
-def flatten_batch(
-    config, env, transition: Transition, sample_key: PRNGKey
-) -> Transition:
+def flatten_batch(config, env, transition: Transition, sample_key: PRNGKey) -> Transition:
     if config.use_her:
         # Find truncation indexes if present
         seq_len = transition.observation.shape[0]
         arrangement = jnp.arange(seq_len)
-        is_future_mask = jnp.array(
-            arrangement[:, None] < arrangement[None], dtype=jnp.float32
-        )
+        is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
         single_trajectories = jnp.concatenate(
             [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
             axis=0,
@@ -106,8 +102,7 @@ def flatten_batch(
 
         # final_step_mask.shape == (seq_len, seq_len)
         final_step_mask = (
-            is_future_mask * jnp.equal(single_trajectories, single_trajectories.T)
-            + jnp.eye(seq_len) * 1e-5
+            is_future_mask * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
         )
         final_step_mask = jnp.logical_and(
             final_step_mask,
@@ -120,8 +115,7 @@ def flatten_batch(
         binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
 
         new_goals = (
-            binary_mask[:, None]
-            * transition.observation[new_goals_idx][:, env.goal_indices]
+            binary_mask[:, None] * transition.observation[new_goals_idx][:, env.goal_indices]
             + jnp.logical_not(binary_mask)[:, None]
             * transition.observation[new_goals_idx][:, env.state_dim :]
         )
@@ -131,9 +125,7 @@ def flatten_batch(
         new_obs = jnp.concatenate([state, new_goals], axis=1)
 
         # Recalculate reward
-        dist = jnp.linalg.norm(
-            new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1
-        )
+        dist = jnp.linalg.norm(new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1)
         new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
 
         # Transform next observation
@@ -184,9 +176,7 @@ def _init_training_state(
     q_params = td3_network.q_network.init(key_q)
     q_optimizer_state = q_optimizer.init(q_params)
 
-    normalizer_params = running_statistics.init_state(
-        specs.Array((obs_size,), jnp.dtype("float32"))
-    )
+    normalizer_params = running_statistics.init_state(specs.Array((obs_size,), jnp.dtype("float32")))
 
     training_state = TrainingState(
         policy_optimizer_state=policy_optimizer_state,
@@ -199,9 +189,7 @@ def _init_training_state(
         env_steps=jnp.zeros(()),
         normalizer_params=normalizer_params,
     )
-    return jax.device_put_replicated(
-        training_state, jax.local_devices()[:local_devices_to_use]
-    )
+    return jax.device_put_replicated(training_state, jax.local_devices()[:local_devices_to_use])
 
 
 @dataclass
@@ -239,9 +227,7 @@ class TD3:
         process_id = jax.process_index()
         local_devices_to_use = jax.local_device_count()
         if config.max_devices_per_host is not None:
-            local_devices_to_use = min(
-                local_devices_to_use, config.max_devices_per_host
-            )
+            local_devices_to_use = min(local_devices_to_use, config.max_devices_per_host)
         device_count = local_devices_to_use * jax.process_count()
         logging.info(
             "local_device_count: %s; total_device_count: %s",
@@ -251,9 +237,7 @@ class TD3:
         network_factory = networks.make_td3_networks
 
         if self.min_replay_size >= config.total_env_steps:
-            raise ValueError(
-                "No training will happen because min_replay_size >= total_env_steps"
-            )
+            raise ValueError("No training will happen because min_replay_size >= total_env_steps")
 
         if self.max_replay_size is None:
             max_replay_size = config.total_env_steps
@@ -261,9 +245,7 @@ class TD3:
             max_replay_size = self.max_replay_size
 
         # The number of environment steps executed for every `actor_step()` call.
-        env_steps_per_actor_step = (
-            config.action_repeat * config.num_envs * self.unroll_length
-        )
+        env_steps_per_actor_step = config.action_repeat * config.num_envs * self.unroll_length
         num_prefill_actor_steps = self.min_replay_size // self.unroll_length + 1
         logging.info("Num_prefill_actor_steps: %s", num_prefill_actor_steps)
         num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
@@ -294,9 +276,7 @@ class TD3:
         if randomization_fn is not None:
             v_randomization_fn = functools.partial(
                 randomization_fn,
-                rng=jax.random.split(
-                    key, self.num_envs // jax.process_count() // local_devices_to_use
-                ),
+                rng=jax.random.split(key, self.num_envs // jax.process_count() // local_devices_to_use),
             )
         env = TrajectoryIdWrapper(env)
         env = wrap_for_training(
@@ -405,12 +385,8 @@ class TD3:
                     transitions,
                     optimizer_state=training_state.policy_optimizer_state,
                 )
-                new_target_q_params = soft_update(
-                    training_state.target_q_params, q_params, self.tau
-                )
-                new_target_policy_params = soft_update(
-                    training_state.policy_params, policy_params, self.tau
-                )
+                new_target_q_params = soft_update(training_state.target_q_params, q_params, self.tau)
+                new_target_policy_params = soft_update(training_state.policy_params, policy_params, self.tau)
                 return (
                     actor_loss,
                     policy_params,
@@ -426,9 +402,7 @@ class TD3:
                 policy_optimizer_state,
                 new_target_q_params,
                 new_target_policy_params,
-            ) = jax.lax.cond(
-                update_policy, do_policy_update, dont_policy_update, training_state
-            )
+            ) = jax.lax.cond(update_policy, do_policy_update, dont_policy_update, training_state)
 
             metrics = {
                 "critic_loss": critic_loss,
@@ -481,9 +455,7 @@ class TD3:
                 )
                 return (env_state, next_key), transition
 
-            (env_state, _), data = jax.lax.scan(
-                f, (env_state, key), (), length=self.unroll_length
-            )
+            (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
 
             normalizer_params = running_statistics.update(
                 normalizer_params,
@@ -500,9 +472,7 @@ class TD3:
             env_state: envs.State,
             buffer_state: ReplayBufferState,
             key: PRNGKey,
-        ) -> Tuple[
-            TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics
-        ]:
+        ) -> Tuple[TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics]:
             experience_key, training_key = jax.random.split(key)
             normalizer_params, env_state, buffer_state = get_experience(
                 training_state.normalizer_params,
@@ -516,9 +486,7 @@ class TD3:
                 env_steps=training_state.env_steps + env_steps_per_actor_step,
             )
 
-            training_state, buffer_state, metrics = train_steps(
-                training_state, buffer_state, training_key
-            )
+            training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
             return training_state, env_state, buffer_state, metrics
 
         def prefill_replay_buffer(
@@ -551,9 +519,7 @@ class TD3:
                 length=num_prefill_actor_steps,
             )[0]
 
-        prefill_replay_buffer = jax.pmap(
-            prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME
-        )
+        prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=_PMAP_AXIS_NAME)
 
         def train_steps(
             training_state: TrainingState,
@@ -563,9 +529,7 @@ class TD3:
             experience_key, training_key, sampling_key = jax.random.split(key, 3)
             buffer_state, transitions = replay_buffer.sample(buffer_state)
 
-            batch_keys = jax.random.split(
-                sampling_key, transitions.observation.shape[0]
-            )
+            batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
             transitions = jax.vmap(
                 flatten_batch,
                 in_axes=(None, None, 0, 0),
@@ -576,9 +540,7 @@ class TD3:
                 lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"),
                 transitions,
             )
-            permutation = jax.random.permutation(
-                experience_key, len(transitions.observation)
-            )
+            permutation = jax.random.permutation(experience_key, len(transitions.observation))
             transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
@@ -591,7 +553,6 @@ class TD3:
             return training_state, buffer_state, metrics
 
         def scan_train_steps(n, ts, bs, update_key):
-
             def body(carry, unsued_t):
                 ts, bs, update_key = carry
                 new_key, update_key = jax.random.split(update_key)
@@ -610,9 +571,7 @@ class TD3:
                 ts, es, bs, k = carry
                 k, new_key, update_key = jax.random.split(k, 3)
                 ts, es, bs, metrics = training_step(ts, es, bs, k)
-                (ts, bs, update_key), _ = scan_train_steps(
-                    self.train_step_multiplier - 1, ts, bs, update_key
-                )
+                (ts, bs, update_key), _ = scan_train_steps(self.train_step_multiplier - 1, ts, bs, update_key)
                 return (ts, es, bs, new_key), metrics
 
             (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
@@ -644,9 +603,7 @@ class TD3:
 
             epoch_training_time = time.time() - t
             training_walltime += epoch_training_time
-            sps = (
-                env_steps_per_actor_step * num_training_steps_per_epoch
-            ) / epoch_training_time
+            sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
             metrics = {
                 "training/sps": sps,
                 "training/walltime": training_walltime,
@@ -677,15 +634,11 @@ class TD3:
 
         # Env init
         env_keys = jax.random.split(env_key, config.num_envs // jax.process_count())
-        env_keys = jnp.reshape(
-            env_keys, (local_devices_to_use, -1) + env_keys.shape[1:]
-        )
+        env_keys = jnp.reshape(env_keys, (local_devices_to_use, -1) + env_keys.shape[1:])
         env_state = jax.vmap(env.reset)(env_keys)
 
         # Replay buffer init
-        buffer_state = jax.pmap(replay_buffer.init)(
-            jax.random.split(rb_key, local_devices_to_use)
-        )
+        buffer_state = jax.pmap(replay_buffer.init)(jax.random.split(rb_key, local_devices_to_use))
 
         if not eval_env:
             eval_env = train_env
@@ -719,18 +672,14 @@ class TD3:
         metrics = {}
         if process_id == 0 and config.num_evals > 1:
             metrics = evaluator.run_evaluation(
-                _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
-                ),
+                _unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics={},
             )
             progress_fn(
                 0,
                 metrics,
                 make_policy,
-                _unpmap(
-                    (training_state.normalizer_params, training_state.policy_params)
-                ),
+                _unpmap((training_state.normalizer_params, training_state.policy_params)),
                 unwrapped_env,
             )
 
@@ -742,9 +691,7 @@ class TD3:
             training_state, env_state, buffer_state, prefill_keys
         )
 
-        replay_size = (
-            jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
-        )
+        replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
         logging.info("replay size after prefill %s", replay_size)
         assert replay_size >= self.min_replay_size
         training_walltime = time.time() - t
@@ -756,10 +703,8 @@ class TD3:
             # Optimization
             epoch_key, local_key = jax.random.split(local_key)
             epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
-            (training_state, env_state, buffer_state, training_metrics) = (
-                training_epoch_with_timing(
-                    training_state, env_state, buffer_state, epoch_keys
-                )
+            (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
+                training_state, env_state, buffer_state, epoch_keys
             )
             current_step = int(_unpmap(training_state.env_steps))
 
@@ -767,17 +712,13 @@ class TD3:
             if process_id == 0:
                 if config.checkpoint_logdir:
                     # Save current policy.
-                    params = _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
-                    )
+                    params = _unpmap((training_state.normalizer_params, training_state.policy_params))
                     path = f"{config.checkpoint_logdir}_td3_{current_step}.pkl"
                     model.save_params(path, params)
 
                 # Run evals.
                 metrics = evaluator.run_evaluation(
-                    _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
-                    ),
+                    _unpmap((training_state.normalizer_params, training_state.policy_params)),
                     training_metrics,
                 )
                 do_render = (eval_epoch_num % config.visualization_interval) == 0
@@ -785,9 +726,7 @@ class TD3:
                     current_step,
                     metrics,
                     make_policy,
-                    _unpmap(
-                        (training_state.normalizer_params, training_state.policy_params)
-                    ),
+                    _unpmap((training_state.normalizer_params, training_state.policy_params)),
                     unwrapped_env,
                     do_render,
                 )
@@ -795,9 +734,7 @@ class TD3:
         total_steps = current_step
         assert total_steps >= config.total_env_steps
 
-        params = _unpmap(
-            (training_state.normalizer_params, training_state.policy_params)
-        )
+        params = _unpmap((training_state.normalizer_params, training_state.policy_params))
 
         # If there was no mistakes the training_state should still be identical on all
         # devices.

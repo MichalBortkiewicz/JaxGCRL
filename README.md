@@ -4,6 +4,8 @@
 <p align="center">
     <a href= "https://arxiv.org/abs/2408.11052">
         <img src="https://img.shields.io/badge/arXiv-2311.10090-b31b1b.svg" /></a>
+    <a href="https://pypi.org/project/jaxgcrl/">
+        <img src="https://img.shields.io/pypi/v/jaxgcrl" /></a>
     <a href= "https://github.com/MichalBortkiewicz/JaxGCRL/blob/master/LICENSE">
         <img src="https://img.shields.io/badge/license-Apache2.0-blue.svg" /></a>
     <a href= "https://michalbortkiewicz.github.io/JaxGCRL/">
@@ -24,6 +26,7 @@
 <br/>
 
 ## Accelerating Goal-Conditioned RL Algorithms and Research
+arXiv link: [https://arxiv.org/abs/2408.11052](https://arxiv.org/abs/2408.11052)
 
 We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
@@ -36,23 +39,54 @@ quick experimentation with goal-conditioned self-supervised reinforcement learni
 
 
 ## Installation 📂
-The environment can be set up from the `environment.yml` file.
+
+#### Editable Install (Recommended)
+
+After cloning the repository, run one of the following commands.
+
+With GPU on Linux:
 ```bash
-conda env create -f environment.yml
+pip install -e . -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+
+> [!NOTE]  
+> Make sure you have the correct CUDA version installed, i.e. CUDA >= 12.3.
+> You can check your CUDA version with `nvcc --version` command.
+> If you have an older version, you can create a new conda environment with the correct version of CUDA and JaxGCRL package using the following command:
+> ```bash
+> conda env create -f environment.yml
+> ```
+
+With CPU on Mac:
+```bash
+export SDKROOT="$(xcrun --show-sdk-path)" # may be needed to build brax dependencies
+pip install -e . 
+```
+
+#### PyPI
+
+The package is also available on PyPI:
+```bash
+pip install jaxgcrl -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 <h3 name="start" id="start">Quick Start 🚀 </h3>
 
-To verify the installation, run a test experiment using the `./scripts/train.sh` file:
-
+To verify the installation, run a test experiment:
 ```bash
-chmod +x ./scripts/train.sh; ./scripts/train.sh
+jaxgcrl crl --env ant
 ```
+
+The `jaxgcrl` command is equivalent to invoking `python run.py` with the same arguments
+
 > [!NOTE]  
 > If you haven't yet configured [`wandb`](https://wandb.ai/site), you may be prompted to log in.
 
-Specific configs can be specified as in `scripts/train.sh`. The descriptions of the available flags are in `utils.py:create_parser()`. Common flags you may want to change include:
-- **env=...**: replace "ant" with any environment name. See `utils.py:create_env()` for names.
+See `scripts/train.sh` for an example config. 
+A description of the available agents can be generated with `jaxgcrl --help`.
+Available configs can be listed with `jaxgcrl {crl,ppo,sac,td3} --help`.
+Common flags you may want to change include:
+- **env=...**: replace "ant" with any environment name. See `jaxgcrl/utils/env.py` for a list of available environments.
 - Removing **--log_wandb**: omits logging, if you don't want to use a wandb account.
 - **--total_env_steps**: shorter or longer runs.
 - **--num_envs**: based on how many environments your GPU memory allows.

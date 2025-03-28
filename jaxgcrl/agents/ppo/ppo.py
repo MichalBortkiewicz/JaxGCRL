@@ -18,6 +18,7 @@ See: https://arxiv.org/pdf/1707.06347.pdf
 """
 
 import functools
+import logging
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple, Union
@@ -27,11 +28,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import logging
 from brax import base, envs
 from brax.training import acting, gradients, pmap, types
 from brax.training.acme import running_statistics, specs
-from brax.training.agents.ppo import losses as ppo_losses, networks as ppo_networks
+from brax.training.agents.ppo import losses as ppo_losses
+from brax.training.agents.ppo import networks as ppo_networks
 from brax.training.types import Params, PRNGKey
 from brax.v1 import envs as envs_v1
 from etils import epath
@@ -146,13 +147,10 @@ class PPO:
         local_device_count = jax.local_device_count()
         local_devices_to_use = local_device_count
         if config.max_devices_per_host:
-            local_devices_to_use = min(
-                local_devices_to_use, config.max_devices_per_host
-            )
+            local_devices_to_use = min(local_devices_to_use, config.max_devices_per_host)
 
         logging.info(
-            "Device count: %d, process count: %d (id %d), local device count: %d, "
-            "devices to be used count: %d",
+            "Device count: %d, process count: %d (id %d), local device count: %d, devices to be used count: %d",
             jax.device_count(),
             process_count,
             process_id,
@@ -162,19 +160,13 @@ class PPO:
         device_count = local_devices_to_use * process_count
 
         # The number of train_env steps executed for every training step.
-        utd_ratio = (
-            self.batch_size
-            * self.unroll_length
-            * self.num_minibatches
-            * config.action_repeat
-        )
+        utd_ratio = self.batch_size * self.unroll_length * self.num_minibatches * config.action_repeat
         num_evals_after_init = max(config.num_evals - 1, 1)
         # The number of training_step calls per training_epoch call.
         # equals to ceil(total_env_steps / (num_evals * utd_ratio *
         #                                 num_resets_per_eval))
         num_training_steps_per_epoch = np.ceil(
-            config.total_env_steps
-            / (num_evals_after_init * utd_ratio * max(self.num_resets_per_eval, 1))
+            config.total_env_steps / (num_evals_after_init * utd_ratio * max(self.num_resets_per_eval, 1))
         ).astype(int)
 
         key = jax.random.PRNGKey(config.seed)
@@ -194,9 +186,7 @@ class PPO:
             randomization_batch_size = config.num_envs // local_device_count
             # all devices gets the same randomization rng
             randomization_rng = jax.random.split(key_env, randomization_batch_size)
-            v_randomization_fn = functools.partial(
-                randomization_fn, rng=randomization_rng
-            )
+            v_randomization_fn = functools.partial(randomization_fn, rng=randomization_rng)
 
         if isinstance(train_env, envs.Env):
             wrap_for_training = envs.training.wrap
@@ -215,9 +205,7 @@ class PPO:
 
         reset_fn = jax.jit(jax.vmap(env.reset))
         key_envs = jax.random.split(key_env, config.num_envs // process_count)
-        key_envs = jnp.reshape(
-            key_envs, (local_devices_to_use, -1) + key_envs.shape[1:]
-        )
+        key_envs = jnp.reshape(key_envs, (local_devices_to_use, -1) + key_envs.shape[1:])
         env_state = reset_fn(key_envs)
 
         normalize = lambda x, y: x
@@ -324,9 +312,7 @@ class PPO:
             )
             # Have leading dimensions (batch_size * num_minibatches, unroll_length)
             data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
-            data = jax.tree_util.tree_map(
-                lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
-            )
+            data = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data)
             assert data.discount.shape[1:] == (self.unroll_length,)
 
             # Update normalization params and normalize observations.
@@ -393,9 +379,7 @@ class PPO:
             epoch_training_time = time.time() - t
             training_walltime += epoch_training_time
             sps = (
-                num_training_steps_per_epoch
-                * utd_ratio
-                * max(self.num_resets_per_eval, 1)
+                num_training_steps_per_epoch * utd_ratio * max(self.num_resets_per_eval, 1)
             ) / epoch_training_time
             metrics = {
                 "training/sps": sps,
@@ -414,17 +398,13 @@ class PPO:
             value=ppo_network.value_network.init(key_value),
         )
 
-        training_state = (
-            TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
-                optimizer_state=optimizer.init(
-                    init_params
-                ),  # pytype: disable=wrong-arg-types  # numpy-scalars
-                params=init_params,
-                normalizer_params=running_statistics.init_state(
-                    specs.Array(env_state.obs.shape[-1:], jnp.dtype("float32"))
-                ),
-                env_steps=0,
-            )
+        training_state = TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
+            optimizer_state=optimizer.init(init_params),  # pytype: disable=wrong-arg-types  # numpy-scalars
+            params=init_params,
+            normalizer_params=running_statistics.init_state(
+                specs.Array(env_state.obs.shape[-1:], jnp.dtype("float32"))
+            ),
+            env_steps=0,
         )
 
         if config.total_env_steps == 0:
@@ -437,10 +417,7 @@ class PPO:
                 {},
             )
 
-        if (
-            self.restore_checkpoint_path is not None
-            and epath.Path(self.restore_checkpoint_path).exists()
-        ):
+        if self.restore_checkpoint_path is not None and epath.Path(self.restore_checkpoint_path).exists():
             logging.info(
                 "restoring from checkpoint %s",
                 self.restore_checkpoint_path,
@@ -450,9 +427,7 @@ class PPO:
             (normalizer_params, init_params) = orbax_checkpointer.restore(
                 self.restore_checkpoint_path, item=target
             )
-            training_state = training_state.replace(
-                normalizer_params=normalizer_params, params=init_params
-            )
+            training_state = training_state.replace(normalizer_params=normalizer_params, params=init_params)
 
         training_state = jax.device_put_replicated(
             training_state,
@@ -542,9 +517,7 @@ class PPO:
                     in_axes=(0, None),
                 )(key_envs, key_envs.shape[1])
                 # TODO: move extra reset logic to the AutoResetWrapper.
-                env_state = (
-                    reset_fn(key_envs) if self.num_resets_per_eval > 0 else env_state
-                )
+                env_state = reset_fn(key_envs) if self.num_resets_per_eval > 0 else env_state
 
                 if process_id == 0:
                     # Run evals.

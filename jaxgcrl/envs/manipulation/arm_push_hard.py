@@ -37,9 +37,7 @@ class ArmPushHard(ArmEnvs):
 
     def _get_initial_state(self, rng):
         rng, subkey1, subkey2 = jax.random.split(rng, 3)
-        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(
-            subkey1, [2], minval=-1
-        )
+        cube_q_xy = self.sys.init_q[:2] + self.cube_noise_scale * jax.random.uniform(subkey1, [2], minval=-1)
         cube_q_remaining = self.sys.init_q[2:7]
         target_q = self.sys.init_q[7:14]
         arm_q_default = jnp.array(
@@ -71,18 +69,12 @@ class ArmPushHard(ArmEnvs):
         success_hard = jnp.array(dist < 0.03, dtype=float)
         return success, success_easy, success_hard
 
-    def _update_goal_visualization(
-        self, pipeline_state: base.State, goal: jax.Array
-    ) -> base.State:
-        updated_q = pipeline_state.q.at[7:10].set(
-            goal[:3]
-        )  # Only set the position, not orientation
+    def _update_goal_visualization(self, pipeline_state: base.State, goal: jax.Array) -> base.State:
+        updated_q = pipeline_state.q.at[7:10].set(goal[:3])  # Only set the position, not orientation
         updated_pipeline_state = pipeline_state.replace(qpos=updated_q)
         return updated_pipeline_state
 
-    def _get_obs(
-        self, pipeline_state: base.State, goal: jax.Array, timestep
-    ) -> jax.Array:
+    def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
         Observation space (18-dim)
          - q_subset (10-dim): 3-dim cube position, 7-dim joint angles
@@ -106,17 +98,12 @@ class ArmPushHard(ArmEnvs):
         finger_distance = jnp.linalg.norm(right_finger_x_pos - left_finger_x_pos)[
             None
         ]  # [None] expands dims from 0 to 1
-        gripper_force = (pipeline_state.qfrc_actuator[:-2]).mean(
-            keepdims=True
-        ) * 0.1  # Normalize it from range [-20, 20] to [-2, 2]
+        gripper_force = (
+            (pipeline_state.qfrc_actuator[:-2]).mean(keepdims=True) * 0.1
+        )  # Normalize it from range [-20, 20] to [-2, 2]
 
         return jnp.concatenate(
-            [q_subset]
-            + [eef_x_pos]
-            + [eef_xd_vel]
-            + [finger_distance]
-            + [gripper_force]
-            + [goal]
+            [q_subset] + [eef_x_pos] + [eef_xd_vel] + [finger_distance] + [gripper_force] + [goal]
         )
 
     def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:

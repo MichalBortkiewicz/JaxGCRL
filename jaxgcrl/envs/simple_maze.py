@@ -106,9 +106,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
 
-    xml_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "assets", "simple_maze.xml"
-    )
+    xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "simple_maze.xml")
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
     possible_goals = find_goals(maze_layout, maze_size_scaling)
@@ -166,9 +164,7 @@ class SimpleMaze(PipelineEnv):
         maze_size_scaling=4.0,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals = make_maze(
-            maze_layout_name, maze_size_scaling
-        )
+        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
 
         sys = mjcf.loads(xml_string)
         self.possible_starts = possible_starts
@@ -192,11 +188,7 @@ class SimpleMaze(PipelineEnv):
 
         if backend == "positional":
             # TODO: does the same actuator strength work as in spring
-            sys = sys.replace(
-                actuator=sys.actuator.replace(
-                    gear=200 * jnp.ones_like(sys.actuator.gear)
-                )
-            )
+            sys = sys.replace(actuator=sys.actuator.replace(gear=200 * jnp.ones_like(sys.actuator.gear)))
 
         kwargs["n_frames"] = kwargs.get("n_frames", n_frames)
 
@@ -210,9 +202,7 @@ class SimpleMaze(PipelineEnv):
         self._healthy_z_range = healthy_z_range
         self._contact_force_range = contact_force_range
         self._reset_noise_scale = reset_noise_scale
-        self._exclude_current_positions_from_observation = (
-            exclude_current_positions_from_observation
-        )
+        self._exclude_current_positions_from_observation = exclude_current_positions_from_observation
 
         self.state_dim = 4
         self.goal_indices = jnp.array([0, 1])
@@ -227,9 +217,7 @@ class SimpleMaze(PipelineEnv):
         rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
         low, hi = -self._reset_noise_scale, self._reset_noise_scale
-        q = self.sys.init_q + jax.random.uniform(
-            rng, (self.sys.q_size(),), minval=low, maxval=hi
-        )
+        q = self.sys.init_q + jax.random.uniform(rng, (self.sys.q_size(),), minval=low, maxval=hi)
         qd = hi * jax.random.normal(rng1, (self.sys.qd_size(),))
 
         # set the start and target q, qd
@@ -304,9 +292,7 @@ class SimpleMaze(PipelineEnv):
             success=success,
             success_easy=success_easy,
         )
-        return state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
-        )
+        return state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done)
 
     def _get_obs(self, pipeline_state: base.State) -> jax.Array:
         """Observe ant body position and velocities."""

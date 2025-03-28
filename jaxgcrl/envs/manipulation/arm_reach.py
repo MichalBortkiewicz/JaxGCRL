@@ -51,9 +51,7 @@ class ArmReach(ArmEnvs):
         """
         Generate goals in a box. x: [-0.2, 0.2], y: [0.3, 0.7], z: [0.1, 0.5]
         """
-        goal = jnp.array([0, 0.5, 0.3]) + self.goal_noise_scale * jax.random.uniform(
-            rng, [3], minval=-1
-        )
+        goal = jnp.array([0, 0.5, 0.3]) + self.goal_noise_scale * jax.random.uniform(rng, [3], minval=-1)
         return goal
 
     def _compute_goal_completion(self, obs, goal):
@@ -68,18 +66,12 @@ class ArmReach(ArmEnvs):
 
         return success, success_easy, success_hard
 
-    def _update_goal_visualization(
-        self, pipeline_state: base.State, goal: jax.Array
-    ) -> base.State:
-        updated_q = pipeline_state.q.at[:3].set(
-            goal
-        )  # Only set the position, not orientation
+    def _update_goal_visualization(self, pipeline_state: base.State, goal: jax.Array) -> base.State:
+        updated_q = pipeline_state.q.at[:3].set(goal)  # Only set the position, not orientation
         updated_pipeline_state = pipeline_state.replace(qpos=updated_q)
         return updated_pipeline_state
 
-    def _get_obs(
-        self, pipeline_state: base.State, goal: jax.Array, timestep
-    ) -> jax.Array:
+    def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         """
         Observation space (13-dim)
          - q_subset (7-dim): joint angles

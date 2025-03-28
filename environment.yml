@@ -29,6 +29,6 @@ dependencies:
     - wandb_osh==1.2.2
     - jax==0.4.25
     - jaxlib==0.4.25+cuda12.cudnn89
-    - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
     - scikit-learn==1.6.1
+    - -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
     - -e .

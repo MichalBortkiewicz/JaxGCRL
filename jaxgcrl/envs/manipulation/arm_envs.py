@@ -33,9 +33,7 @@ class ArmEnvs(PipelineEnv):
 
         # Initialize simulator state
         rng, subkey = jax.random.split(rng)
-        q, qd = self._get_initial_state(
-            subkey
-        )  # Injects noise to avoid overfitting/open loop control
+        q, qd = self._get_initial_state(subkey)  # Injects noise to avoid overfitting/open loop control
         pipeline_state = self.pipeline_init(q, qd)
         timestep = 0.0
 
@@ -76,25 +74,17 @@ class ArmEnvs(PipelineEnv):
         timestep = state.info["timestep"] + 1 / self.episode_length
         obs = self._get_obs(pipeline_state, state.info["goal"], timestep)
 
-        success, success_easy, success_hard = self._compute_goal_completion(
-            obs, state.info["goal"]
-        )
-        state.metrics.update(
-            success=success, success_easy=success_easy, success_hard=success_hard
-        )
+        success, success_easy, success_hard = self._compute_goal_completion(obs, state.info["goal"])
+        state.metrics.update(success=success, success_easy=success_easy, success_hard=success_hard)
 
         reward = success
         done = 0.0
         info = {**state.info, "timestep": timestep}
 
-        new_state = state.replace(
-            pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, info=info
-        )
+        new_state = state.replace(pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, info=info)
 
         # Special postprocessing
-        if (
-            self.env_name == "arm_grasp"
-        ):  # Update finger locations next to current cube location
+        if self.env_name == "arm_grasp":  # Update finger locations next to current cube location
             cube_pos = obs[:3]
             left_finger_goal_pos = cube_pos + jnp.array([0.0375, 0, 0])
             right_finger_goal_pos = cube_pos + jnp.array([-0.0375, 0, 0])
@@ -225,14 +215,10 @@ class ArmEnvs(PipelineEnv):
     def _compute_goal_completion(self, obs, goal):
         raise NotImplementedError
 
-    def _update_goal_visualization(
-        self, pipeline_state: base.State, goal: jax.Array
-    ) -> base.State:
+    def _update_goal_visualization(self, pipeline_state: base.State, goal: jax.Array) -> base.State:
         raise NotImplementedError
 
-    def _get_obs(
-        self, pipeline_state: base.State, goal: jax.Array, timestep
-    ) -> jax.Array:
+    def _get_obs(self, pipeline_state: base.State, goal: jax.Array, timestep) -> jax.Array:
         raise NotImplementedError
 
     def _get_arm_angles(self, pipeline_state: base.State) -> jax.Array:
