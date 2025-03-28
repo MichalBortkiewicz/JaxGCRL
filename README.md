@@ -26,6 +26,7 @@
 <br/>
 
 ## Accelerating Goal-Conditioned RL Algorithms and Research
+arXiv link: [https://arxiv.org/abs/2408.11052](https://arxiv.org/abs/2408.11052)
 
 We provide blazingly fast goal-conditioned environments based on [MJX](https://mujoco.readthedocs.io/en/stable/mjx.html) and [BRAX](https://github.com/google/brax) for 
 quick experimentation with goal-conditioned self-supervised reinforcement learning.
@@ -47,6 +48,14 @@ With GPU on Linux:
 ```bash
 pip install -e . -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
+
+> [!NOTE]  
+> Make sure you have the correct CUDA version installed, i.e. CUDA >= 12.3.
+> You can check your CUDA version with `nvcc --version` command.
+> If you have an older version, you can create a new conda environment with the correct version of CUDA and JaxGCRL package using the following command:
+> ```bash
+> conda env create -f environment.yml
+> ```
 
 With CPU on Mac:
 ```bash
