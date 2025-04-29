@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     mesa-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the environment file
-COPY environment.yml .
+# Copy environment and project definition files first
+COPY environment.yml pyproject.toml* ./
 
 # Create the Conda environment
 RUN conda env create -f environment.yml
