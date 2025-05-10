@@ -73,7 +73,17 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
         g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
 
-        qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
+        if config["energy_fn"] == "mrn":
+            future_action = transitions.extras["future_action"]
+
+            ga_repr = networks["sa_encoder"].apply(
+                sa_encoder_params,
+                jnp.concatenate([future_state, future_action], axis=-1),
+            )
+            dist = mrn_distance(sa_repr, ga_repr)
+            qf_pi = -dist
+        else:
+            qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
 
         actor_loss = jnp.mean(jnp.exp(log_alpha) * log_prob - qf_pi)
 
