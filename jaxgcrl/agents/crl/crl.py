@@ -160,7 +160,7 @@ class CRL:
     use_ln: bool = False
 
     contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
-    energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
+    energy_fn: Literal["norm", "l2", "dot", "cosine", "mrn"] = "norm"
 
     def check_config(self, config):
         """
