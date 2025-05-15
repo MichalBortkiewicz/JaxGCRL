@@ -92,6 +92,13 @@ Common flags you may want to change include:
 - **--num_envs**: based on how many environments your GPU memory allows.
 - **--contrastive_loss_fn, --energy_fn, --h_dim, --n_hidden, etc.**: algorithmic and architectural changes.
 
+> [!Note]
+> We recommend using [calculator by @riiswa](https://warisradji.com/jaxgcrl-calculator/) for checking the correctness of hyperparameters:
+> <p align="center">
+>   <img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/calculator.png" width=40%  /> 
+> </p>
+
+
 ### Environment Interaction
 
 Environments can be controlled with the `reset` and `step` functions. These methods return a state object, which is a dataclass containing the following fields:
