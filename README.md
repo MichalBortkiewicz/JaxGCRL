@@ -95,7 +95,7 @@ Common flags you may want to change include:
 > [!Note]
 > We recommend using [calculator by @riiswa](https://warisradji.com/jaxgcrl-calculator/) for checking the correctness of hyperparameters:
 > <p align="center">
->   <img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/calculator.png" width=40%  /> 
+>   <img src="https://raw.githubusercontent.com/MichalBortkiewicz/JaxGCRL/master/imgs/calculator.png" width=50%  /> 
 > </p>
 
 
