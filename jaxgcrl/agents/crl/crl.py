@@ -22,7 +22,7 @@ from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
-from .networks import Actor, Encoder
+from .networks import Actor, Encoder, EncoderSimba
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -152,6 +152,7 @@ class CRL:
     n_hidden: int = 2
     skip_connections: int = 4
     use_relu: bool = False
+    use_simba: bool = False
 
     # phi(s,a) and psi(g) repr dimension
     repr_dim: int = 64
@@ -257,7 +258,11 @@ class CRL:
         )
 
         # Critic
-        sa_encoder = Encoder(
+        if self.use_simba:
+            encoder = EncoderSimba
+        else:
+            encoder = Encoder
+        sa_encoder = encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
@@ -266,7 +271,7 @@ class CRL:
             use_ln=self.use_ln,
         )
         sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
-        g_encoder = Encoder(
+        g_encoder = encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
