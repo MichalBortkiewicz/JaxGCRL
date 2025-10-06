@@ -14,7 +14,7 @@ dependencies = [
   "nvidia-cusolver-cu12>=11.7.3.90; platform_system == 'Linux'",
   "jaxlib==0.4.25; platform_system != 'Linux'",
   "flax>=0.8.3",
-  "brax>=0.12.1",
+  "brax==0.12.1",
   "matplotlib==3.8.4",
   "mujoco==3.2.7",
   "mujoco-mjx==3.2.7",
