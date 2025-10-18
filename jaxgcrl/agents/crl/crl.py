@@ -4,6 +4,10 @@ import pickle
 import random
 import time
 from typing import Any, Callable, Literal, NamedTuple, Optional, Tuple, Union
+import matplotlib.pyplot as plt
+import wandb
+import io
+from PIL import Image
 
 import flax.linen as nn
 import jax
@@ -52,6 +56,7 @@ class Transition(NamedTuple):
 
 @functools.partial(jax.jit, static_argnames=("buffer_config"))
 def flatten_batch(buffer_config, transition, sample_key):
+    # transition.observations has size (1001, 31)
     gamma, state_size, goal_indices = buffer_config
 
     # Because it's vmaped transition.obs.shape is of shape (episode_len, obs_dim)
@@ -76,14 +81,14 @@ def flatten_batch(buffer_config, transition, sample_key):
         [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
         axis=0,
     )
-    # array of seq_len x seq_len where a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
+    # array of seq_len x seq_len wheree a row is an array of traj_ids that correspond to the episode index from which that time-step was collected
     # timesteps collected from the same episode will have the same traj_id. All rows of the single_trajectories are same.
 
     probs = probs * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
     # ith row of probs will be non zero only for time indices that
     # 1) are greater than i
     # 2) have the same traj_id as the ith time index
-
+    original_goals = transition.observation[:, -2:]
     goal_index = jax.random.categorical(sample_key, jnp.log(probs))
     future_state = jnp.take(
         transition.observation, goal_index[:-1], axis=0
@@ -103,6 +108,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state": state,
         "future_state": future_state,
         "future_action": future_action,
+        "original_goals": original_goals
     }
 
     return transition._replace(
@@ -472,9 +478,11 @@ class CRL:
                 transitions,
                 batch_keys,
             )
+
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
             )
+            # Shape of obs is (256000, 31) after flattening
 
             # permute transitions
             permutation = jax.random.permutation(experience_key2, len(transitions.observation))
@@ -483,6 +491,9 @@ class CRL:
                 lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
                 transitions,
             )
+            # Shape of transitions.observation is (1000, 256, 31)
+            
+            last_batch = transitions
 
             # take actor-step worth of training-step
             (
@@ -497,6 +508,7 @@ class CRL:
                 training_state,
                 env_state,
                 buffer_state,
+                last_batch
             ), metrics
 
         @jax.jit
@@ -515,12 +527,13 @@ class CRL:
                         ts,
                         es,
                         bs,
+                        last_batch
                     ),
                     metrics,
                 ) = training_step(ts, es, bs, train_key)
-                return (ts, es, bs, k), metrics
+                return (ts, es, bs, k), (metrics, last_batch)
 
-            (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
+            (training_state, env_state, buffer_state, key), (metrics, last_batch) = jax.lax.scan(
                 f,
                 (training_state, env_state, buffer_state, key),
                 (),
@@ -528,8 +541,70 @@ class CRL:
             )
 
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            return training_state, env_state, buffer_state, metrics
+            return training_state, env_state, buffer_state, metrics, last_batch
+        
+        def visualize_goals(train_env, transitions, num_samples=15, wandb_key="state_goal_plot"):
+            state_size = train_env.state_dim
+            goal_indices = train_env.goal_indices
 
+            obs = transitions.observation  # (15, 1000, 256, 31)
+            future_state = transitions.extras["future_state"]  # (15, 1000, 256, state_size)
+
+            states = obs[:, :, :, :state_size].reshape(-1, state_size)
+            pos_goals = future_state[:, :, :, goal_indices].reshape(-1, len(goal_indices))
+
+            orig_goals = transitions.extras["original_goals"].reshape(-1, len(goal_indices))
+
+            total_samples = states.shape[0]
+            if num_samples > total_samples:
+                num_samples = total_samples
+
+            sample_indices = np.random.choice(total_samples, num_samples, replace=False)
+
+            s_xy = states[sample_indices, :2]
+            p_xy = pos_goals[sample_indices, :2]
+            o_xy = orig_goals[sample_indices, :2]
+
+            plt.figure(figsize=(7, 7))
+            plt.scatter(s_xy[:, 0], s_xy[:, 1], c='blue', label='States', alpha=0.6)
+            plt.scatter(p_xy[:, 0], p_xy[:, 1], c='green', label='Contrastive Goals', alpha=0.6)
+            plt.scatter(o_xy[:, 0], o_xy[:, 1], c='orange', label='Proposed Goals', alpha=0.6)
+
+            for i in range(num_samples):
+                plt.arrow(
+                    s_xy[i, 0], s_xy[i, 1],
+                    p_xy[i, 0] - s_xy[i, 0],
+                    p_xy[i, 1] - s_xy[i, 1],
+                    color='green', alpha=0.3, head_width=0.02, length_includes_head=True
+                )
+
+            for i in range(num_samples):
+                plt.plot(
+                    [o_xy[i, 0], p_xy[i, 0]],
+                    [o_xy[i, 1], p_xy[i, 1]],
+                    color='orange', alpha=0.3, linestyle='--'
+                )
+
+            plt.xlabel("x")
+            plt.ylabel("y")
+            title = "State → Proposed Goal → Original Goal"
+            plt.title(title)
+            plt.legend()
+            plt.grid(True)
+            plt.axis('equal')
+
+            logging.info(f"Plotted {num_samples} random samples from {total_samples} transitions.")
+
+            # Save figure to a BytesIO buffer
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png')
+            buf.seek(0)
+            plt.close()
+
+            # Upload to WandB
+            pil_image = Image.open(buf)
+            wandb.log({wandb_key: wandb.Image(pil_image)})
+            
         key, prefill_key = jax.random.split(key, 2)
 
         training_state, env_state, buffer_state, _ = prefill_replay_buffer(
@@ -552,9 +627,11 @@ class CRL:
 
             key, epoch_key = jax.random.split(key)
 
-            training_state, env_state, buffer_state, metrics = training_epoch(
+            training_state, env_state, buffer_state, metrics, last_batch = training_epoch(
                 training_state, env_state, buffer_state, epoch_key
             )
+
+            visualize_goals(train_env, last_batch)
 
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
