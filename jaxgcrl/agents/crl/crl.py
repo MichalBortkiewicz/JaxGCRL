@@ -89,6 +89,17 @@ def flatten_batch(buffer_config, transition, sample_key):
     # 1) are greater than i
     # 2) have the same traj_id as the ith time index
     proposed_goals = transition.observation[:, -2:]
+
+    traj_ids = transition.extras["state_extras"]["traj_id"]  # shape (seq_len,)
+    def last_state_for_each_step(obs, traj_ids):
+        seq_len = obs.shape[0]
+        def last_state_for_t(i):
+            mask = traj_ids == traj_ids[i]
+            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+            return obs[last_idx]
+        return jax.vmap(last_state_for_t)(jnp.arange(seq_len))
+    last_traj_state = last_state_for_each_step(transition.observation, traj_ids)
+
     goal_index = jax.random.categorical(sample_key, jnp.log(probs))
     future_state = jnp.take(
         transition.observation, goal_index[:-1], axis=0
@@ -108,7 +119,8 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state": state,
         "future_state": future_state,
         "future_action": future_action,
-        "proposed_goals": proposed_goals
+        "proposed_goals": proposed_goals,
+        "last_traj_state": last_traj_state
     }
 
     return transition._replace(
@@ -204,6 +216,8 @@ class CRL:
             episode_length=config.episode_length,
             action_repeat=config.action_repeat,
         )
+
+        logging.info("Num env: %d", config.num_envs)
 
         env_steps_per_actor_step = config.num_envs * self.unroll_length
         num_prefill_env_steps = self.min_replay_size * config.num_envs
@@ -393,6 +407,7 @@ class CRL:
             # )
 
             (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
+            logging.info("Unroll info: %d %d %d %d", self.unroll_length, data.observation.shape[0], data.observation.shape[1], data.observation.shape[2])
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -464,10 +479,6 @@ class CRL:
         def training_step(training_state, env_state, buffer_state, key):
             experience_key1, experience_key2, sampling_key, training_key = jax.random.split(key, 4)
 
-            # buffer_state, proposed_transitions = replay_buffer.sample(buffer_state)
-            # proposed_goals = proposed_transitions.observation[:, -1, :2]
-            # logging.info("%d", len(proposed_goals))
-
             # update buffer
             env_state, buffer_state = get_experience(
                 training_state.actor_state,
@@ -482,6 +493,7 @@ class CRL:
 
             # sample actor-step worth of transitions
             buffer_state, transitions = replay_buffer.sample(buffer_state)
+            # transitions.observation has shape (256, 1001, 31)
 
             # process transitions for training
             batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
@@ -490,6 +502,7 @@ class CRL:
                 transitions,
                 batch_keys,
             )
+            # transitions.observation has shape (256, 1000, 31)
 
             transitions = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(x, (-1,) + x.shape[2:], order="F"), transitions
@@ -562,6 +575,9 @@ class CRL:
             obs = transitions.observation  # (15, 1000, 256, 31)
             future_state = transitions.extras["future_state"]  # (15, 1000, 256, state_size)
 
+            last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (15, 1000, 256, state_size)
+            last_traj_state_flat = last_traj_state.reshape(-1, state_size)
+
             states = obs[:, :, :, :state_size].reshape(-1, state_size)
             pos_goals = future_state[:, :, :, goal_indices].reshape(-1, len(goal_indices))
 
@@ -576,11 +592,13 @@ class CRL:
             s_xy = states[sample_indices, :2]
             p_xy = pos_goals[sample_indices, :2]
             o_xy = orig_goals[sample_indices, :2]
+            lts_xy = last_traj_state_flat[sample_indices, :2]
 
             plt.figure(figsize=(7, 7))
             plt.scatter(s_xy[:, 0], s_xy[:, 1], c='blue', label='States', alpha=0.6)
-            plt.scatter(p_xy[:, 0], p_xy[:, 1], c='green', label='Contrastive Goals', alpha=0.6)
+            plt.scatter(p_xy[:, 0], p_xy[:, 1], c='yellow', label='Contrastive Goals', alpha=0.6)
             plt.scatter(o_xy[:, 0], o_xy[:, 1], c='orange', label='Proposed Goals', alpha=0.6)
+            plt.scatter(lts_xy[:, 0], lts_xy[:, 1], c='green', label='Reached Goal', alpha=0.6)
 
             for i in range(num_samples):
                 plt.arrow(
@@ -589,11 +607,17 @@ class CRL:
                     p_xy[i, 1] - s_xy[i, 1],
                     color='green', alpha=0.3, head_width=0.02, length_includes_head=True
                 )
+                plt.arrow(
+                    p_xy[i, 0], p_xy[i, 1],
+                    lts_xy[i, 0] - p_xy[i, 0],
+                    lts_xy[i, 1] - p_xy[i, 1],
+                    color='blue', alpha=0.3, head_width=0.02, length_includes_head=True
+                )
 
             for i in range(num_samples):
                 plt.plot(
-                    [o_xy[i, 0], p_xy[i, 0]],
-                    [o_xy[i, 1], p_xy[i, 1]],
+                    [o_xy[i, 0], lts_xy[i, 0]],
+                    [o_xy[i, 1], lts_xy[i, 1]],
                     color='orange', alpha=0.3, linestyle='--'
                 )
 
