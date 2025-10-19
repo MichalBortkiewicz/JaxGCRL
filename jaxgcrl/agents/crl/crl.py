@@ -88,7 +88,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     # ith row of probs will be non zero only for time indices that
     # 1) are greater than i
     # 2) have the same traj_id as the ith time index
-    original_goals = transition.observation[:, -2:]
+    proposed_goals = transition.observation[:, -2:]
     goal_index = jax.random.categorical(sample_key, jnp.log(probs))
     future_state = jnp.take(
         transition.observation, goal_index[:-1], axis=0
@@ -108,7 +108,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state": state,
         "future_state": future_state,
         "future_action": future_action,
-        "original_goals": original_goals
+        "proposed_goals": proposed_goals
     }
 
     return transition._replace(
@@ -357,7 +357,6 @@ class CRL:
             means, log_stds = actor.apply(actor_state.params, env_state.obs)
             stds = jnp.exp(log_stds)
             actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
-
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
@@ -370,7 +369,8 @@ class CRL:
             )
 
         @jax.jit
-        def get_experience(actor_state, env_state, buffer_state, key):
+        def get_experience(actor_state, env_state, buffer_state, key):\
+        
             @jax.jit
             def f(carry, unused_t):
                 env_state, current_key = carry
@@ -383,6 +383,14 @@ class CRL:
                     extra_fields=("truncation", "traj_id"),
                 )
                 return (env_state, next_key), transition
+            
+            # Propose goals from replay buffer instead
+            # buffer_state, proposed_transitions = replay_buffer.sample(buffer_state)
+            # proposed_goals = proposed_transitions.observation[:, -1, :2]
+            # logging.info("%d", len(proposed_goals))
+            # env_state = env_state.replace(
+            #     obs=env_state.obs.at[:, -2:].set(proposed_goals)
+            # )
 
             (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
 
@@ -455,6 +463,10 @@ class CRL:
         @jax.jit
         def training_step(training_state, env_state, buffer_state, key):
             experience_key1, experience_key2, sampling_key, training_key = jax.random.split(key, 4)
+
+            # buffer_state, proposed_transitions = replay_buffer.sample(buffer_state)
+            # proposed_goals = proposed_transitions.observation[:, -1, :2]
+            # logging.info("%d", len(proposed_goals))
 
             # update buffer
             env_state, buffer_state = get_experience(
@@ -553,7 +565,7 @@ class CRL:
             states = obs[:, :, :, :state_size].reshape(-1, state_size)
             pos_goals = future_state[:, :, :, goal_indices].reshape(-1, len(goal_indices))
 
-            orig_goals = transitions.extras["original_goals"].reshape(-1, len(goal_indices))
+            orig_goals = transitions.extras["proposed_goals"].reshape(-1, len(goal_indices))
 
             total_samples = states.shape[0]
             if num_samples > total_samples:
