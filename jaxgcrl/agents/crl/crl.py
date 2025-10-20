@@ -148,8 +148,8 @@ def save_params(path: str, params: Any):
 class CRL:
     """Contrastive Reinforcement Learning (CRL) agent."""
 
-    policy_lr: float = 3e-4
-    critic_lr: float = 3e-4
+    policy_lr: float = 3e-4 # 3e-4 original
+    critic_lr: float = 3e-4 # 3e-4 original
     alpha_lr: float = 3e-4
     batch_size: int = 256
 
@@ -374,6 +374,8 @@ class CRL:
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
+            # nstate.obs has shape (256, 31)
+
             return nstate, Transition(
                 observation=env_state.obs,
                 action=actions,
@@ -383,11 +385,10 @@ class CRL:
             )
 
         @jax.jit
-        def get_experience(actor_state, env_state, buffer_state, key):\
-        
+        def get_experience(actor_state, env_state, buffer_state, key):        
             @jax.jit
             def f(carry, unused_t):
-                env_state, current_key = carry
+                env_state, current_key, proposed_goals = carry
                 current_key, next_key = jax.random.split(current_key)
                 env_state, transition = actor_step(
                     actor_state,
@@ -396,18 +397,72 @@ class CRL:
                     current_key,
                     extra_fields=("truncation", "traj_id"),
                 )
-                return (env_state, next_key), transition
+                env_state = set_goals_in_env_state(env_state, proposed_goals)
+                return (env_state, next_key, proposed_goals), transition
             
-            # Propose goals from replay buffer instead
-            # buffer_state, proposed_transitions = replay_buffer.sample(buffer_state)
-            # proposed_goals = proposed_transitions.observation[:, -1, :2]
-            # logging.info("%d", len(proposed_goals))
-            # env_state = env_state.replace(
-            #     obs=env_state.obs.at[:, -2:].set(proposed_goals)
-            # )
+            # NEW CODE START
+            buffer_size = replay_buffer.size(buffer_state)
+            jax.debug.print("Buf size: {}", buffer_size)
+            def propose_goals_from_buffer(buffer_state):
+                """Sample transitions and extract last trajectory states as goals"""
+                buffer_state, sampled_transitions = replay_buffer.sample(buffer_state)
+                
+                traj_ids = sampled_transitions.extras["state_extras"]["traj_id"]  # (num_envs, episode_length)
+                observations = sampled_transitions.observation  # (batch_size, episode_length, obs_size)
+                
+                def get_last_state(obs_seq, traj_id_seq):
+                    """Get the last state for each trajectory"""
+                    # Find the last index where this trajectory appears
+                    seq_len = obs_seq.shape[0]
+                    # Assuming the trajectory runs through the sequence, find its last occurrence
+                    mask = traj_id_seq == traj_id_seq[0]
+                    last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+                    return obs_seq[last_idx]
+                
+                # Extract last states for each batch element
+                last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (batch_size, state_size)
+                
+                # Extract goal positions from these last states
+                proposed_goals = last_states[:, :2]  # (batch_size, goal_size)
+                
+                return proposed_goals, buffer_state
+            
+            def use_current_goals(buffer_state):
+                """Use current goals from environment (fallback)"""
+                return env_state.obs[:, -2:], buffer_state
+            
+            # Use buffer goals if we have enough data, otherwise use current goals
+            proposed_goals, buffer_state = jax.lax.cond(
+                buffer_size >= self.min_replay_size,
+                propose_goals_from_buffer,
+                use_current_goals,
+                buffer_state
+            )
+            
+            @jax.jit
+            def set_goals_in_env_state(env_state, goals):
+                new_obs = env_state.obs.at[:, -2:].set(goals)
+                
+                pipeline_state = env_state.pipeline_state                
+                new_q = pipeline_state.q.at[:, -2:].set(goals)
+                
+                new_x_pos = pipeline_state.x.pos.at[:, -1, :goal_size].set(goals)
+                new_x = pipeline_state.x.replace(pos=new_x_pos)                
+                new_pipeline_state = pipeline_state.replace(q=new_q, x=new_x)
+                
+                return env_state.replace(obs=new_obs, pipeline_state=new_pipeline_state)
+           
+            env_state = set_goals_in_env_state(env_state, proposed_goals)
+            # NEW CODE END
 
-            (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
+            jax.debug.print("Goal_set: {} {}", env_state.obs[0, -2], env_state.obs[0, -1])
+
+            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals), (), length=self.unroll_length)
             logging.info("Unroll info: %d %d %d %d", self.unroll_length, data.observation.shape[0], data.observation.shape[1], data.observation.shape[2])
+
+            jax.debug.print("Goal_s0: {} {}", data.observation[0, 0, -2], data.observation[0, 0, -1])
+            jax.debug.print("Goal_s1: {} {}", data.observation[1, 0, -2], data.observation[1, 0, -1])
+
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
