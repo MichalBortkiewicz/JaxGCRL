@@ -426,7 +426,7 @@ class CRL:
             )
 
         @jax.jit
-        def get_experience(actor_state, env_state, buffer_state, key):        
+        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
             @jax.jit
             def f(carry, unused_t):
                 env_state, current_key, proposed_goals = carry
@@ -477,7 +477,7 @@ class CRL:
                 original_goals, buffer_state = use_current_goals((buffer_state, None))
 
                 # Mix the goals with probability buffer_prob
-                buffer_prob = 1.0
+                buffer_prob = 0.75
                 use_proposed = jax.random.bernoulli(key, buffer_prob, shape=(proposed_goals.shape[0], 1))
                 
                 proposed_goals = jnp.where(use_proposed, proposed_goals, original_goals)
@@ -486,8 +486,12 @@ class CRL:
             key, proposal_key = jax.random.split(key)
             buffer_size = replay_buffer.size(buffer_state)
             # Use buffer goals if we have enough data, otherwise use current goals
-            proposed_goals, buffer_state = jax.lax.cond(
+            condition = jnp.logical_and(
                 buffer_size >= self.min_replay_size,
+                training_state.env_steps >= 0
+            )
+            proposed_goals, buffer_state = jax.lax.cond(
+                condition,
                 mix_goals_fn,
                 use_current_goals,
                 (buffer_state, proposal_key)
@@ -508,6 +512,7 @@ class CRL:
                 env_state, buffer_state = get_experience(
                     training_state.actor_state,
                     env_state,
+                    training_state,
                     buffer_state,
                     key,
                 )
@@ -570,6 +575,7 @@ class CRL:
             env_state, buffer_state = get_experience(
                 training_state.actor_state,
                 env_state,
+                training_state,
                 buffer_state,
                 experience_key1,
             )
