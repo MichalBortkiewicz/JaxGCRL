@@ -202,6 +202,8 @@ class CRL:
 
     disable_entropy_actor: bool = False
 
+    buffer_goal_prob: float = 0.5
+
     max_replay_size: int = 10000
     min_replay_size: int = 1000
     unroll_length: int = 62
@@ -477,7 +479,7 @@ class CRL:
                 original_goals, buffer_state = use_current_goals((buffer_state, None))
 
                 # Mix the goals with probability buffer_prob
-                buffer_prob = 0.75
+                buffer_prob = self.buffer_goal_prob
                 use_proposed = jax.random.bernoulli(key, buffer_prob, shape=(proposed_goals.shape[0], 1))
                 
                 proposed_goals = jnp.where(use_proposed, proposed_goals, original_goals)
@@ -487,7 +489,7 @@ class CRL:
             buffer_size = replay_buffer.size(buffer_state)
             # Use buffer goals if we have enough data, otherwise use current goals
             condition = jnp.logical_and(
-                buffer_size >= self.min_replay_size,
+                buffer_size >= 1,
                 training_state.env_steps >= 0
             )
             proposed_goals, buffer_state = jax.lax.cond(
