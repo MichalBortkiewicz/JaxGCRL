@@ -24,9 +24,11 @@ from flax.training.train_state import TrainState
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
+from jaxgcrl.utils.visualize import visualize_goals_2d
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
+from .goals import GoalProposer, ReplayBufferGoalProposal
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -187,8 +189,8 @@ def save_params(path: str, params: Any):
 class CRL:
     """Contrastive Reinforcement Learning (CRL) agent."""
 
-    policy_lr: float = 3e-4 # 3e-4 original
-    critic_lr: float = 3e-4 # 3e-4 original
+    policy_lr: float = 3e-4
+    critic_lr: float = 3e-4
     alpha_lr: float = 3e-4
     batch_size: int = 256
 
@@ -202,7 +204,12 @@ class CRL:
 
     disable_entropy_actor: bool = False
 
-    buffer_goal_prob: float = 0.5
+    # Algorithm for proposing goals
+    goal_proposer: GoalProposer = ReplayBufferGoalProposal()
+    # Proportion of proposed goals coming from the goal proposal algorithm
+    goal_proposal_prob: float = 0.0
+    # Number of env steps to wait before proposing goals from the goal proposal algorithm
+    goal_proposal_warmup_steps: int = 0
 
     max_replay_size: int = 10000
     min_replay_size: int = 1000
@@ -418,7 +425,7 @@ class CRL:
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
 
-            # nstate.obs has shape (256, 31)
+            # nstate.obs has shape (batch_size, obs_dim)
             return nstate, Transition(
                 observation=new_obs,
                 action=actions,
@@ -442,65 +449,23 @@ class CRL:
                     extra_fields=("truncation", "traj_id"),
                 )
                 return (env_state, next_key, proposed_goals), transition
-            
-            def propose_goals_from_buffer(buffer_state):
-                """Sample transitions and extract last trajectory states as goals"""
-                buffer_state, sampled_transitions = replay_buffer.sample(buffer_state)
-                
-                traj_ids = sampled_transitions.extras["state_extras"]["traj_id"]  # (num_envs, episode_length)
-                observations = sampled_transitions.observation  # (num_envs, episode_length, obs_size)
-                
-                def get_last_state(obs_seq, traj_id_seq):
-                    """Get the last state for each trajectory"""
-                    # Find the last index where this trajectory appears
-                    seq_len = obs_seq.shape[0]
-                    # Assuming the trajectory runs through the sequence, find its last occurrence
-                    mask = traj_id_seq == traj_id_seq[0]
-                    last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-                    return obs_seq[last_idx]
-                
-                # Extract last states for each batch element
-                last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (batch_size, state_size)
-                
-                # Extract goal positions from these last states
-                proposed_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
-                
-                return proposed_goals, buffer_state
 
-            def use_current_goals(args):
-                buffer_state, _ = args
-                """Use current goals from environment (fallback)"""
-                return env_state.obs[:, -len(train_env.goal_indices):], buffer_state
-
-            def mix_goals_fn(args):
-                buffer_state, key = args
-                """Mix buffer goals and current goals"""
-                proposed_goals, buffer_state = propose_goals_from_buffer(buffer_state)
-                original_goals, buffer_state = use_current_goals((buffer_state, None))
-
-                # Mix the goals with probability buffer_prob
-                buffer_prob = self.buffer_goal_prob
-                use_proposed = jax.random.bernoulli(key, buffer_prob, shape=(proposed_goals.shape[0], 1))
-                
-                proposed_goals = jnp.where(use_proposed, proposed_goals, original_goals)
-                return proposed_goals, buffer_state
-            
             key, proposal_key = jax.random.split(key)
-            buffer_size = replay_buffer.size(buffer_state)
-            # Use buffer goals if we have enough data, otherwise use current goals
-            condition = jnp.logical_and(
-                buffer_size >= 1,
-                training_state.env_steps >= 0
+            new_goals, buffer_state = self.goal_proposer.propose_goals(
+                replay_buffer, buffer_state, train_env, proposal_key
             )
-            proposed_goals, buffer_state = jax.lax.cond(
-                condition,
-                mix_goals_fn,
-                use_current_goals,
-                (buffer_state, proposal_key)
+            original_goals = env_state.obs[:, -len(train_env.goal_indices):]
+            use_proposed_mask = jax.random.bernoulli(key, self.goal_proposal_prob, shape=(new_goals.shape[0], 1))
+            mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
+
+            proposed_goals = jax.lax.cond(
+                training_state.env_steps >= self.goal_proposal_warmup_steps,
+                lambda: mixed_goals,
+                lambda: original_goals,
             )
-            
-            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals), (), length=self.unroll_length)
+
             # data.observation has shape (unroll_length, batch_size, obs_size)
+            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals), (), length=self.unroll_length)
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -611,7 +576,7 @@ class CRL:
                 lambda x: jnp.reshape(x, (-1, self.batch_size) + x.shape[1:]),
                 transitions,
             )
-            # Shape of transitions.observation is (X, batch_size, obs_dim)
+            # Shape of transitions.observation is (..., batch_size, obs_dim)
             
             last_batch = transitions
 
@@ -664,17 +629,18 @@ class CRL:
             return training_state, env_state, buffer_state, metrics, last_batch
         
         def visualize_goals(train_env, transitions, num_samples, wandb_key):
-            obs = transitions.observation # (15, episode_len-1, batch_size, obs_dim)
-            future_state = transitions.extras["future_state"] # (15, episode_len-1, batch_size, obs_dim)
-            last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (15, episode_len-1, batch_size, obs_dim)
+
+            obs = transitions.observation # (n, episode_len-1, batch_size, obs_dim)
+            future_state = transitions.extras["future_state"] # (n, episode_len-1, batch_size, obs_dim)
+            last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (n, episode_len-1, batch_size, obs_dim)
             last_traj_state_flat = last_traj_state.reshape(-1, state_size)
-            intermediate_traj = transitions.extras["intermediate_traj"] # (15, episode_len-1, batch_size, num_intermediate_states, obs_dim)
+            intermediate_traj = transitions.extras["intermediate_traj"] # (n, episode_len-1, batch_size, num_intermediate_states, obs_dim)
             
             states = obs[:, :, :, :state_size].reshape(-1, state_size)
             contrastive_goals = future_state[:, :, :, train_env.goal_indices].reshape(-1, len(train_env.goal_indices))
             proposed_goals = transitions.extras["proposed_goals"].reshape(-1, len(train_env.goal_indices))
             
-            # Flatten intermediate trajectories: (total_samples, num_intermediate_states, obs_dim)
+            # Flatten intermediate trajectories to shape (total_samples, num_intermediate_states, obs_dim)
             intermediate_traj_flat = intermediate_traj.reshape(-1, intermediate_traj.shape[-2], intermediate_traj.shape[-1])
             
             total_samples = states.shape[0]
@@ -683,77 +649,14 @@ class CRL:
             
             sample_indices = np.random.choice(total_samples, num_samples, replace=False)
             
-            start_xy = states[sample_indices, :2]
-            cont_xy = contrastive_goals[sample_indices, :2]
-            prop_xy = proposed_goals[sample_indices, :2]
-            lts_xy = last_traj_state_flat[sample_indices, :2]
-            intermediate_xy = intermediate_traj_flat[sample_indices, :, :2]  # (num_samples, num_intermediate_states, 2)
-            
-            plt.figure(figsize=(7, 7))
-            
-            # Plot main points
-            plt.scatter(start_xy[:, 0], start_xy[:, 1], c='blue', label='Start States', alpha=0.6, s=10)
-            plt.scatter(cont_xy[:, 0], cont_xy[:, 1], c='yellow', label='Contrastive Goals', alpha=0.6, s=10)
-            plt.scatter(prop_xy[:, 0], prop_xy[:, 1], c='orange', label='Proposed Goals', alpha=0.6, s=10)
-            plt.scatter(lts_xy[:, 0], lts_xy[:, 1], c='green', label='Reached Goal', alpha=0.6, s=10)
-            
-            for i in range(num_samples):
-                # Arrow from start state to contrastive goal
-                plt.arrow(
-                    start_xy[i, 0], start_xy[i, 1],
-                    cont_xy[i, 0] - start_xy[i, 0],
-                    cont_xy[i, 1] - start_xy[i, 1],
-                    color='yellow', alpha=0.3, head_width=0.02, length_includes_head=True
-                )
-                
-                # Plot intermediate trajectory states as small dots
-                plt.scatter(
-                    intermediate_xy[i, :, 0], 
-                    intermediate_xy[i, :, 1], 
-                    c='purple', s=10, alpha=0.4, zorder=2
-                )
-                
-                # Draw lines connecting trajectory: start -> intermediate states -> last_traj_state
-                # Build full trajectory sequence
-                full_traj_xy = np.vstack([
-                    start_xy[i:i+1],           # Start state
-                    intermediate_xy[i],         # All intermediate states
-                    lts_xy[i:i+1]              # Last trajectory state
-                ])
-                
-                # Plot lines connecting all trajectory points
-                plt.plot(
-                    full_traj_xy[:, 0], 
-                    full_traj_xy[:, 1],
-                    color='purple', alpha=0.3, linewidth=1, linestyle='-'
-                )
-                
-                # Dashed line from proposed goal to last trajectory state
-                plt.plot(
-                    [prop_xy[i, 0], lts_xy[i, 0]],
-                    [prop_xy[i, 1], lts_xy[i, 1]],
-                    color='orange', alpha=0.3, linestyle='--', linewidth=1.5
-                )
-            
-            plt.xlabel("x")
-            plt.ylabel("y")
-            title = "Trajectories: Start → Intermediate → Reached | Start → Contrastive | Proposed → Reached"
-            plt.title(title)
-            plt.legend()
-            plt.grid(True)
-            plt.axis('equal')
-            
+            start_xy = states[sample_indices][:, train_env.goal_indices]
+            cont_xy = contrastive_goals[sample_indices][:, train_env.goal_indices]
+            prop_xy = proposed_goals[sample_indices][:, train_env.goal_indices]
+            lts_xy = last_traj_state_flat[sample_indices][:, train_env.goal_indices]
+            intermediate_xy = intermediate_traj_flat[sample_indices][:, :, train_env.goal_indices]
+
+            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, wandb_key, x_bounds=(-12, 12), y_bounds=(-12, 12))
             logging.info(f"Plotted {num_samples} random samples from {total_samples} transitions.")
-            
-            # Save figure to a BytesIO buffer
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png')
-            buf.seek(0)
-            plt.close()
-            
-            # Upload to WandB
-            pil_image = Image.open(buf)
-            wandb.log({wandb_key: wandb.Image(pil_image)})
             
         key, prefill_key = jax.random.split(key, 2)
 
@@ -822,6 +725,8 @@ class CRL:
                 )
                 path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
                 save_params(path, params)
+            else:
+                params = None
 
         total_steps = current_step
         # assert total_steps >= config.total_env_steps
