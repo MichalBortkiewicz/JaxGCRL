@@ -1,6 +1,10 @@
 import wandb
 import numpy as np
 import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import seaborn as sns
+import io
+from PIL import Image
 
 def visualize_goals_2d(start_xy, contrastive_goals_xy, proposed_goals_xy, 
                        last_traj_states_xy, intermediate_traj_states_xy, wandb_key,
@@ -139,3 +143,47 @@ def visualize_goals_2d(start_xy, contrastive_goals_xy, proposed_goals_xy,
     
     # Log to WandB as interactive plot
     wandb.log({wandb_key: fig})
+
+
+def visualize_kde_heatmap(proposed_goals_xy, wandb_key, x_bounds=None, y_bounds=None):
+    '''Visualize heatmap of proposed goals in 2D using seaborn KDE.
+    - proposed_goals_xy: (num_goals, 2) array of proposed goals
+    - wandb_key: str, key to log the plot in WandB
+    - x_bounds: tuple (min, max) for x-axis range, or None for auto
+    - y_bounds: tuple (min, max) for y-axis range, or None for auto
+    '''
+    assert proposed_goals_xy.shape[1] == 2, "Heatmap visualization only supported for 2D goals"
+    
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # Create KDE plot
+    sns.kdeplot(
+        x=proposed_goals_xy[:, 0],
+        y=proposed_goals_xy[:, 1],
+        fill=True,
+        cmap='viridis',
+        ax=ax,
+        cbar=True
+    )
+    
+    # Set bounds if provided
+    if x_bounds is not None:
+        ax.set_xlim(x_bounds)
+    if y_bounds is not None:
+        ax.set_ylim(y_bounds)
+    
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title(f'Proposed Goals Distribution (KDE) for {proposed_goals_xy.shape[0]} goals')
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3)
+    
+    # Save to buffer and log to WandB
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+    
+    pil_image = Image.open(buf)
+    wandb.log({wandb_key: wandb.Image(pil_image)})
+    

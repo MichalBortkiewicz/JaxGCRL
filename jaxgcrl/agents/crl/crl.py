@@ -24,7 +24,7 @@ from flax.training.train_state import TrainState
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
-from jaxgcrl.utils.visualize import visualize_goals_2d
+from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
@@ -140,6 +140,14 @@ def flatten_batch(buffer_config, transition, sample_key):
     last_traj_state = last_state_for_each_step(transition.observation, traj_ids)
     intermediate_traj = get_intermediate_trajectory_states(transition.observation, traj_ids)
 
+    def is_last_occurrence(i):
+        traj_id = traj_ids[i]
+        future_mask = jnp.arange(seq_len) > i
+        has_future_same_id = jnp.any((traj_ids == traj_id) & future_mask)
+        return ~has_future_same_id
+    
+    unique_goal_mask = jax.vmap(is_last_occurrence)(jnp.arange(seq_len))
+
     goal_index = jax.random.categorical(sample_key, jnp.log(probs))
     future_state = jnp.take(
         transition.observation, goal_index[:-1], axis=0
@@ -159,9 +167,10 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state": state,
         "future_state": future_state,
         "future_action": future_action,
-        "proposed_goals": proposed_goals,
+        "proposed_goals": proposed_goals[:-1],
         "last_traj_state": last_traj_state[:-1],
         "intermediate_traj": intermediate_traj[:-1],
+        "unique_goals_mask": unique_goal_mask[:-1],
     }
 
     return transition._replace(
@@ -629,7 +638,6 @@ class CRL:
             return training_state, env_state, buffer_state, metrics, last_batch
         
         def visualize_goals(train_env, transitions, num_samples, wandb_key):
-
             obs = transitions.observation # (n, episode_len-1, batch_size, obs_dim)
             future_state = transitions.extras["future_state"] # (n, episode_len-1, batch_size, obs_dim)
             last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (n, episode_len-1, batch_size, obs_dim)
@@ -655,8 +663,12 @@ class CRL:
             lts_xy = last_traj_state_flat[sample_indices][:, train_env.goal_indices]
             intermediate_xy = intermediate_traj_flat[sample_indices][:, :, train_env.goal_indices]
 
-            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, wandb_key, x_bounds=(-12, 12), y_bounds=(-12, 12))
-            logging.info(f"Plotted {num_samples} random samples from {total_samples} transitions.")
+            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, f"{wandb_key}/state_goal_plot", x_bounds=(0, 15), y_bounds=(0, 15))
+
+            unique_goals_mask = transitions.extras["unique_goals_mask"].reshape(-1)
+            visualize_kde_heatmap(proposed_goals[unique_goals_mask], f"{wandb_key}/proposed_goal_heatmap", x_bounds=(0, 15), y_bounds=(0, 15))
+
+            logging.info(f"Plotted visualizations")
             
         key, prefill_key = jax.random.split(key, 2)
 
@@ -684,7 +696,7 @@ class CRL:
                 training_state, env_state, buffer_state, epoch_key
             )
 
-            visualize_goals(train_env, last_batch, num_samples=5, wandb_key="training/state_goal_plot")
+            visualize_goals(train_env, last_batch, num_samples=5, wandb_key="training")
 
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
