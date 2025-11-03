@@ -90,7 +90,7 @@ def flatten_batch(buffer_config, transition, sample_key):
     # ith row of probs will be non zero only for time indices that
     # 1) are greater than i
     # 2) have the same traj_id as the ith time index
-    proposed_goals = transition.observation[:, -2:]
+    proposed_goals = transition.observation[:, -len(goal_indices):]
 
     def last_state_for_each_step(obs, traj_ids):
         seq_len = obs.shape[0]
@@ -146,7 +146,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         has_future_same_id = jnp.any((traj_ids == traj_id) & future_mask)
         return ~has_future_same_id
     
-    unique_goal_mask = jax.vmap(is_last_occurrence)(jnp.arange(seq_len))
+    last_traj_state_mask = jax.vmap(is_last_occurrence)(jnp.arange(seq_len))
 
     goal_index = jax.random.categorical(sample_key, jnp.log(probs))
     future_state = jnp.take(
@@ -170,7 +170,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "proposed_goals": proposed_goals[:-1],
         "last_traj_state": last_traj_state[:-1],
         "intermediate_traj": intermediate_traj[:-1],
-        "unique_goals_mask": unique_goal_mask[:-1],
+        "last_traj_state_mask": last_traj_state_mask[:-1],
     }
 
     return transition._replace(
@@ -464,6 +464,7 @@ class CRL:
                 replay_buffer, buffer_state, train_env, proposal_key
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
+
             use_proposed_mask = jax.random.bernoulli(key, self.goal_proposal_prob, shape=(new_goals.shape[0], 1))
             mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
 
@@ -659,16 +660,19 @@ class CRL:
             
             start_xy = states[sample_indices][:, train_env.goal_indices]
             cont_xy = contrastive_goals[sample_indices][:, train_env.goal_indices]
-            prop_xy = proposed_goals[sample_indices][:, train_env.goal_indices]
+            prop_xy = proposed_goals[sample_indices]
             lts_xy = last_traj_state_flat[sample_indices][:, train_env.goal_indices]
             intermediate_xy = intermediate_traj_flat[sample_indices][:, :, train_env.goal_indices]
+            last_traj_state_mask = transitions.extras["last_traj_state_mask"].reshape(-1)
 
-            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, f"{wandb_key}/state_goal_plot", x_bounds=(0, 15), y_bounds=(0, 15))
+            bounds = (-12, 12)
+            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, f"{wandb_key}/state_goal_plot", x_bounds=bounds, y_bounds=bounds)
 
-            unique_goals_mask = transitions.extras["unique_goals_mask"].reshape(-1)
-            visualize_kde_heatmap(proposed_goals[unique_goals_mask], f"{wandb_key}/proposed_goal_heatmap", x_bounds=(0, 15), y_bounds=(0, 15))
+            visualize_kde_heatmap(proposed_goals[last_traj_state_mask], "Proposed Goals", f"{wandb_key}/proposed_goal_heatmap", x_bounds=bounds, y_bounds=bounds)
 
-            logging.info(f"Plotted visualizations")
+            visualize_kde_heatmap(last_traj_state_flat[last_traj_state_mask][:, train_env.goal_indices], "Final States", f"{wandb_key}/final_states_heatmap", x_bounds=bounds, y_bounds=bounds)
+
+            logging.info(f"Plotted visualizations at env step {training_state.env_steps.item()}")
             
         key, prefill_key = jax.random.split(key, 2)
 

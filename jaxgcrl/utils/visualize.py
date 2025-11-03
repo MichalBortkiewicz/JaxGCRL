@@ -145,21 +145,22 @@ def visualize_goals_2d(start_xy, contrastive_goals_xy, proposed_goals_xy,
     wandb.log({wandb_key: fig})
 
 
-def visualize_kde_heatmap(proposed_goals_xy, wandb_key, x_bounds=None, y_bounds=None):
-    '''Visualize heatmap of proposed goals in 2D using seaborn KDE.
-    - proposed_goals_xy: (num_goals, 2) array of proposed goals
+def visualize_kde_heatmap(data_xy, plot_title, wandb_key, x_bounds=None, y_bounds=None):
+    '''Visualize heatmap of xy data in 2D using seaborn KDE.
+    - data_xy: (num_points, 2) array of xy data
+    - plot_title: str, title for the plot
     - wandb_key: str, key to log the plot in WandB
     - x_bounds: tuple (min, max) for x-axis range, or None for auto
     - y_bounds: tuple (min, max) for y-axis range, or None for auto
     '''
-    assert proposed_goals_xy.shape[1] == 2, "Heatmap visualization only supported for 2D goals"
+    assert data_xy.shape[1] == 2, "Heatmap visualization only supported for 2D goals"
     
     fig, ax = plt.subplots(figsize=(10, 10))
     
     # Create KDE plot
     sns.kdeplot(
-        x=proposed_goals_xy[:, 0],
-        y=proposed_goals_xy[:, 1],
+        x=data_xy[:, 0],
+        y=data_xy[:, 1],
         fill=True,
         cmap='viridis',
         ax=ax,
@@ -174,7 +175,7 @@ def visualize_kde_heatmap(proposed_goals_xy, wandb_key, x_bounds=None, y_bounds=
     
     ax.set_xlabel('x')
     ax.set_ylabel('y')
-    ax.set_title(f'Proposed Goals Distribution (KDE) for {proposed_goals_xy.shape[0]} goals')
+    ax.set_title(f'{plot_title} Distribution (KDE) for {data_xy.shape[0]} points')
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
     
