@@ -105,7 +105,18 @@ def make_maze(maze_layout_name, maze_size_scaling):
         maze_layout = HARDEST_MAZE
     else:
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
+    
+    # get the x and y bounds
+    height = len(maze_layout)
+    width = len(maze_layout[0])    
+    x_min = -0.5 * maze_size_scaling
+    x_max = (height - 0.5) * maze_size_scaling
+    y_min = -0.5 * maze_size_scaling
+    y_max = (width - 0.5) * maze_size_scaling
+    x_bounds = (x_min, x_max)
+    y_bounds = (y_min, y_max)
 
+    # get the xml path
     xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant_maze.xml")
 
     possible_starts = find_starts(maze_layout, maze_size_scaling)
@@ -144,7 +155,7 @@ def make_maze(maze_layout_name, maze_size_scaling):
     tree = tree.getroot()
     xml_string = ET.tostring(tree)
 
-    return xml_string, possible_starts, possible_goals
+    return xml_string, possible_starts, possible_goals, x_bounds, y_bounds
 
 
 class AntMaze(PipelineEnv):
@@ -165,7 +176,9 @@ class AntMaze(PipelineEnv):
         dense_reward: bool = False,
         **kwargs,
     ):
-        xml_string, possible_starts, possible_goals = make_maze(maze_layout_name, maze_size_scaling)
+        xml_string, possible_starts, possible_goals, x_bounds, y_bounds = make_maze(maze_layout_name, maze_size_scaling)
+        self.x_bounds = x_bounds
+        self.y_bounds = y_bounds
 
         sys = mjcf.loads(xml_string)
         self.possible_starts = possible_starts

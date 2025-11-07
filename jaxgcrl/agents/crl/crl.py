@@ -219,6 +219,8 @@ class CRL:
     goal_proposal_prob: float = 0.0
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
     goal_proposal_warmup_steps: int = 0
+    # Whether we should interpolate to 100% environment goals during training
+    interpolate_to_env_goals: bool = False
 
     max_replay_size: int = 10000
     min_replay_size: int = 1000
@@ -465,7 +467,13 @@ class CRL:
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 
-            use_proposed_mask = jax.random.bernoulli(key, self.goal_proposal_prob, shape=(new_goals.shape[0], 1))
+            if self.interpolate_to_env_goals:
+                progress_frac = training_state.env_steps / config.total_env_steps
+                interp_goal_proposal_prob = self.goal_proposal_prob * (1 - progress_frac)
+            else:
+                interp_goal_proposal_prob = self.goal_proposal_prob
+
+            use_proposed_mask = jax.random.bernoulli(key, interp_goal_proposal_prob, shape=(new_goals.shape[0], 1))
             mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
 
             proposed_goals = jax.lax.cond(
@@ -665,12 +673,11 @@ class CRL:
             intermediate_xy = intermediate_traj_flat[sample_indices][:, :, train_env.goal_indices]
             last_traj_state_mask = transitions.extras["last_traj_state_mask"].reshape(-1)
 
-            bounds = (-12, 12)
-            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, f"{wandb_key}/state_goal_plot", x_bounds=bounds, y_bounds=bounds)
+            visualize_goals_2d(start_xy, cont_xy, prop_xy, lts_xy, intermediate_xy, f"{wandb_key}/state_goal_plot", x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds)
 
-            visualize_kde_heatmap(proposed_goals[last_traj_state_mask], "Proposed Goals", f"{wandb_key}/proposed_goal_heatmap", x_bounds=bounds, y_bounds=bounds)
+            visualize_kde_heatmap(proposed_goals[last_traj_state_mask], "Proposed Goals", f"{wandb_key}/proposed_goal_heatmap", x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds)
 
-            visualize_kde_heatmap(last_traj_state_flat[last_traj_state_mask][:, train_env.goal_indices], "Final States", f"{wandb_key}/final_states_heatmap", x_bounds=bounds, y_bounds=bounds)
+            visualize_kde_heatmap(last_traj_state_flat[last_traj_state_mask][:, train_env.goal_indices], "Final States", f"{wandb_key}/final_states_heatmap", x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds)
 
             logging.info(f"Plotted visualizations at env step {training_state.env_steps.item()}")
             
