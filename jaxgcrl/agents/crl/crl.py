@@ -24,7 +24,7 @@ from flax.training.train_state import TrainState
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
-from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap
+from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, visualize_q_function_2d
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
@@ -646,7 +646,7 @@ class CRL:
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             return training_state, env_state, buffer_state, metrics, last_batch
         
-        def visualize_goals(train_env, transitions, num_samples, wandb_key):
+        def visualize_goals(train_env, transitions, actor_state, critic_state, sa_encoder, g_encoder, energy_fn, num_samples, wandb_key):
             obs = transitions.observation # (n, episode_len-1, batch_size, obs_dim)
             future_state = transitions.extras["future_state"] # (n, episode_len-1, batch_size, obs_dim)
             last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (n, episode_len-1, batch_size, obs_dim)
@@ -679,6 +679,17 @@ class CRL:
 
             visualize_kde_heatmap(last_traj_state_flat[last_traj_state_mask][:, train_env.goal_indices], "Final States", f"{wandb_key}/final_states_heatmap", x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds)
 
+            for i in range(min(3, num_samples)):  # Visualize Q-function for up to 3 samples
+                idx = sample_indices[i]
+                visualize_q_function_2d(
+                    actor, sa_encoder, g_encoder, actor_state.params, critic_state.params,
+                    states[idx],
+                    train_env.goal_indices,
+                    train_env.x_bounds, train_env.y_bounds,
+                    f"{wandb_key}/q_function_sample_{i}",
+                    energy_fn
+                )
+
             logging.info(f"Plotted visualizations at env step {training_state.env_steps.item()}")
             
         key, prefill_key = jax.random.split(key, 2)
@@ -707,7 +718,7 @@ class CRL:
                 training_state, env_state, buffer_state, epoch_key
             )
 
-            visualize_goals(train_env, last_batch, num_samples=5, wandb_key="training")
+            visualize_goals(train_env, last_batch, training_state.actor_state, training_state.critic_state, sa_encoder, g_encoder, self.energy_fn, num_samples=5, wandb_key="training")
 
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)

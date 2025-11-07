@@ -3,8 +3,10 @@ import numpy as np
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import seaborn as sns
+import jax
 import io
 from PIL import Image
+from jaxgcrl.agents.crl.losses import energy_fn
 
 def visualize_goals_2d(start_xy, contrastive_goals_xy, proposed_goals_xy, 
                        last_traj_states_xy, intermediate_traj_states_xy, wandb_key,
@@ -187,4 +189,80 @@ def visualize_kde_heatmap(data_xy, plot_title, wandb_key, x_bounds=None, y_bound
     
     pil_image = Image.open(buf)
     wandb.log({wandb_key: wandb.Image(pil_image)})
+
+def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_params, 
+                            state, goal_indices, x_bounds, y_bounds, wandb_key, 
+                            energy_fn_name, grid_resolution=100):
+    '''Visualize Q-function as a heatmap over 2D goal space with policy-generated actions.
+    - actor: actor network
+    - sa_encoder: state-action encoder network
+    - g_encoder: goal encoder network
+    - actor_params: actor network parameters
+    - critic_params: critic network parameters
+    - state: (state_dim,) array - the state to condition on
+    - goal_indices: indices for goal dimensions
+    - x_bounds: tuple (min, max) for x-axis range
+    - y_bounds: tuple (min, max) for y-axis range
+    - wandb_key: str, key to log the plot in WandB
+    - energy_fn_name: str, type of energy function ('norm', 'l2', 'dot', 'cosine')
+    - grid_resolution: int, number of points per axis
+    - key: JAX random key for sampling actions
+    '''
+    # Create grid of goal positions
+    x = np.linspace(x_bounds[0], x_bounds[1], grid_resolution)
+    y = np.linspace(y_bounds[0], y_bounds[1], grid_resolution)
+    xx, yy = np.meshgrid(x, y)
     
+    # Flatten grid for batch processing
+    goals_grid = np.stack([xx.flatten(), yy.flatten()], axis=1)  # (grid_resolution^2, 2)
+    num_goals = goals_grid.shape[0]
+    
+    # Create observations by concatenating state with each goal
+    state_expanded = np.tile(state, (num_goals, 1))  # (grid_resolution^2, state_dim)
+    obs_batch = np.concatenate([state_expanded, goals_grid], axis=1)  # (grid_resolution^2, obs_dim)
+    
+    # Sample actions from policy for each goal
+    means, _ = actor.apply(actor_params, obs_batch)
+    actions = jax.nn.tanh(means)  # (grid_resolution^2, action_dim)
+    
+    # Encode state-action pairs
+    sa_pairs = np.concatenate([state_expanded, actions], axis=1)  # (grid_resolution^2, state_dim + action_dim)
+    phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pairs)  # (grid_resolution^2, repr_dim)
+    
+    # Encode all goals in batch
+    psi_g = g_encoder.apply(critic_params['g_encoder'], goals_grid)  # (grid_resolution^2, repr_dim)
+
+    q_values = energy_fn(energy_fn_name, phi_sa, psi_g)
+    
+    # Reshape back to grid
+    q_grid = q_values.reshape(grid_resolution, grid_resolution)
+    
+    # Create heatmap
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    im = ax.imshow(q_grid, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]],
+                   origin='lower', cmap='viridis', aspect='equal')
+    
+    # Mark the current state position
+    state_goal_pos = state[goal_indices]
+    ax.plot(state_goal_pos[0], state_goal_pos[1], 'r*', markersize=20, 
+            label=f'Current State: ({state_goal_pos[0]:.2f}, {state_goal_pos[1]:.2f})')
+    
+    ax.set_xlabel('Goal x')
+    ax.set_ylabel('Goal y')
+    ax.set_title(f'Q-Function Landscape\nState: [{state_goal_pos[0]:.2f}, {state_goal_pos[1]:.2f}]')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Q-value', rotation=270, labelpad=20)
+    
+    # Save to buffer and log to WandB
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+    
+    pil_image = Image.open(buf)
+    wandb.log({wandb_key: wandb.Image(pil_image)})

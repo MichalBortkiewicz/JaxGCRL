@@ -73,8 +73,8 @@ class Ant(PipelineEnv):
         self.goal_distance = goal_distance
         self.randomize_start = randomize_start
         # set x and y bounds for plotting
-        self.x_bounds = (-goal_distance - 2, goal_distance + 2)
-        self.y_bounds = (-goal_distance - 2, goal_distance + 2)
+        self.x_bounds = (-goal_distance, goal_distance)
+        self.y_bounds = (-goal_distance, goal_distance)
 
         if self._use_contact_forces:
             raise NotImplementedError("use_contact_forces not implemented.")
