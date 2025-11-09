@@ -230,14 +230,16 @@ class CRL:
     contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
 
-    # Algorithm for proposing goals
-    goal_proposer: GoalProposer = MediumEnergyGoalProposal(energy_fn_name=energy_fn)
     # Proportion of proposed goals coming from the goal proposal algorithm
     goal_proposal_prob: float = 0.0
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
     goal_proposal_warmup_steps: int = 0
     # Whether we should interpolate to 100% environment goals during training
     interpolate_to_env_goals: bool = False
+    # What goal selection percentile to use for MediumEnergyGoalProposal
+    goal_selection_percentile: float = 0.5
+    # Algorithm for proposing goals
+    goal_proposer: GoalProposer = MediumEnergyGoalProposal(energy_fn_name=energy_fn, selection_percentile=goal_selection_percentile)
 
     def check_config(self, config):
         """

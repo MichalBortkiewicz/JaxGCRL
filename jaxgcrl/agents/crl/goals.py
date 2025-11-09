@@ -67,6 +67,7 @@ class MediumEnergyGoalProposal(GoalProposer):
     3. For each state, select the candidate goal with median energy
     '''
     energy_fn_name: str
+    selection_percentile: float
     
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
@@ -154,9 +155,9 @@ class MediumEnergyGoalProposal(GoalProposer):
                 goal_idx: scalar index of the median goal
             '''
             sorted_indices = jnp.argsort(energies)
-            median_idx = batch_size // 2
-            return sorted_indices[median_idx]
-        
+            percentile_idx = int(batch_size * self.selection_percentile)
+            return sorted_indices[percentile_idx]
+
         # Get median goal index for each state
         median_indices = jax.vmap(select_median_energy_goal)(all_energies)  # (batch_size,)
         
