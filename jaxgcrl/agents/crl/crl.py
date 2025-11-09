@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -213,15 +213,6 @@ class CRL:
 
     disable_entropy_actor: bool = False
 
-    # Algorithm for proposing goals
-    goal_proposer: GoalProposer = ReplayBufferGoalProposal()
-    # Proportion of proposed goals coming from the goal proposal algorithm
-    goal_proposal_prob: float = 0.0
-    # Number of env steps to wait before proposing goals from the goal proposal algorithm
-    goal_proposal_warmup_steps: int = 0
-    # Whether we should interpolate to 100% environment goals during training
-    interpolate_to_env_goals: bool = False
-
     max_replay_size: int = 10000
     min_replay_size: int = 1000
     unroll_length: int = 62
@@ -238,6 +229,15 @@ class CRL:
 
     contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
+
+    # Algorithm for proposing goals
+    goal_proposer: GoalProposer = MediumEnergyGoalProposal(energy_fn_name=energy_fn)
+    # Proportion of proposed goals coming from the goal proposal algorithm
+    goal_proposal_prob: float = 0.0
+    # Number of env steps to wait before proposing goals from the goal proposal algorithm
+    goal_proposal_warmup_steps: int = 0
+    # Whether we should interpolate to 100% environment goals during training
+    interpolate_to_env_goals: bool = False
 
     def check_config(self, config):
         """
@@ -463,7 +463,11 @@ class CRL:
 
             key, proposal_key = jax.random.split(key)
             new_goals, buffer_state = self.goal_proposer.propose_goals(
-                replay_buffer, buffer_state, train_env, proposal_key
+                replay_buffer, buffer_state,
+                training_state, train_env, env_state,
+                proposal_key,
+                actor, actor_state.params, critic_state.params,
+                sa_encoder, g_encoder
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 

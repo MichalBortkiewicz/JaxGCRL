@@ -238,7 +238,7 @@ def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_p
     q_grid = q_values.reshape(grid_resolution, grid_resolution)
     
     # Create heatmap
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(8, 8))
     
     im = ax.imshow(q_grid, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]],
                    origin='lower', cmap='viridis', aspect='equal')
