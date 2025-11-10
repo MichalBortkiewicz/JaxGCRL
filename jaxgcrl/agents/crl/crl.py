@@ -239,13 +239,6 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
 
-    def __post_init__(self):
-        # Algorithm for proposing goals
-        self.goal_proposer = MediumEnergyGoalProposal(
-            energy_fn_name=self.energy_fn,
-            selection_percentile=self.goal_selection_percentile
-        )
-
     def check_config(self, config):
         """
         episode_length: the maximum length of an episode
@@ -469,7 +462,13 @@ class CRL:
                 return (env_state, next_key, proposed_goals), transition
 
             key, proposal_key = jax.random.split(key)
-            new_goals, buffer_state = self.goal_proposer.propose_goals(
+
+            goal_proposer = MediumEnergyGoalProposal(
+                energy_fn_name=self.energy_fn,
+                selection_percentile=self.goal_selection_percentile
+            )
+            
+            new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
                 training_state, train_env, env_state,
                 proposal_key,
