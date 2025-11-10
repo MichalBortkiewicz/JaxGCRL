@@ -238,8 +238,13 @@ class CRL:
     interpolate_to_env_goals: bool = False
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
-    # Algorithm for proposing goals
-    goal_proposer: GoalProposer = MediumEnergyGoalProposal(energy_fn_name=energy_fn, selection_percentile=goal_selection_percentile)
+
+    def __post_init__(self):
+        # Algorithm for proposing goals
+        self.goal_proposer = MediumEnergyGoalProposal(
+            energy_fn_name=self.energy_fn,
+            selection_percentile=self.goal_selection_percentile
+        )
 
     def check_config(self, config):
         """
