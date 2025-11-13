@@ -228,3 +228,91 @@ class MediumEnergyGoalProposal(GoalProposer):
         }
         
         wandb.log(energy_stats, step=int(env_steps))
+
+@dataclass
+class MetricPreservationGoalProposal(GoalProposer):
+    energy_fn_name: str
+
+    def propose_goals(self, replay_buffer, buffer_state, training_state,
+                      train_env, env_state, key, actor, actor_params, critic_params,
+                      sa_encoder, g_encoder):
+
+        assert hasattr(train_env, 'possible_goals'), \
+            "Environment must store property `possible_goals` for MetricPreservationGoalProposal."
+
+        state_size = train_env.state_dim
+        current_states = env_state.obs[:, :state_size]  # (batch, state_dim)
+        batch_size = current_states.shape[0]
+
+        # --- candidate goals from replay buffer ---
+        buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
+        traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
+        candidate_obs = candidate_transitions.observation
+
+        def get_last_state(obs_seq, traj_id_seq):
+            seq_len = obs_seq.shape[0]
+            mask = traj_id_seq == traj_id_seq[0]
+            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+            return obs_seq[last_idx]
+
+        last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+        candidate_goals = last_states[:, train_env.goal_indices]  # (num_candidate_goals, goal_dim)
+
+        env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
+
+        # =====================================================
+        #   Compute metric-preserving energies
+        # =====================================================
+
+        def energy_triplet(state):
+            """Compute M[g,h] for a single state."""
+            num_cand = candidate_goals.shape[0]
+            num_env = env_goals.shape[0]
+
+            # f(s, a1, g)
+            s1 = jnp.repeat(state[None, :], num_cand, axis=0)
+            obs_sg = jnp.concatenate([s1, candidate_goals], axis=1)
+            means, _ = actor.apply(actor_params, obs_sg)
+            a1 = jnp.tanh(means)
+            phi_sg = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s1, a1], axis=1))
+            psi_g = g_encoder.apply(critic_params['g_encoder'], candidate_goals)
+            f_sag = energy_fn(self.energy_fn_name, phi_sg, psi_g)  # (num_cand,)
+
+            # f(g, a2, h)
+            g_exp = jnp.repeat(candidate_goals[:, None, :], num_env, axis=1)  # (num_cand, num_env, goal_dim)
+            h_exp = jnp.repeat(env_goals[None, :, :], num_cand, axis=0)
+            obs_gh = jnp.concatenate([g_exp, h_exp], axis=-1).reshape(num_cand * num_env, -1)
+            means2, _ = actor.apply(actor_params, obs_gh)
+            a2 = jnp.tanh(means2)
+            phi_gh = sa_encoder.apply(critic_params['sa_encoder'],
+                                      jnp.concatenate([g_exp.reshape(-1, g_exp.shape[-1]), a2], axis=1))
+            psi_h = g_encoder.apply(critic_params['g_encoder'], env_goals)
+            psi_h_rep = jnp.repeat(psi_h[None, :, :], num_cand, axis=0).reshape(num_cand * num_env, -1)
+            f_gah = energy_fn(self.energy_fn_name, phi_gh, psi_h_rep).reshape(num_cand, num_env)
+
+            # f(s, a3, h)
+            s3 = jnp.repeat(state[None, :], num_env, axis=0)
+            obs_sh = jnp.concatenate([s3, env_goals], axis=1)
+            means3, _ = actor.apply(actor_params, obs_sh)
+            a3 = jnp.tanh(means3)
+            phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
+            f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
+
+            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h)
+            M = f_sag[:, None] + f_gah - f_sah[None, :]
+            return M
+
+        # compute for all states
+        energy_mats = jax.vmap(energy_triplet)(current_states)  # (batch, num_cand, num_env)
+
+        # choose goal per state: argmax |M[g,h]|
+        def select_goal(M):
+            absM = jnp.abs(M)
+            idx_flat = jnp.argmax(absM)
+            g_idx, _ = jnp.unravel_index(idx_flat, M.shape)
+            return g_idx
+
+        best_g_indices = jax.vmap(select_goal)(energy_mats)  # (batch,)
+        proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
+
+        return proposed_goals, buffer_state

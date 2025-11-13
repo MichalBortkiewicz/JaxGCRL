@@ -413,6 +413,16 @@ class CRL:
         )
         buffer_state = jax.jit(replay_buffer.init)(buffer_key)
 
+        if self.goal_proposer_name == "quantile":
+            goal_proposer = MediumEnergyGoalProposal(
+                energy_fn_name=self.energy_fn,
+                selection_percentile=self.goal_selection_percentile
+            )
+        elif self.goal_proposer_name == "replay_buffer":
+            goal_proposer = ReplayBufferGoalProposal()
+        else:
+            raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
+
         def deterministic_actor_step(training_state, env, env_state, extra_fields):
             means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
             actions = nn.tanh(means)
@@ -464,16 +474,6 @@ class CRL:
                 return (env_state, next_key, proposed_goals), transition
 
             key, proposal_key = jax.random.split(key)
-
-            if self.goal_proposer_name == "quantile":
-                goal_proposer = MediumEnergyGoalProposal(
-                    energy_fn_name=self.energy_fn,
-                    selection_percentile=self.goal_selection_percentile
-                )
-            elif self.goal_proposer_name == "replay_buffer":
-                goal_proposer = ReplayBufferGoalProposal(
-                    energy_fn_name=self.energy_fn,
-                )
             
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
