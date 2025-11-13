@@ -238,6 +238,8 @@ class CRL:
     interpolate_to_env_goals: bool = False
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
+    # Which goal proposer to use
+    goal_proposer_name: Literal["quantile", "replay_buffer"] = "replay_buffer"
 
     def check_config(self, config):
         """
@@ -463,10 +465,15 @@ class CRL:
 
             key, proposal_key = jax.random.split(key)
 
-            goal_proposer = MediumEnergyGoalProposal(
-                energy_fn_name=self.energy_fn,
-                selection_percentile=self.goal_selection_percentile
-            )
+            if self.goal_proposer_name == "quantile":
+                goal_proposer = MediumEnergyGoalProposal(
+                    energy_fn_name=self.energy_fn,
+                    selection_percentile=self.goal_selection_percentile
+                )
+            elif self.goal_proposer_name == "replay_buffer":
+                goal_proposer = ReplayBufferGoalProposal(
+                    energy_fn_name=self.energy_fn,
+                )
             
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
