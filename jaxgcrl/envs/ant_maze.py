@@ -107,14 +107,21 @@ def make_maze(maze_layout_name, maze_size_scaling):
         raise ValueError(f"Unknown maze layout: {maze_layout_name}")
     
     # get the x and y bounds
-    height = len(maze_layout)
-    width = len(maze_layout[0])    
-    x_min = -0.5 * maze_size_scaling
-    x_max = (height - 0.5) * maze_size_scaling
-    y_min = -0.5 * maze_size_scaling
-    y_max = (width - 0.5) * maze_size_scaling
-    x_bounds = (x_min, x_max)
-    y_bounds = (y_min, y_max)
+    walkable = [
+        (i, j)
+        for i in range(len(maze_layout))
+        for j in range(len(maze_layout[0]))
+        if maze_layout[i][j] != 1
+    ]
+    hx = hy = 0.5 * maze_size_scaling
+
+    xmin_free = min(i * maze_size_scaling - hx for i, j in walkable)
+    xmax_free = max(i * maze_size_scaling + hx for i, j in walkable)
+    ymin_free = min(j * maze_size_scaling - hy for i, j in walkable)
+    ymax_free = max(j * maze_size_scaling + hy for i, j in walkable)
+
+    x_bounds = (xmin_free, xmax_free)
+    y_bounds = (ymin_free, ymax_free)
 
     # get the xml path
     xml_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "ant_maze.xml")
