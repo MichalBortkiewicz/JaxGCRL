@@ -275,7 +275,7 @@ class MetricPreservationGoalProposal(GoalProposer):
                 distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
                 
                 # Get k-th nearest neighbor distance for each point
-                k = min(self.kde_k, num_cand - 1)  # Ensure k doesn't exceed available samples
+                k = min(self.kde_k, goals_batch.shape[0] - 1)  # Ensure k doesn't exceed available samples
                 sorted_distances = jnp.sort(distances, axis=1)
                 knn_distances = sorted_distances[:, k]  # k-th nearest neighbor distance
                 
