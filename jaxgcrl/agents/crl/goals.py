@@ -321,7 +321,7 @@ class MetricPreservationGoalProposal(GoalProposer):
 
             # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h); except we translate to Q function
             proposed_goal_densites = estimate_log_density_knn(candidate_goals)
-            M = jnp.exp(f_sag[:, None]) + jnp.exp(f_gah) - jnp.exp(f_sah[None, :]) - proposed_goal_densites[:, None]
+            M = f_sag[:, None] + f_gah - f_sah[None, :] - proposed_goal_densites[:, None]
             return M
 
         # compute for all states
