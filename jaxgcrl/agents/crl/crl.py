@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -239,7 +239,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric"] = "replay_buffer"
 
     def check_config(self, config):
         """
@@ -420,6 +420,8 @@ class CRL:
             )
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
+        elif self.goal_proposer_name == "metric":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 

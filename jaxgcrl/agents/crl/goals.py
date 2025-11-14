@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 from PIL import Image
 import io
+import numpy as np
 
 @dataclass
 class GoalProposer(ABC):
@@ -242,7 +243,6 @@ class MetricPreservationGoalProposal(GoalProposer):
 
         state_size = train_env.state_dim
         current_states = env_state.obs[:, :state_size]  # (batch, state_dim)
-        batch_size = current_states.shape[0]
 
         # --- candidate goals from replay buffer ---
         buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
@@ -260,12 +260,14 @@ class MetricPreservationGoalProposal(GoalProposer):
 
         env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
 
-        # =====================================================
-        #   Compute metric-preserving energies
-        # =====================================================
-
         def energy_triplet(state):
             """Compute M[g,h] for a single state."""
+            # expand goals to full state_dim with zero elsewhere
+            def expand_goal(goal):
+                # goal: (goal_dim,)
+                full = jnp.zeros((state_size,), dtype=goal.dtype)
+                return full.at[train_env.goal_indices].set(goal)
+            
             num_cand = candidate_goals.shape[0]
             num_env = env_goals.shape[0]
 
@@ -279,7 +281,8 @@ class MetricPreservationGoalProposal(GoalProposer):
             f_sag = energy_fn(self.energy_fn_name, phi_sg, psi_g)  # (num_cand,)
 
             # f(g, a2, h)
-            g_exp = jnp.repeat(candidate_goals[:, None, :], num_env, axis=1)  # (num_cand, num_env, goal_dim)
+            candidate_goals_full = jax.vmap(expand_goal)(candidate_goals)
+            g_exp = jnp.repeat(candidate_goals_full[:, None, :], num_env, axis=1)  # (num_cand, num_env, state_dim)
             h_exp = jnp.repeat(env_goals[None, :, :], num_cand, axis=0)
             obs_gh = jnp.concatenate([g_exp, h_exp], axis=-1).reshape(num_cand * num_env, -1)
             means2, _ = actor.apply(actor_params, obs_gh)
@@ -298,21 +301,182 @@ class MetricPreservationGoalProposal(GoalProposer):
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
 
-            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h)
-            M = f_sag[:, None] + f_gah - f_sah[None, :]
+            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h); except we translate to Q function
+            M = jnp.exp(f_sag[:, None]) + jnp.exp(f_gah) - jnp.exp(f_sah[None, :])
             return M
 
         # compute for all states
         energy_mats = jax.vmap(energy_triplet)(current_states)  # (batch, num_cand, num_env)
 
-        # choose goal per state: argmax |M[g,h]|
         def select_goal(M):
-            absM = jnp.abs(M)
-            idx_flat = jnp.argmax(absM)
+            idx_flat = jnp.argmax(M)
             g_idx, _ = jnp.unravel_index(idx_flat, M.shape)
             return g_idx
 
         best_g_indices = jax.vmap(select_goal)(energy_mats)  # (batch,)
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
+        jax.experimental.io_callback(
+            MetricPreservationGoalProposal._log_goal_selection_viz,
+            None,
+            current_states,
+            candidate_goals,
+            env_goals,
+            best_g_indices,
+            energy_mats,
+            training_state.env_steps,
+            train_env.goal_indices,
+            train_env.x_bounds,
+            train_env.y_bounds
+        )
+
         return proposed_goals, buffer_state
+    
+    @staticmethod
+    def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
+                              best_g_indices, energy_mats, env_steps, goal_indices, x_bounds, y_bounds):
+        """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
+        
+        # Randomly select 4 states to use in both visualizations
+        num_states = current_states.shape[0]
+        random_state_indices = np.random.choice(num_states, size=min(4, num_states), replace=False)
+        
+        # Generate both visualizations with the same states
+        pil_image1 = MetricPreservationGoalProposal._create_goal_selection_plot(
+            current_states, candidate_goals, env_goals, best_g_indices, energy_mats, 
+            goal_indices, random_state_indices, x_bounds, y_bounds
+        )
+        pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
+            current_states, candidate_goals, env_goals, energy_mats, goal_indices, 
+            random_state_indices, x_bounds, y_bounds
+        )
+        
+        metrics = {
+            'metric_preservation/goal_selection_viz': wandb.Image(pil_image1),
+            'metric_preservation/env_goal_rankings': wandb.Image(pil_image2),
+        }
+        
+        wandb.log(metrics, step=int(env_steps))
+
+    @staticmethod
+    def _create_goal_selection_plot(current_states, candidate_goals, env_goals, 
+                                    best_g_indices, energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
+        """Create the main goal selection visualization (2x2 grid)."""
+        num_states_to_plot = len(random_state_indices)
+    
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        axes = axes.flatten()
+        
+        for plot_idx in range(num_states_to_plot):
+            ax = axes[plot_idx]
+            
+            state_idx = random_state_indices[plot_idx]
+            
+            current_goal = current_states[state_idx][goal_indices]
+            selected_candidate_idx = best_g_indices[state_idx].item()
+            selected_candidate = candidate_goals[selected_candidate_idx]
+            
+            M = energy_mats[state_idx]
+            selected_env_idx = jnp.argmax(M[selected_candidate_idx])
+            selected_env_goal = env_goals[selected_env_idx]
+            
+            ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1], 
+                    c='gray', alpha=0.3, s=50, label='Candidate Goals (Buffer)', marker='o')
+            
+            ax.scatter(env_goals[:, 0], env_goals[:, 1], 
+                    c='blue', alpha=0.5, s=100, label='Environment Goals', marker='s')
+            
+            ax.scatter(current_goal[0], current_goal[1], 
+                    c='green', s=300, label='Current State', marker='*', 
+                    edgecolors='black', linewidths=2, zorder=5)
+            
+            ax.scatter(selected_candidate[0], selected_candidate[1], 
+                    c='red', s=200, label='Selected Candidate', marker='o',
+                    edgecolors='black', linewidths=2, zorder=4)
+            
+            ax.scatter(selected_env_goal[0], selected_env_goal[1], 
+                    c='purple', s=250, label='Paired Env Goal', marker='s',
+                    edgecolors='black', linewidths=2, zorder=4)
+            
+            ax.annotate('', xy=(selected_candidate[0], selected_candidate[1]),
+                    xytext=(current_goal[0], current_goal[1]),
+                    arrowprops=dict(arrowstyle='->', lw=2.5, color='orange', alpha=0.7))
+            
+            ax.annotate('', xy=(selected_env_goal[0], selected_env_goal[1]),
+                    xytext=(selected_candidate[0], selected_candidate[1]),
+                    arrowprops=dict(arrowstyle='->', lw=2.5, color='purple', alpha=0.7))
+            
+            max_energy = M[selected_candidate_idx, selected_env_idx].item()
+            ax.text(0.02, 0.98, f'Max Energy: {max_energy:.3f}', 
+                transform=ax.transAxes, fontsize=10, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+            
+            ax.set_title(f'State {state_idx}: Goal Selection (Current → Candidate → Target)', 
+                        fontsize=12, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=9)
+            ax.grid(True, alpha=0.3)
+            ax.set_aspect('equal', adjustable='box')
+            ax.set_xlim(x_bounds)
+            ax.set_ylim(y_bounds)
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return Image.open(buf)
+
+    @staticmethod
+    def _create_env_goal_ranking_plot(current_states, candidate_goals, env_goals,
+                                        energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
+        """Create env goal ranking visualization showing candidate energies (2x2 grid)."""
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        axes = axes.flatten()
+        
+        num_env_goals = env_goals.shape[0]
+        
+        random_env_indices = np.random.choice(num_env_goals, size=min(4, num_env_goals), replace=False)
+        
+        for plot_idx in range(min(4, num_env_goals)):
+            ax = axes[plot_idx]
+            
+            state_idx = random_state_indices[plot_idx]
+            env_idx = random_env_indices[plot_idx]
+            
+            current_goal = current_states[state_idx][goal_indices]
+            env_goal = env_goals[env_idx]
+            M = energy_mats[state_idx]
+            
+            energies_for_env = M[:, env_idx]
+            
+            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_for_env, cmap='viridis', s=80, alpha=0.7,
+                            edgecolors='black', linewidths=0.5)
+            
+            ax.scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+                    edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+            
+            ax.scatter(current_goal[0], current_goal[1], c='green', s=300, marker='*',
+                    edgecolors='black', linewidths=2, zorder=9, label='Current State')
+            
+            best_candidate_idx = jnp.argmax(energies_for_env)
+            ax.scatter(candidate_goals[best_candidate_idx, 0], candidate_goals[best_candidate_idx, 1],
+                    c='cyan', s=250, marker='o', edgecolors='black', linewidths=3, 
+                    zorder=8, label='Best Candidate')
+            
+            plt.colorbar(scatter, ax=ax, label='Energy M[candidate, env_goal]')
+            ax.set_title(f'State {state_idx} → Env Goal {env_idx}', fontsize=12, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=9)
+            ax.grid(True, alpha=0.3)
+            ax.set_aspect('equal', adjustable='box')
+            ax.set_xlim(x_bounds)
+            ax.set_ylim(y_bounds)
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return Image.open(buf)
