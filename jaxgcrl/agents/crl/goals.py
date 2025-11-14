@@ -233,6 +233,7 @@ class MediumEnergyGoalProposal(GoalProposer):
 @dataclass
 class MetricPreservationGoalProposal(GoalProposer):
     energy_fn_name: str
+    kde_k: int = 5
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -268,6 +269,23 @@ class MetricPreservationGoalProposal(GoalProposer):
                 full = jnp.zeros((state_size,), dtype=goal.dtype)
                 return full.at[train_env.goal_indices].set(goal)
             
+            def estimate_log_density_knn(goals_batch):
+                """Estimate log p(s,g) using k-NN density estimation."""
+                # Use all candidate observations as reference samples
+                distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
+                
+                # Get k-th nearest neighbor distance for each point
+                k = min(self.kde_k, num_cand - 1)  # Ensure k doesn't exceed available samples
+                sorted_distances = jnp.sort(distances, axis=1)
+                knn_distances = sorted_distances[:, k]  # k-th nearest neighbor distance
+                
+                # Density is inversely proportional to k-NN distance
+                # Using volume of hypersphere: log(k/n) - d*log(r_k); this is up to a constant, but we don't care about the factor for goal selection here
+                d = goals_batch.shape[1]
+                log_densities = jnp.log(k / goals_batch.shape[0]) - d * jnp.log(knn_distances + 1e-10)
+                
+                return log_densities
+            
             num_cand = candidate_goals.shape[0]
             num_env = env_goals.shape[0]
 
@@ -302,7 +320,8 @@ class MetricPreservationGoalProposal(GoalProposer):
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
 
             # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h); except we translate to Q function
-            M = jnp.exp(f_sag[:, None]) + jnp.exp(f_gah) - jnp.exp(f_sah[None, :])
+            proposed_goal_densites = estimate_log_density_knn(candidate_goals)
+            M = jnp.exp(f_sag[:, None]) + jnp.exp(f_gah) - jnp.exp(f_sah[None, :]) - proposed_goal_densites[:, None]
             return M
 
         # compute for all states
