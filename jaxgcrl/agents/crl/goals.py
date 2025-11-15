@@ -233,7 +233,6 @@ class MediumEnergyGoalProposal(GoalProposer):
 @dataclass
 class MetricPreservationGoalProposal(GoalProposer):
     energy_fn_name: str
-    kde_k: int = 5
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -275,7 +274,7 @@ class MetricPreservationGoalProposal(GoalProposer):
                 distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
                 
                 # Get k-th nearest neighbor distance for each point
-                k = min(self.kde_k, goals_batch.shape[0] - 1)  # Ensure k doesn't exceed available samples
+                k = int(np.sqrt(goals_batch.shape[0]))
                 sorted_distances = jnp.sort(distances, axis=1)
                 knn_distances = sorted_distances[:, k]  # k-th nearest neighbor distance
                 
@@ -321,7 +320,7 @@ class MetricPreservationGoalProposal(GoalProposer):
 
             # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h); except we translate to Q function
             proposed_goal_densites = estimate_log_density_knn(candidate_goals)
-            M = f_sag[:, None] + f_gah - f_sah[None, :] - proposed_goal_densites[:, None]
+            M = f_sag[:, None] + f_gah - f_sah[None, :] + proposed_goal_densites[:, None]
             return M
 
         # compute for all states
@@ -329,10 +328,18 @@ class MetricPreservationGoalProposal(GoalProposer):
 
         def select_goal(M):
             idx_flat = jnp.argmax(M)
-            g_idx, _ = jnp.unravel_index(idx_flat, M.shape)
-            return g_idx
+            g_idx, h_idx = jnp.unravel_index(idx_flat, M.shape)
+            return g_idx, h_idx
 
-        best_g_indices = jax.vmap(select_goal)(energy_mats)  # (batch,)
+        def select_goal_minimax(M):
+            # Step 1: worst-case slack for each candidate goal over all env goals
+            worst_case_slack = jnp.max(M, axis=1)  # shape: (num_candidate_goals,)
+            # Step 2: pick the candidate goal with minimal worst-case slack
+            g_idx = jnp.argmin(worst_case_slack)
+            h_idx = jnp.argmax(M[g_idx, :])
+            return g_idx, h_idx
+
+        best_g_indices, best_h_indices = jax.vmap(select_goal_minimax)(energy_mats)  # (batch,)
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         jax.experimental.io_callback(
@@ -342,6 +349,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             candidate_goals,
             env_goals,
             best_g_indices,
+            best_h_indices,
             energy_mats,
             training_state.env_steps,
             train_env.goal_indices,
@@ -353,7 +361,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
-                              best_g_indices, energy_mats, env_steps, goal_indices, x_bounds, y_bounds):
+                              best_g_indices, best_h_indices, energy_mats, env_steps, goal_indices, x_bounds, y_bounds):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
         
         # Randomly select 4 states to use in both visualizations
@@ -362,7 +370,7 @@ class MetricPreservationGoalProposal(GoalProposer):
         
         # Generate both visualizations with the same states
         pil_image1 = MetricPreservationGoalProposal._create_goal_selection_plot(
-            current_states, candidate_goals, env_goals, best_g_indices, energy_mats, 
+            current_states, candidate_goals, env_goals, best_g_indices, best_h_indices, energy_mats, 
             goal_indices, random_state_indices, x_bounds, y_bounds
         )
         pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
@@ -379,7 +387,7 @@ class MetricPreservationGoalProposal(GoalProposer):
 
     @staticmethod
     def _create_goal_selection_plot(current_states, candidate_goals, env_goals, 
-                                    best_g_indices, energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
+                                    best_g_indices, best_h_indices, energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
         """Create the main goal selection visualization (2x2 grid)."""
         num_states_to_plot = len(random_state_indices)
     
@@ -391,12 +399,13 @@ class MetricPreservationGoalProposal(GoalProposer):
             
             state_idx = random_state_indices[plot_idx]
             
-            current_goal = current_states[state_idx][goal_indices]
+            current_state = current_states[state_idx][goal_indices]
+
             selected_candidate_idx = best_g_indices[state_idx].item()
             selected_candidate = candidate_goals[selected_candidate_idx]
             
             M = energy_mats[state_idx]
-            selected_env_idx = jnp.argmax(M[selected_candidate_idx])
+            selected_env_idx = best_h_indices[state_idx].item()
             selected_env_goal = env_goals[selected_env_idx]
             
             ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1], 
@@ -405,7 +414,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             ax.scatter(env_goals[:, 0], env_goals[:, 1], 
                     c='blue', alpha=0.5, s=100, label='Environment Goals', marker='s')
             
-            ax.scatter(current_goal[0], current_goal[1], 
+            ax.scatter(current_state[0], current_state[1], 
                     c='green', s=300, label='Current State', marker='*', 
                     edgecolors='black', linewidths=2, zorder=5)
             
@@ -418,7 +427,7 @@ class MetricPreservationGoalProposal(GoalProposer):
                     edgecolors='black', linewidths=2, zorder=4)
             
             ax.annotate('', xy=(selected_candidate[0], selected_candidate[1]),
-                    xytext=(current_goal[0], current_goal[1]),
+                    xytext=(current_state[0], current_state[1]),
                     arrowprops=dict(arrowstyle='->', lw=2.5, color='orange', alpha=0.7))
             
             ax.annotate('', xy=(selected_env_goal[0], selected_env_goal[1]),
@@ -463,7 +472,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             state_idx = random_state_indices[plot_idx]
             env_idx = random_env_indices[plot_idx]
             
-            current_goal = current_states[state_idx][goal_indices]
+            current_state = current_states[state_idx][goal_indices]
             env_goal = env_goals[env_idx]
             M = energy_mats[state_idx]
             
@@ -476,13 +485,8 @@ class MetricPreservationGoalProposal(GoalProposer):
             ax.scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
                     edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
             
-            ax.scatter(current_goal[0], current_goal[1], c='green', s=300, marker='*',
+            ax.scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
                     edgecolors='black', linewidths=2, zorder=9, label='Current State')
-            
-            best_candidate_idx = jnp.argmax(energies_for_env)
-            ax.scatter(candidate_goals[best_candidate_idx, 0], candidate_goals[best_candidate_idx, 1],
-                    c='cyan', s=250, marker='o', edgecolors='black', linewidths=3, 
-                    zorder=8, label='Best Candidate')
             
             plt.colorbar(scatter, ax=ax, label='Energy M[candidate, env_goal]')
             ax.set_title(f'State {state_idx} → Env Goal {env_idx}', fontsize=12, fontweight='bold')
