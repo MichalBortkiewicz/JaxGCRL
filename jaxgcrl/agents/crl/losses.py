@@ -57,7 +57,9 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
 
         qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
 
-        actor_loss = jnp.mean(jnp.exp(log_alpha) * log_prob - qf_pi)
+        per_sample_loss = jnp.exp(log_alpha) * log_prob - qf_pi
+
+        actor_loss = jnp.mean(per_sample_loss)
 
         return actor_loss, log_prob
 
@@ -65,6 +67,10 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         alpha = jnp.exp(alpha_params["log_alpha"])
         alpha_loss = alpha * jnp.mean(jax.lax.stop_gradient(-log_prob - config["target_entropy"]))
         return jnp.mean(alpha_loss)
+    
+    batch_size = transitions.observation.shape[0]
+    key, subkey = jax.random.split(key)
+    sample_keys = jax.random.split(subkey, batch_size)
 
     (actor_loss, log_prob), actor_grad = jax.value_and_grad(actor_loss, has_aux=True)(
         training_state.actor_state.params,
@@ -73,6 +79,42 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         transitions,
         key,
     )
+    per_sample_grad_fn = jax.vmap(
+        jax.grad(actor_loss, has_aux=True),
+        in_axes=(None, None, None, 0, 0, 0)  # vmap over states, goals, keys
+    )
+    # Compute gradients for proposed goal samples only (d2)
+    per_sample_grads, _ = per_sample_grad_fn(
+        training_state.actor_state.params,
+        training_state.critic_state.params,
+        training_state.alpha_state.params["log_alpha"],
+        transitions,
+        sample_keys
+    )
+
+    was_proposed_mask = transitions.extras["state_extras"]["was_proposed_goal"]
+
+    def flatten_single_grad(i):
+        single_grad = jax.tree_map(lambda x: x[i], per_sample_grads)
+        flat, _ = jax.flatten_util.ravel_pytree(single_grad)
+        return flat
+    
+    all_grads_flat = jax.vmap(flatten_single_grad)(jnp.arange(batch_size))  # (batch_size, total_params)
+    
+    num_env = jnp.sum(1 - was_proposed_mask)
+    num_rb = jnp.sum(was_proposed_mask)
+    env_mask = (1 - was_proposed_mask)[:, None]  # (batch_size, 1)
+    proposed_mask = was_proposed_mask[:, None]
+
+    d_env_grad_mean = jnp.sum(all_grads_flat * env_mask, axis=0) / (num_env + 1e-8)
+    d_rb_grad_mean = jnp.sum(all_grads_flat * proposed_mask, axis=0) / (num_rb + 1e-8)
+
+    env_grads_centered = all_grads_flat - d_env_grad_mean[None, :]
+    d_env_grad_var = jnp.sum((env_grads_centered**2 * env_mask).sum(axis=0)) / (num_env + 1e-8)  # tr Var(d_env)
+    rb_grads_centered = all_grads_flat - d_rb_grad_mean[None, :]
+    d_rb_grad_var = jnp.sum((rb_grads_centered**2 * proposed_mask).sum(axis=0)) / (num_rb + 1e-8)  # tr Var(d_rb)
+
+    # Update actor
     new_actor_state = training_state.actor_state.apply_gradients(grads=actor_grad)
 
     alpha_loss, alpha_grad = jax.value_and_grad(alpha_loss)(training_state.alpha_state.params, log_prob)
@@ -85,6 +127,13 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         "actor_loss": actor_loss,
         "alpha_loss": alpha_loss,
         "log_alpha": training_state.alpha_state.params["log_alpha"],
+        "rb_grad_trvar": d_rb_grad_var,
+        "env_grad_trvar": d_env_grad_var,
+        "rb_grad_mean_norm": jnp.linalg.norm(d_rb_grad_mean),
+        "env_grad_mean_norm": jnp.linalg.norm(d_env_grad_mean),
+        "env_rb_bias_squared": jnp.sum((d_env_grad_mean - d_rb_grad_mean) ** 2),
+        "num_rb_samples": num_rb,
+        "num_env_samples": num_env,
     }
 
     return training_state, metrics

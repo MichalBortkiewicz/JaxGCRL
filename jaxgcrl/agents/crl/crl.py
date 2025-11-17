@@ -163,6 +163,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state_extras": {
             "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
             "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
+            "was_proposed_goal": jnp.squeeze(transition.extras["state_extras"]["was_proposed_goal"][:-1]),
         },
         "state": state,
         "future_state": future_state,
@@ -444,7 +445,7 @@ class CRL:
                 extras={"state_extras": state_extras},
             )
 
-        def actor_step(actor_state, env, env_state, proposed_goals, key, extra_fields):
+        def actor_step(actor_state, env, env_state, proposed_goals, was_proposed_goal_mask, key, extra_fields):
             new_obs = env_state.obs.at[:, -len(env.goal_indices):].set(proposed_goals)
             env_state = env_state.replace(obs=new_obs)
 
@@ -453,6 +454,7 @@ class CRL:
             actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
+            state_extras["was_proposed_goal_mask"] = was_proposed_goal_mask
 
             # nstate.obs has shape (batch_size, obs_dim)
             return nstate, Transition(
@@ -467,17 +469,18 @@ class CRL:
         def get_experience(actor_state, env_state, training_state, buffer_state, key):        
             @jax.jit
             def f(carry, unused_t):
-                env_state, current_key, proposed_goals = carry
+                env_state, current_key, proposed_goals, was_proposed_goal_mask = carry
                 current_key, next_key = jax.random.split(current_key)
                 env_state, transition = actor_step(
                     actor_state,
                     train_env,
                     env_state,
                     proposed_goals,
+                    was_proposed_goal_mask,
                     current_key,
                     extra_fields=("truncation", "traj_id"),
                 )
-                return (env_state, next_key, proposed_goals), transition
+                return (env_state, next_key, proposed_goals, was_proposed_goal_mask), transition
 
             key, proposal_key = jax.random.split(key)
             
@@ -507,8 +510,14 @@ class CRL:
                 lambda: original_goals,
             )
 
+            was_proposed_goal_mask = jax.lax.cond(
+                training_state.env_steps >= self.goal_proposal_warmup_steps,
+                lambda: use_proposed_mask.squeeze(-1),
+                lambda: jnp.zeros_like(use_proposed_mask),
+            )
+
             # data.observation has shape (unroll_length, batch_size, obs_size)
-            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals), (), length=self.unroll_length)
+            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals, was_proposed_goal_mask), (), length=self.unroll_length)
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -636,11 +645,9 @@ class CRL:
                 # Get the last batch metrics which contain gradient info
                 last_metrics = jax.tree_map(lambda x: x[-1], metrics)
                 
-                S1 = last_metrics.get('actor/rb_grad_var') # tr Var d_rb
-                S2 = last_metrics.get('actor/env_grad_var')  # tr Var d_env
-                D1 = last_metrics.get('actor/rb_grad_mean')  # E[d_rb]
-                D2 = last_metrics.get('actor/env_grad_mean')  # E[d_env]
-                D = jnp.sum((D1 - D2) ** 2)
+                S1 = last_metrics.get('actor/rb_grad_trvar') # tr Var d_rb
+                S2 = last_metrics.get('actor/env_grad_trvar')  # tr Var d_env
+                D = last_metrics.get('actor/env_rb_bias_squared') # norm(E[d_env - d_rb])^2
                 B = self.batch_size
                 
                 # Compute optimal alpha from your derivation
@@ -650,7 +657,6 @@ class CRL:
                 mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
                 metrics['training/adaptive_mixing'] = mixing_star
-                metrics['training/env_rb_bias_squared'] = D
 
             else:
                 mixing_star = self.goal_proposal_prob
