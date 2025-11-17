@@ -38,7 +38,7 @@ State = Union[envs.State, envs_v1.State]
 @dataclass
 class TrainingState:
     """Contains training state for the learner"""
-
+    goal_proposal_prob: jnp.ndarray
     env_steps: jnp.ndarray
     gradient_steps: jnp.ndarray
     actor_state: TrainState
@@ -232,6 +232,8 @@ class CRL:
 
     # Proportion of proposed goals coming from the goal proposal algorithm
     goal_proposal_prob: float = 0.0
+    # If fraction of goals from the replay buffer should be computed adaptiveally; note that this causes goal_proposal_prob to be ignored
+    use_adaptive_mixing: bool = True
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
     goal_proposal_warmup_steps: int = 0
     # Whether we should interpolate to 100% environment goals during training
@@ -331,6 +333,7 @@ class CRL:
             skip_connections=self.skip_connections,
             use_relu=self.use_relu,
         )
+       
         actor_state = TrainState.create(
             apply_fn=actor.apply,
             params=actor.init(actor_key, np.ones([1, obs_size])),
@@ -373,6 +376,7 @@ class CRL:
 
         # Trainstate
         training_state = TrainingState(
+            goal_proposal_prob=jnp.array(self.goal_proposal_prob),
             env_steps=jnp.zeros(()),
             gradient_steps=jnp.zeros(()),
             actor_state=actor_state,
@@ -486,13 +490,15 @@ class CRL:
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 
-            if self.interpolate_to_env_goals:
+            if self.use_adaptive_mixing:
+                curr_goal_proposal_prob = training_state.goal_proposal_prob
+            elif self.interpolate_to_env_goals:
                 progress_frac = training_state.env_steps / config.total_env_steps
-                interp_goal_proposal_prob = self.goal_proposal_prob * (1 - progress_frac)
+                curr_goal_proposal_prob = self.goal_proposal_prob * (1 - progress_frac)
             else:
-                interp_goal_proposal_prob = self.goal_proposal_prob
+                curr_goal_proposal_prob = self.goal_proposal_prob
 
-            use_proposed_mask = jax.random.bernoulli(key, interp_goal_proposal_prob, shape=(new_goals.shape[0], 1))
+            use_proposed_mask = jax.random.bernoulli(key, curr_goal_proposal_prob, shape=(new_goals.shape[0], 1))
             mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
 
             proposed_goals = jax.lax.cond(
@@ -625,6 +631,31 @@ class CRL:
                 ),
                 metrics,
             ) = jax.lax.scan(update_networks, (training_state, training_key), transitions)
+
+            if self.use_adaptive_mixing:
+                # Get the last batch metrics which contain gradient info
+                last_metrics = jax.tree_map(lambda x: x[-1], metrics)
+                
+                S1 = last_metrics.get('actor/rb_grad_var') # tr Var d_rb
+                S2 = last_metrics.get('actor/env_grad_var')  # tr Var d_env
+                D1 = last_metrics.get('actor/rb_grad_mean')  # E[d_rb]
+                D2 = last_metrics.get('actor/env_grad_mean')  # E[d_env]
+                D = jnp.sum((D1 - D2) ** 2)
+                B = self.batch_size
+                
+                # Compute optimal alpha from your derivation
+                numerator = S2 - S1 - D
+                denominator = 2 * D * (B - 1)
+                mixing_star = numerator / (denominator + 1e-8)
+                mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
+
+                metrics['training/adaptive_mixing'] = mixing_star
+                metrics['training/env_rb_bias_squared'] = D
+
+            else:
+                mixing_star = self.goal_proposal_prob
+
+            training_state = training_state.replace(goal_proposal_prob=mixing_star)
 
             return (
                 training_state,
