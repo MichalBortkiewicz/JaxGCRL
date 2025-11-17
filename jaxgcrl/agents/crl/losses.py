@@ -72,27 +72,29 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
     key, subkey = jax.random.split(key)
     sample_keys = jax.random.split(subkey, batch_size)
 
-    (actor_loss, log_prob), actor_grad = jax.value_and_grad(actor_loss, has_aux=True)(
+    (batch_actor_loss, log_prob), actor_grad = jax.value_and_grad(actor_loss, has_aux=True)(
         training_state.actor_state.params,
         training_state.critic_state.params,
         training_state.alpha_state.params["log_alpha"],
         transitions,
         key,
     )
-    per_sample_grad_fn = jax.vmap(
-        jax.grad(actor_loss, has_aux=True),
-        in_axes=(None, None, None, 0, 0, 0)  # vmap over states, goals, keys
-    )
-    # Compute gradients for proposed goal samples only (d2)
-    per_sample_grads, _ = per_sample_grad_fn(
-        training_state.actor_state.params,
-        training_state.critic_state.params,
-        training_state.alpha_state.params["log_alpha"],
-        transitions,
-        sample_keys
-    )
 
-    was_proposed_mask = transitions.extras["state_extras"]["was_proposed_goal"]
+    def single_sample_grad(i, key):
+        single_transition = jax.tree_util.tree_map(lambda x: x[i], transitions)
+        single_transition = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), single_transition)
+
+        grad_fn = jax.grad(actor_loss, has_aux=True)
+        return grad_fn(
+            training_state.actor_state.params,
+            training_state.critic_state.params,
+            training_state.alpha_state.params["log_alpha"],
+            single_transition,
+            key
+        )
+    per_sample_grads, _ = jax.vmap(single_sample_grad)(jnp.arange(batch_size), sample_keys)
+
+    was_proposed_mask = transitions.extras["state_extras"]["was_proposed_goal_mask"]
 
     def flatten_single_grad(i):
         single_grad = jax.tree_map(lambda x: x[i], per_sample_grads)
@@ -117,15 +119,15 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
     # Update actor
     new_actor_state = training_state.actor_state.apply_gradients(grads=actor_grad)
 
-    alpha_loss, alpha_grad = jax.value_and_grad(alpha_loss)(training_state.alpha_state.params, log_prob)
+    batch_alpha_loss, alpha_grad = jax.value_and_grad(alpha_loss)(training_state.alpha_state.params, log_prob)
     new_alpha_state = training_state.alpha_state.apply_gradients(grads=alpha_grad)
 
     training_state = training_state.replace(actor_state=new_actor_state, alpha_state=new_alpha_state)
 
     metrics = {
         "entropy": -log_prob,
-        "actor_loss": actor_loss,
-        "alpha_loss": alpha_loss,
+        "actor_loss": batch_actor_loss,
+        "alpha_loss": batch_alpha_loss,
         "log_alpha": training_state.alpha_state.params["log_alpha"],
         "rb_grad_trvar": d_rb_grad_var,
         "env_grad_trvar": d_env_grad_var,

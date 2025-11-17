@@ -163,7 +163,7 @@ def flatten_batch(buffer_config, transition, sample_key):
         "state_extras": {
             "truncation": jnp.squeeze(transition.extras["state_extras"]["truncation"][:-1]),
             "traj_id": jnp.squeeze(transition.extras["state_extras"]["traj_id"][:-1]),
-            "was_proposed_goal": jnp.squeeze(transition.extras["state_extras"]["was_proposed_goal"][:-1]),
+            "was_proposed_goal_mask": jnp.squeeze(transition.extras["state_extras"]["was_proposed_goal_mask"][:-1]),
         },
         "state": state,
         "future_state": future_state,
@@ -235,6 +235,8 @@ class CRL:
     goal_proposal_prob: float = 0.0
     # If fraction of goals from the replay buffer should be computed adaptiveally; note that this causes goal_proposal_prob to be ignored
     use_adaptive_mixing: bool = True
+    # Number of env steps to wait before starting adaptive mixing
+    adaptive_mixing_warmup_steps: int = 10000
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
     goal_proposal_warmup_steps: int = 0
     # Whether we should interpolate to 100% environment goals during training
@@ -398,6 +400,7 @@ class CRL:
                 "state_extras": {
                     "truncation": 0.0,
                     "traj_id": 0.0,
+                    "was_proposed_goal_mask": 0.0,
                 }
             },
         )
@@ -494,7 +497,11 @@ class CRL:
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 
             if self.use_adaptive_mixing:
-                curr_goal_proposal_prob = training_state.goal_proposal_prob
+                curr_goal_proposal_prob = jax.lax.cond(
+                    training_state.env_steps >= self.adaptive_mixing_warmup_steps,
+                    lambda: training_state.goal_proposal_prob,
+                    lambda: 0.5,
+                )
             elif self.interpolate_to_env_goals:
                 progress_frac = training_state.env_steps / config.total_env_steps
                 curr_goal_proposal_prob = self.goal_proposal_prob * (1 - progress_frac)
@@ -513,11 +520,11 @@ class CRL:
             was_proposed_goal_mask = jax.lax.cond(
                 training_state.env_steps >= self.goal_proposal_warmup_steps,
                 lambda: use_proposed_mask.squeeze(-1),
-                lambda: jnp.zeros_like(use_proposed_mask),
+                lambda: jnp.zeros_like(use_proposed_mask.squeeze(-1)),
             )
 
             # data.observation has shape (unroll_length, batch_size, obs_size)
-            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals, was_proposed_goal_mask), (), length=self.unroll_length)
+            (env_state, _, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals, was_proposed_goal_mask), (), length=self.unroll_length)
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -645,18 +652,18 @@ class CRL:
                 # Get the last batch metrics which contain gradient info
                 last_metrics = jax.tree_map(lambda x: x[-1], metrics)
                 
-                S1 = last_metrics.get('actor/rb_grad_trvar') # tr Var d_rb
-                S2 = last_metrics.get('actor/env_grad_trvar')  # tr Var d_env
-                D = last_metrics.get('actor/env_rb_bias_squared') # norm(E[d_env - d_rb])^2
+                S1 = last_metrics.get('rb_grad_trvar') # tr Var d_rb
+                S2 = last_metrics.get('env_grad_trvar')  # tr Var d_env
+                D = last_metrics.get('env_rb_bias_squared') # norm(E[d_env - d_rb])^2
                 B = self.batch_size
                 
-                # Compute optimal alpha from your derivation
+                # Compute optimal alpha
                 numerator = S2 - S1 - D
                 denominator = 2 * D * (B - 1)
                 mixing_star = numerator / (denominator + 1e-8)
                 mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
-                metrics['training/adaptive_mixing'] = mixing_star
+                metrics['adaptive_mixing'] = mixing_star
 
             else:
                 mixing_star = self.goal_proposal_prob
