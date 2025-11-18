@@ -38,7 +38,7 @@ State = Union[envs.State, envs_v1.State]
 @dataclass
 class TrainingState:
     """Contains training state for the learner"""
-    goal_proposal_prob: jnp.ndarray
+    optimal_goal_proposal_prob: jnp.ndarray
     env_steps: jnp.ndarray
     gradient_steps: jnp.ndarray
     actor_state: TrainState
@@ -379,7 +379,7 @@ class CRL:
 
         # Trainstate
         training_state = TrainingState(
-            goal_proposal_prob=jnp.array(self.goal_proposal_prob),
+            optimal_goal_proposal_prob=jnp.array(self.goal_proposal_prob),
             env_steps=jnp.zeros(()),
             gradient_steps=jnp.zeros(()),
             actor_state=actor_state,
@@ -499,7 +499,7 @@ class CRL:
             if self.use_adaptive_mixing:
                 curr_goal_proposal_prob = jax.lax.cond(
                     training_state.env_steps >= self.adaptive_mixing_warmup_steps,
-                    lambda: training_state.goal_proposal_prob,
+                    lambda: training_state.optimal_goal_proposal_prob,
                     lambda: 0.5,
                 )
             elif self.interpolate_to_env_goals:
@@ -648,27 +648,22 @@ class CRL:
                 metrics,
             ) = jax.lax.scan(update_networks, (training_state, training_key), transitions)
 
-            if self.use_adaptive_mixing:
-                # Get the last batch metrics which contain gradient info
-                last_metrics = jax.tree_map(lambda x: x[-1], metrics)
-                
-                S1 = last_metrics.get('rb_grad_trvar') # tr Var d_rb
-                S2 = last_metrics.get('env_grad_trvar')  # tr Var d_env
-                D = last_metrics.get('env_rb_bias_squared') # norm(E[d_env - d_rb])^2
-                B = self.batch_size
-                
-                # Compute optimal alpha
-                numerator = S2 - S1 - D
-                denominator = 2 * D * (B - 1)
-                mixing_star = numerator / (denominator + 1e-8)
-                mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
+            # Get the last batch metrics which contain gradient info
+            last_metrics = jax.tree_map(lambda x: x[-1], metrics)
+            
+            S1 = last_metrics.get('rb_grad_trvar') # tr Var d_rb
+            S2 = last_metrics.get('env_grad_trvar')  # tr Var d_env
+            D = last_metrics.get('env_rb_bias_squared') # norm(E[d_env - d_rb])^2
+            B = self.batch_size
+            
+            # Compute optimal alpha
+            numerator = S2 - S1 - D
+            denominator = 2 * D * (B - 1)
+            mixing_star = numerator / (denominator + 1e-8)
+            mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
-                metrics['adaptive_mixing'] = mixing_star
-
-            else:
-                mixing_star = self.goal_proposal_prob
-
-            training_state = training_state.replace(goal_proposal_prob=mixing_star)
+            metrics['adaptive_mixing'] = mixing_star
+            training_state = training_state.replace(optimal_goal_proposal_prob=mixing_star)
 
             return (
                 training_state,
