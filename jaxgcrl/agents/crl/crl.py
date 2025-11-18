@@ -236,7 +236,7 @@ class CRL:
     # If fraction of goals from the replay buffer should be computed adaptiveally; note that this causes goal_proposal_prob to be ignored
     use_adaptive_mixing: bool = False
     # Number of env steps to wait before starting adaptive mixing
-    adaptive_mixing_warmup_steps: int = 10000
+    adaptive_mixing_warmup_steps: int = 0 
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
     goal_proposal_warmup_steps: int = 0
     # Whether we should interpolate to 100% environment goals during training
