@@ -657,8 +657,8 @@ class CRL:
             B = self.batch_size
             
             # Compute optimal alpha
-            numerator = S2 - S1 - D
-            denominator = 2 * D * (B - 1)
+            numerator = S1 - S2 + D
+            denominator = 2 * D
             mixing_star = numerator / (denominator + 1e-8)
             mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
