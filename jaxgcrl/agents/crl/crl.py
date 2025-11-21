@@ -235,6 +235,8 @@ class CRL:
     goal_proposal_prob: float = 0.0
     # If fraction of goals from the replay buffer should be computed adaptiveally; note that this causes goal_proposal_prob to be ignored
     use_adaptive_mixing: bool = False
+    # Adaptive mixing momentum term
+    adaptive_mixing_momentum: float = 0.0
     # Number of env steps to wait before starting adaptive mixing
     adaptive_mixing_warmup_steps: int = 0 
     # Number of env steps to wait before proposing goals from the goal proposal algorithm
@@ -662,8 +664,15 @@ class CRL:
             mixing_star = numerator / (denominator + 1e-8)
             mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
-            metrics['adaptive_mixing'] = mixing_star
-            training_state = training_state.replace(optimal_goal_proposal_prob=mixing_star)
+            smoothed_mixing = (
+                self.adaptive_mixing_momentum * training_state.optimal_goal_proposal_prob 
+                + (1 - self.adaptive_mixing_momentum) * mixing_star
+            )
+
+            training_state = training_state.replace(optimal_goal_proposal_prob=smoothed_mixing)
+
+            metrics['adaptive_mixing_raw'] = mixing_star
+            metrics['adaptive_mixing_smoothed'] = smoothed_mixing
 
             return (
                 training_state,
