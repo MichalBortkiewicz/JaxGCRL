@@ -1,4 +1,3 @@
 nohup: ignoring input
 Starting first job...
-main.sh: line 3: 2158460 Killed                  CUDA_VISIBLE_DEVICES=6 python3 run.py crl --env ant_u_maze --total-env-steps 120000000 --goal-proposer-name metric --goal-proposal-prob 0.5 > run1.out 2>&1
 All jobs completed.
