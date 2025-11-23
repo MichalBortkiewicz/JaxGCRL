@@ -338,8 +338,16 @@ class MetricPreservationGoalProposal(GoalProposer):
             g_idx = jnp.argmin(worst_case_slack)
             h_idx = jnp.argmax(M[g_idx, :])
             return g_idx, h_idx
+        
+        def select_goal_minlogsumexp(M):
+            weights = jnp.mean(jnp.exp(M), axis=1)
+            weights = 1 / weights
+            weights = weights / jnp.sum(weights)
+            g_idx = jax.random.choice(key, a=jnp.arange(M.shape[0]), p=weights)
+            h_idx = jnp.argmin(M[g_idx, :])
+            return g_idx, h_idx
 
-        best_g_indices, best_h_indices = jax.vmap(select_goal_minimax)(energy_mats)  # (batch,)
+        best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp)(energy_mats)  # (batch,)
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         jax.experimental.io_callback(
