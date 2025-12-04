@@ -233,6 +233,7 @@ class MediumEnergyGoalProposal(GoalProposer):
 @dataclass
 class MetricPreservationGoalProposal(GoalProposer):
     energy_fn_name: str
+    use_one_env_goal: bool = False
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -338,8 +339,43 @@ class MetricPreservationGoalProposal(GoalProposer):
             g_idx = jnp.argmin(worst_case_slack)
             h_idx = jnp.argmax(M[g_idx, :])
             return g_idx, h_idx
+        
+        def select_goal_minlogsumexp(M):
+            weights = jnp.mean(jnp.exp(M), axis=1)
+            weights = 1 / weights
+            weights = weights / jnp.sum(weights)
+            g_idx = jax.random.choice(key, a=jnp.arange(M.shape[0]), p=weights)
+            h_idx = jnp.argmin(M[g_idx, :])
+            return g_idx, h_idx
+        
+        def select_goal_minlogsumexp_one_env(M, rand_key):
+            """Select one random environment goal and compute weights using only that column."""
+            rand_key_h, rand_key_g = jax.random.split(rand_key)
 
-        best_g_indices, best_h_indices = jax.vmap(select_goal_minimax)(energy_mats)  # (batch,)
+            # Randomly select one environment goal
+            num_env_goals = M.shape[1]
+            h_idx = jax.random.choice(rand_key_h, a=jnp.arange(num_env_goals))
+            
+            # Get the energy values for all candidate goals with this one env goal
+            energies_for_h = M[:, h_idx]  # (num_candidate_goals,)
+            
+            # Compute weights using exp of energies for this single column
+            weights = jnp.exp(energies_for_h)
+            weights = 1 / weights
+            weights = weights / jnp.sum(weights)
+            
+            # Sample a candidate goal using these weights
+            g_idx = jax.random.choice(rand_key_g, a=jnp.arange(M.shape[0]), p=weights)
+            
+            return g_idx, h_idx
+
+        if self.use_one_env_goal:
+            # Split the key for each batch element
+            batch_size = energy_mats.shape[0]
+            batch_keys = jax.random.split(key, batch_size)
+            best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp_one_env)(energy_mats, batch_keys)
+        else:
+            best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp)(energy_mats)  # (batch,)
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         jax.experimental.io_callback(
