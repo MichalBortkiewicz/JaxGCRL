@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal"] = "replay_buffer"
 
     def check_config(self, config):
         """
@@ -431,7 +431,9 @@ class CRL:
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
         elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_one_env_goal=False)
+        elif self.goal_proposer_name == "metric_one_env_goal":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_one_env_goal=True)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 
