@@ -652,29 +652,31 @@ class CRL:
                 metrics,
             ) = jax.lax.scan(update_networks, (training_state, training_key), transitions)
 
-            # Get the last batch metrics which contain gradient info
-            last_metrics = jax.tree_map(lambda x: x[-1], metrics)
-            
-            S1 = last_metrics.get('rb_grad_trvar') # tr Var d_rb
-            S2 = last_metrics.get('env_grad_trvar')  # tr Var d_env
-            D = last_metrics.get('env_rb_bias_squared') # norm(E[d_env - d_rb])^2
-            B = self.batch_size
-            
-            # Compute optimal alpha
-            numerator = S1 - S2 + D
-            denominator = 2 * D
-            mixing_star = numerator / (denominator + 1e-8)
-            mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
+            # Adaptive mixing estimation - only if enabled
+            if self.use_adaptive_mixing:
+                # Get the last batch metrics which contain gradient info
+                last_metrics = jax.tree_map(lambda x: x[-1], metrics)
+                
+                S1 = last_metrics.get('rb_grad_trvar') # tr Var d_rb
+                S2 = last_metrics.get('env_grad_trvar')  # tr Var d_env
+                D = last_metrics.get('env_rb_bias_squared') # norm(E[d_env - d_rb])^2
+                B = self.batch_size
+                
+                # Compute optimal alpha
+                numerator = S1 - S2 + D
+                denominator = 2 * D
+                mixing_star = numerator / (denominator + 1e-8)
+                mixing_star = jnp.clip(mixing_star, 0.0, 1.0)
 
-            smoothed_mixing = (
-                self.adaptive_mixing_momentum * training_state.optimal_goal_proposal_prob 
-                + (1 - self.adaptive_mixing_momentum) * mixing_star
-            )
+                smoothed_mixing = (
+                    self.adaptive_mixing_momentum * training_state.optimal_goal_proposal_prob 
+                    + (1 - self.adaptive_mixing_momentum) * mixing_star
+                )
 
-            training_state = training_state.replace(optimal_goal_proposal_prob=smoothed_mixing)
+                training_state = training_state.replace(optimal_goal_proposal_prob=smoothed_mixing)
 
-            metrics['adaptive_mixing_raw'] = mixing_star
-            metrics['adaptive_mixing_smoothed'] = smoothed_mixing
+                metrics['adaptive_mixing_raw'] = mixing_star
+                metrics['adaptive_mixing_smoothed'] = smoothed_mixing
 
             return (
                 training_state,
