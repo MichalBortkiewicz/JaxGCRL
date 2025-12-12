@@ -234,6 +234,7 @@ class MediumEnergyGoalProposal(GoalProposer):
 class MetricPreservationGoalProposal(GoalProposer):
     energy_fn_name: str
     use_one_env_goal: bool = False
+    use_kde_correction: bool = False
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -262,7 +263,7 @@ class MetricPreservationGoalProposal(GoalProposer):
         env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
 
         def energy_triplet(state):
-            """Compute M[g,h] for a single state."""
+            """Compute M[g,h] for a single state and return individual terms."""
             # expand goals to full state_dim with zero elsewhere
             def expand_goal(goal):
                 # goal: (goal_dim,)
@@ -319,13 +320,27 @@ class MetricPreservationGoalProposal(GoalProposer):
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
 
-            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h); except we translate to Q function
+            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h) + KDE_correction; except we translate to Q function
             proposed_goal_densites = estimate_log_density_knn(candidate_goals)
-            M = f_sag[:, None] + f_gah - f_sah[None, :] + proposed_goal_densites[:, None]
-            return M
+            
+            # Compute individual terms
+            term1 = f_sag[:, None]  # f(s, a1, g) - shape (num_cand, 1)
+            term2 = f_gah  # f(g, a2, h) - shape (num_cand, num_env)
+            term3 = f_sah[None, :]  # -f(s, a3, h) - shape (1, num_env)
+            kde_term = proposed_goal_densites[:, None]  # KDE correction - shape (num_cand, 1)
+            
+            M = term1 + term2 - term3
+            if self.use_kde_correction:
+                M += kde_term
+            return M, term1, term2, term3, kde_term
 
         # compute for all states
-        energy_mats = jax.vmap(energy_triplet)(current_states)  # (batch, num_cand, num_env)
+        energy_results = jax.vmap(energy_triplet)(current_states)
+        energy_mats = energy_results[0]  # (batch, num_cand, num_env)
+        term1_mats = energy_results[1]  # (batch, num_cand, 1)
+        term2_mats = energy_results[2]  # (batch, num_cand, num_env)
+        term3_mats = energy_results[3]  # (batch, 1, num_env)
+        kde_mats = energy_results[4]  # (batch, num_cand, 1)
 
         def select_goal(M):
             idx_flat = jnp.argmax(M)
@@ -387,6 +402,10 @@ class MetricPreservationGoalProposal(GoalProposer):
             best_g_indices,
             best_h_indices,
             energy_mats,
+            term1_mats,
+            term2_mats,
+            term3_mats,
+            kde_mats,
             training_state.env_steps,
             train_env.goal_indices,
             train_env.x_bounds,
@@ -397,7 +416,8 @@ class MetricPreservationGoalProposal(GoalProposer):
     
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
-                              best_g_indices, best_h_indices, energy_mats, env_steps, goal_indices, x_bounds, y_bounds):
+                              best_g_indices, best_h_indices, energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
+                              env_steps, goal_indices, x_bounds, y_bounds):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
         
         # Randomly select 4 states to use in both visualizations
@@ -410,8 +430,8 @@ class MetricPreservationGoalProposal(GoalProposer):
             goal_indices, random_state_indices, x_bounds, y_bounds
         )
         pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
-            current_states, candidate_goals, env_goals, energy_mats, goal_indices, 
-            random_state_indices, x_bounds, y_bounds
+            current_states, candidate_goals, env_goals, energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
+            goal_indices, random_state_indices, x_bounds, y_bounds
         )
         
         metrics = {
@@ -493,44 +513,119 @@ class MetricPreservationGoalProposal(GoalProposer):
 
     @staticmethod
     def _create_env_goal_ranking_plot(current_states, candidate_goals, env_goals,
-                                        energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
-        """Create env goal ranking visualization showing candidate energies (2x2 grid)."""
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+                                        energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
+                                        goal_indices, random_state_indices, x_bounds, y_bounds):
+        """Create env goal ranking visualization showing M matrix and its 4 component terms (3x2 grid with 5 plots).
+        
+        The M matrix is composed of:
+        M[g,h] = f(s,a1,g) + f(g,a2,h) - f(s,a3,h) + KDE_correction
+        
+        Plot 1: Full M matrix
+        Plot 2: Term 1 - f(s,a1,g)
+        Plot 3: Term 2 - f(g,a2,h)  
+        Plot 4: Term 3 - f(s,a3,h)
+        Plot 5: KDE correction - log_density(g)
+        """
+        fig, axes = plt.subplots(3, 2, figsize=(16, 16))
         axes = axes.flatten()
         
         num_env_goals = env_goals.shape[0]
         
-        random_env_indices = np.random.choice(num_env_goals, size=min(4, num_env_goals), replace=False)
+        # Select just one state and one env goal
+        state_idx = random_state_indices[0]
+        env_idx = np.random.choice(num_env_goals)
         
-        for plot_idx in range(min(4, num_env_goals)):
-            ax = axes[plot_idx]
-            
-            state_idx = random_state_indices[plot_idx]
-            env_idx = random_env_indices[plot_idx]
-            
-            current_state = current_states[state_idx][goal_indices]
-            env_goal = env_goals[env_idx]
-            M = energy_mats[state_idx]
-            
-            energies_for_env = M[:, env_idx]
-            
-            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_for_env, cmap='viridis', s=80, alpha=0.7,
+        current_state = current_states[state_idx][goal_indices]
+        env_goal = env_goals[env_idx]
+        
+        # Get all matrices for this state
+        M = energy_mats[state_idx]  # (num_candidates, num_env_goals)
+        term1 = term1_mats[state_idx]  # (num_candidates, 1)
+        term2 = term2_mats[state_idx]  # (num_candidates, num_env_goals)
+        term3 = term3_mats[state_idx]  # (1, num_env_goals)
+        kde = kde_mats[state_idx]  # (num_candidates, 1)
+        
+        # Extract values for this env_goal
+        energies_full = M[:, env_idx]
+        energies_term1 = term1[:, 0]  # Remove the singleton dimension
+        energies_term2 = term2[:, env_idx]
+        energies_term3 = jnp.repeat(term3[0, env_idx], M.shape[0], axis=0)  # Duplicate for all candidates
+        energies_kde = kde[:, 0]  # Remove the singleton dimension
+        
+        # Plot 1: Full M matrix
+        scatter1 = axes[0].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_full, cmap='viridis', s=80, alpha=0.7,
                             edgecolors='black', linewidths=0.5)
-            
-            ax.scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
-                    edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
-            
-            ax.scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                    edgecolors='black', linewidths=2, zorder=9, label='Current State')
-            
-            plt.colorbar(scatter, ax=ax, label='Energy M[candidate, env_goal]')
-            ax.set_title(f'State {state_idx} → Env Goal {env_idx}', fontsize=12, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=9)
-            ax.grid(True, alpha=0.3)
-            ax.set_aspect('equal', adjustable='box')
-            ax.set_xlim(x_bounds)
-            ax.set_ylim(y_bounds)
+        axes[0].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+        axes[0].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter1, ax=axes[0], label='M[g, h]')
+        axes[0].set_title(f'M Matrix: Full Combined Energy', fontsize=12, fontweight='bold')
+        axes[0].legend(loc='upper right', fontsize=9)
+        axes[0].grid(True, alpha=0.3)
+        axes[0].set_aspect('equal', adjustable='box')
+        axes[0].set_xlim(x_bounds)
+        axes[0].set_ylim(y_bounds)
+        
+        # Plot 2: Term 1 - f(s,a1,g)
+        scatter2 = axes[1].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_term1, cmap='plasma', s=80, alpha=0.7,
+                            edgecolors='black', linewidths=0.5)
+        axes[1].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter2, ax=axes[1], label='f(s, w)')
+        axes[1].set_title(f'Term 1: f(s, w)', fontsize=12, fontweight='bold')
+        axes[1].legend(loc='upper right', fontsize=9)
+        axes[1].grid(True, alpha=0.3)
+        axes[1].set_aspect('equal', adjustable='box')
+        axes[1].set_xlim(x_bounds)
+        axes[1].set_ylim(y_bounds)
+        
+        # Plot 3: Term 2 - f(g,a2,h)
+        scatter3 = axes[2].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_term2, cmap='cool', s=80, alpha=0.7,
+                            edgecolors='black', linewidths=0.5)
+        axes[2].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+        plt.colorbar(scatter3, ax=axes[2], label='f(w, g)')
+        axes[2].set_title(f'Term 2: f(w, g)', fontsize=12, fontweight='bold')
+        axes[2].legend(loc='upper right', fontsize=9)
+        axes[2].grid(True, alpha=0.3)
+        axes[2].set_aspect('equal', adjustable='box')
+        axes[2].set_xlim(x_bounds)
+        axes[2].set_ylim(y_bounds)
+        
+        # Plot 4: Term 3 - -f(s,a3,h)
+        scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
+                            edgecolors='black', linewidths=0.5)
+        axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
+        axes[3].set_title(f'Term 3: f(s, g)', fontsize=12, fontweight='bold')
+        axes[3].legend(loc='upper right', fontsize=9)
+        axes[3].grid(True, alpha=0.3)
+        axes[3].set_aspect('equal', adjustable='box')
+        axes[3].set_xlim(x_bounds)
+        axes[3].set_ylim(y_bounds)
+
+        # Plot 5: KDE correction - log_density(g)
+        scatter5 = axes[4].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                            c=energies_kde, cmap='Spectral', s=80, alpha=0.7,
+                            edgecolors='black', linewidths=0.5)
+        axes[4].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter5, ax=axes[4], label='log_density(g)')
+        axes[4].set_title(f'Term 4: KDE Correction - log_density(g)', fontsize=12, fontweight='bold')
+        axes[4].legend(loc='upper right', fontsize=9)
+        axes[4].grid(True, alpha=0.3)
+        axes[4].set_aspect('equal', adjustable='box')
+        axes[4].set_xlim(x_bounds)
+        axes[4].set_ylim(y_bounds)
+        
+        # Hide the 6th subplot
+        axes[5].axis('off')
 
         plt.tight_layout()
         buf = io.BytesIO()
