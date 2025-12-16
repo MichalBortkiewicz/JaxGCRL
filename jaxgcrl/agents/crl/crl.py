@@ -218,7 +218,7 @@ class CRL:
     min_replay_size: int = 1000
     unroll_length: int = 62
     h_dim: int = 256
-    n_hidden: int = 2
+    n_hidden: int = 4
     skip_connections: int = 4
     use_relu: bool = False
 
