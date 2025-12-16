@@ -235,6 +235,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     energy_fn_name: str
     use_one_env_goal: bool = False
     use_kde_correction: bool = False
+    use_waypoint_difficulty: bool = True
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -320,7 +321,6 @@ class MetricPreservationGoalProposal(GoalProposer):
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
 
-            # combine: f(s,a1,g) + f(g,a2,h) - f(s,a3,h) + KDE_correction; except we translate to Q function
             proposed_goal_densites = estimate_log_density_knn(candidate_goals)
             
             # Compute individual terms
@@ -329,7 +329,9 @@ class MetricPreservationGoalProposal(GoalProposer):
             term3 = f_sah[None, :]  # -f(s, a3, h) - shape (1, num_env)
             kde_term = proposed_goal_densites[:, None]  # KDE correction - shape (num_cand, 1)
             
-            M = term1 + term2 - term3
+            M = term2 - term3
+            if self.use_waypoint_difficulty:
+                M += term1
             if self.use_kde_correction:
                 M += kde_term
             return M, term1, term2, term3, kde_term
@@ -356,11 +358,11 @@ class MetricPreservationGoalProposal(GoalProposer):
             return g_idx, h_idx
         
         def select_goal_minlogsumexp(M):
-            weights = jnp.mean(jnp.exp(M), axis=1)
-            weights = 1 / weights
-            weights = weights / jnp.sum(weights)
-            g_idx = jax.random.choice(key, a=jnp.arange(M.shape[0]), p=weights)
-            h_idx = jnp.argmin(M[g_idx, :])
+            score = -jax.scipy.special.logsumexp(M, axis=1)
+            weights = jax.nn.softmax(score)
+            g_idx = jax.random.choice(key, a=M.shape[0], p=weights)
+
+            h_idx = jnp.argmin(M[g_idx])
             return g_idx, h_idx
         
         def select_goal_minlogsumexp_one_env(M, rand_key):
@@ -371,15 +373,30 @@ class MetricPreservationGoalProposal(GoalProposer):
             num_env_goals = M.shape[1]
             h_idx = jax.random.choice(rand_key_h, a=jnp.arange(num_env_goals))
             
-            # Get the energy values for all candidate goals with this one env goal
             energies_for_h = M[:, h_idx]  # (num_candidate_goals,)
+            weights = jax.nn.softmax(-energies_for_h)
+            g_idx = jax.random.choice(rand_key_g, a=jnp.arange(M.shape[0]), p=weights)
             
-            # Compute weights using exp of energies for this single column
-            weights = jnp.exp(energies_for_h)
-            weights = 1 / weights
-            weights = weights / jnp.sum(weights)
+            return g_idx, h_idx
+        
+        def select_goal_maxlogsumexp(M):
+            score = jax.scipy.special.logsumexp(M, axis=1)
+            weights = jax.nn.softmax(score)
+            g_idx = jax.random.choice(key, a=M.shape[0], p=weights)
+
+            h_idx = jnp.argmin(M[g_idx])
+            return g_idx, h_idx
+        
+        def select_goal_maxlogsumexp_one_env(M, rand_key):
+            """Select one random environment goal and compute weights using only that column."""
+            rand_key_h, rand_key_g = jax.random.split(rand_key)
+
+            # Randomly select one environment goal
+            num_env_goals = M.shape[1]
+            h_idx = jax.random.choice(rand_key_h, a=jnp.arange(num_env_goals))
             
-            # Sample a candidate goal using these weights
+            energies_for_h = M[:, h_idx]  # (num_candidate_goals,)
+            weights = jax.nn.softmax(energies_for_h)
             g_idx = jax.random.choice(rand_key_g, a=jnp.arange(M.shape[0]), p=weights)
             
             return g_idx, h_idx
@@ -388,9 +405,17 @@ class MetricPreservationGoalProposal(GoalProposer):
             # Split the key for each batch element
             batch_size = energy_mats.shape[0]
             batch_keys = jax.random.split(key, batch_size)
-            best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp_one_env)(energy_mats, batch_keys)
+            if self.use_waypoint_difficulty:
+                best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp_one_env)(energy_mats, batch_keys)
+            else:
+                best_g_indices, best_h_indices = jax.vmap(select_goal_maxlogsumexp_one_env)(energy_mats, batch_keys)
         else:
-            best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp)(energy_mats)  # (batch,)
+            if self.use_waypoint_difficulty:
+                best_g_indices, best_h_indices = jax.vmap(select_goal_minlogsumexp)(energy_mats) 
+            else:
+                best_g_indices, best_h_indices = jax.vmap(select_goal_maxlogsumexp)(energy_mats)
+
+
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         jax.experimental.io_callback(

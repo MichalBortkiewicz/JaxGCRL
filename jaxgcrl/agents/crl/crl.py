@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
 
@@ -433,9 +433,13 @@ class CRL:
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
         elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_one_env_goal=False, use_kde_correction=self.use_kde_correction)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction)
         elif self.goal_proposer_name == "metric_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_one_env_goal=True, use_kde_correction=self.use_kde_correction)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction)
+        elif self.goal_proposer_name == "waypoint_ratio":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False)
+        elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 
