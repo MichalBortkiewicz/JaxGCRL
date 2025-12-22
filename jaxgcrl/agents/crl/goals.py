@@ -236,6 +236,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     use_one_env_goal: bool = False
     use_kde_correction: bool = False
     use_waypoint_difficulty: bool = True
+    zero_out_cand_goals: bool = True
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -257,20 +258,24 @@ class MetricPreservationGoalProposal(GoalProposer):
             mask = traj_id_seq == traj_id_seq[0]
             last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
             return obs_seq[last_idx]
+        
+        # expand goals to full state_dim with zero elsewhere
+        def expand_goal(goal):
+            # goal: (goal_dim,)
+            full = jnp.zeros((state_size,), dtype=goal.dtype)
+            return full.at[train_env.goal_indices].set(goal)
 
         last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
         candidate_goals = last_states[:, train_env.goal_indices]  # (num_candidate_goals, goal_dim)
+        candidate_goals_full = last_states[:, :state_size] # Full vector for final states achieved
+
+        if self.zero_out_cand_goals:
+            candidate_goals_full = jax.vmap(expand_goal)(candidate_goals)
 
         env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
 
         def energy_triplet(state):
-            """Compute M[g,h] for a single state and return individual terms."""
-            # expand goals to full state_dim with zero elsewhere
-            def expand_goal(goal):
-                # goal: (goal_dim,)
-                full = jnp.zeros((state_size,), dtype=goal.dtype)
-                return full.at[train_env.goal_indices].set(goal)
-            
+            """Compute M[g,h] for a single state and return individual terms."""            
             def estimate_log_density_knn(goals_batch):
                 """Estimate log p(s,g) using k-NN density estimation."""
                 # Use all candidate observations as reference samples
@@ -301,7 +306,6 @@ class MetricPreservationGoalProposal(GoalProposer):
             f_sag = energy_fn(self.energy_fn_name, phi_sg, psi_g)  # (num_cand,)
 
             # f(g, a2, h)
-            candidate_goals_full = jax.vmap(expand_goal)(candidate_goals)
             g_exp = jnp.repeat(candidate_goals_full[:, None, :], num_env, axis=1)  # (num_cand, num_env, state_dim)
             h_exp = jnp.repeat(env_goals[None, :, :], num_cand, axis=0)
             obs_gh = jnp.concatenate([g_exp, h_exp], axis=-1).reshape(num_cand * num_env, -1)

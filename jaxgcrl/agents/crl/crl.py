@@ -249,6 +249,8 @@ class CRL:
     goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
+    # Whether to zero out the goals in metric proposal
+    zero_out_cand_goals: bool = True
 
     def check_config(self, config):
         """
@@ -433,13 +435,13 @@ class CRL:
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
         elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "metric_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 
