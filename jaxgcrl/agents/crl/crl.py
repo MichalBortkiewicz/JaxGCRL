@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "fisher_trace"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
@@ -442,6 +442,8 @@ class CRL:
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
+        elif self.goal_proposer_name == "fisher_trace":
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_top_k=False)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 

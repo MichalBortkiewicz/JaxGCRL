@@ -59,6 +59,153 @@ class ReplayBufferGoalProposal(GoalProposer):
 
 
 @dataclass
+class FisherTraceGoalProposal(GoalProposer):
+    energy_fn_name: str
+
+    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
+                     actor_params, critic_params, sa_encoder, g_encoder):
+        # Get current states from env_state
+        state_size = train_env.state_dim
+        current_states = env_state.obs[:, :state_size]  # (batch_size, state_dim)
+        
+        # Sample one batch to get candidate final states
+        buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
+        traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
+        candidate_obs = candidate_transitions.observation
+        
+        def get_last_state(obs_seq, traj_id_seq):
+            """Get the last state for each trajectory"""
+            seq_len = obs_seq.shape[0]
+            mask = traj_id_seq == traj_id_seq[0]
+            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+            return obs_seq[last_idx]
+        
+        last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+        candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
+        
+        def compute_grad_norms_for_state(state):
+            def grad_norm_for_goal(goal):
+                obs = jnp.concatenate([state, goal])                
+                means, log_stds = actor.apply(actor_params, obs[None, :])
+                action = jnp.tanh(means[0])
+                
+                # Compute state-action representation (frozen, no grad needed)
+                sa_pair = jnp.concatenate([state, action])
+                phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pair[None, :])[0]
+                
+                def energy_wrt_goal(g):
+                    psi_g = g_encoder.apply(critic_params['g_encoder'], g[None, :])[0]
+                    return energy_fn(self.energy_fn_name, phi_sa, psi_g)
+                
+                # Compute gradient of energy w.r.t. goal
+                grad_energy = jax.grad(energy_wrt_goal)(goal)  # (goal_dim,)
+                
+                # Return magnitude of gradient
+                grad_norm = jnp.sqrt(jnp.sum(grad_energy ** 2))
+                
+                return grad_norm
+            
+            # Compute gradient norm for each candidate goal
+            grad_norms = jax.vmap(grad_norm_for_goal)(candidate_goals)  # (batch_size,)
+            
+            return grad_norms
+        
+        # Compute gradient norms for all states: (batch_size, num_candidate_goals)
+        all_grad_norms = jax.vmap(compute_grad_norms_for_state)(current_states)
+        
+        # For each state, select the candidate goal with the largest gradient norm
+        best_goal_indices = jnp.argmax(all_grad_norms, axis=1)  # (batch_size,)
+        proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_size)
+        
+        # Log gradient norm statistics with visualization
+        jax.experimental.io_callback(
+            FisherTraceGoalProposal._log_gradient_norm_statistics,
+            None,
+            all_grad_norms,
+            candidate_goals,
+            current_states,
+            train_env.goal_indices,
+            training_state.env_steps
+        )
+        
+        return proposed_goals, buffer_state
+    
+    @staticmethod
+    def _log_gradient_norm_statistics(all_grad_norms, candidate_goals, current_states, goal_indices, env_steps):
+        # all_grad_norms: (batch_size, num_candidates)
+        max_norms_per_state = jnp.max(all_grad_norms, axis=1)  # (batch_size,)
+        
+        metrics = {
+            'fisher_trace/max_grad_norm_mean': float(jnp.mean(max_norms_per_state)),
+            'fisher_trace/max_grad_norm_std': float(jnp.std(max_norms_per_state)),
+            'fisher_trace/max_grad_norm_max': float(jnp.max(max_norms_per_state)),
+            'fisher_trace/max_grad_norm_min': float(jnp.min(max_norms_per_state)),
+        }
+        
+        # Create visualization of gradient norm maps
+        pil_image = FisherTraceGoalProposal._create_grad_norm_heatmaps(all_grad_norms, candidate_goals, current_states, goal_indices)
+        if pil_image is not None:
+            metrics['fisher_trace/grad_norm_heatmaps'] = wandb.Image(pil_image)
+        
+        wandb.log(metrics, step=int(env_steps))
+    
+    @staticmethod
+    def _create_grad_norm_heatmaps(all_grad_norms, candidate_goals, current_states, goal_indices):
+        batch_size = all_grad_norms.shape[0]
+        num_candidates = all_grad_norms.shape[1]
+        
+        # Extract goal portion from current states
+        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
+        
+        # Select 4 random states
+        num_plots = min(4, batch_size)
+        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
+        
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        axes = axes.flatten()
+        
+        for plot_idx, state_idx in enumerate(random_state_indices):
+            ax = axes[plot_idx]
+            
+            grad_norms = all_grad_norms[state_idx]  # (num_candidates,)
+            current_goal = current_goals[state_idx]  # (goal_dim,)
+            
+            # Color by gradient norm value
+            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                                c=grad_norms, cmap='hot', s=150, alpha=0.8,
+                                edgecolors='black', linewidths=0.5, label='Candidate Goals')
+            # Plot the current state as a star
+            ax.scatter(current_goal[0], current_goal[1], c='cyan', s=400, marker='*',
+                        edgecolors='black', linewidths=2, zorder=5, label='Current State')
+        
+            plt.colorbar(scatter, ax=ax, label='Gradient Norm')
+            
+            max_norm_idx = int(np.argmax(grad_norms))
+            max_norm_val = float(np.max(grad_norms))
+            
+            ax.set_title(f'State {state_idx}: Max Grad Norm = {max_norm_val:.4f} (Goal {max_norm_idx})',
+                        fontsize=11, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper right', fontsize=9)
+            if candidate_goals.shape[1] >= 2:
+                ax.set_aspect('equal', adjustable='box')
+        
+        # Hide unused subplots
+        for i in range(num_plots, len(axes)):
+            axes[i].axis('off')
+        
+        plt.tight_layout()
+        
+        # Save to buffer and convert to PIL Image
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return Image.open(buf)
+
+
+@dataclass
 class MediumEnergyGoalProposal(GoalProposer):
     '''Proposes goals by selecting final trajectory states with medium energy values.
     
