@@ -443,7 +443,7 @@ class CRL:
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "fisher_trace":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_top_k=False)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn)
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 

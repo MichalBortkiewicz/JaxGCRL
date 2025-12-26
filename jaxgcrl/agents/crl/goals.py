@@ -62,6 +62,7 @@ class ReplayBufferGoalProposal(GoalProposer):
 class FisherTraceGoalProposal(GoalProposer):
     energy_fn_name: str
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
+    _last_log_step: int = -500000  # Track last logged step (start negative to log first time)
 
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
@@ -85,7 +86,7 @@ class FisherTraceGoalProposal(GoalProposer):
         candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
         def compute_fisher_traces_for_state(state):
-            def fisher_trace_for_goal(goal):
+            def fisher_trace_for_goal(carry, goal):
                 obs = jnp.concatenate([state, goal])                
                 means, log_stds = actor.apply(actor_params, obs[None, :])
                 action = jnp.tanh(means[0])
@@ -116,36 +117,50 @@ class FisherTraceGoalProposal(GoalProposer):
                 
                 total_fisher_trace = fisher_trace_phi + fisher_trace_psi
                 
-                return total_fisher_trace
+                return carry, total_fisher_trace
             
-            # Compute Fisher trace for each candidate goal
-            fisher_traces = jax.vmap(fisher_trace_for_goal)(candidate_goals)  # (batch_size,)
+            # Compute Fisher trace sequentially for each candidate goal to avoid memory explosion
+            _, fisher_traces = jax.lax.scan(fisher_trace_for_goal, None, candidate_goals)
             
             return fisher_traces
         
-        # Compute Fisher traces for all states: (batch_size, num_candidate_goals)
-        all_fisher_traces = jax.vmap(compute_fisher_traces_for_state)(current_states)
+        # Compute Fisher traces for all states sequentially
+        def compute_traces_for_all_states(carry, state):
+            fisher_traces = compute_fisher_traces_for_state(state)
+            return carry, fisher_traces
+        
+        _, all_fisher_traces = jax.lax.scan(compute_traces_for_all_states, None, current_states)
         
         # For each state, select the candidate goal with the largest Fisher trace
         best_goal_indices = jnp.argmax(all_fisher_traces, axis=1)  # (batch_size,)
         proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_size)
         
         # Log Fisher trace statistics with visualization only at specified intervals
-        if int(training_state.env_steps) % self.LOG_INTERVAL_STEPS == 0:
-            jax.experimental.io_callback(
-                FisherTraceGoalProposal._log_fisher_trace_statistics,
-                None,
-                all_fisher_traces,
-                candidate_goals,
-                current_states,
-                train_env.goal_indices,
-                training_state.env_steps
-            )
+        jax.experimental.io_callback(
+            FisherTraceGoalProposal._log_fisher_trace_statistics,
+            None,
+            all_fisher_traces,
+            candidate_goals,
+            current_states,
+            train_env.goal_indices,
+            training_state.env_steps,
+            self.LOG_INTERVAL_STEPS
+        )
         
         return proposed_goals, buffer_state
     
+    # Class variable to track last log step
+    _last_logged_at = -500000
+    
     @staticmethod
-    def _log_fisher_trace_statistics(all_fisher_traces, candidate_goals, current_states, goal_indices, env_steps):
+    def _log_fisher_trace_statistics(all_fisher_traces, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
+        # Only log if enough steps have passed since last log
+        current_step = int(env_steps)
+        if current_step - FisherTraceGoalProposal._last_logged_at < log_interval_steps:
+            return
+        
+        FisherTraceGoalProposal._last_logged_at = current_step
+            
         # all_fisher_traces: (batch_size, num_candidates)
         max_traces_per_state = jnp.max(all_fisher_traces, axis=1)  # (batch_size,)
         
@@ -158,8 +173,7 @@ class FisherTraceGoalProposal(GoalProposer):
         
         # Create visualization of Fisher trace maps
         pil_image = FisherTraceGoalProposal._create_fisher_trace_heatmaps(all_fisher_traces, candidate_goals, current_states, goal_indices)
-        if pil_image is not None:
-            metrics['fisher_trace/trace_heatmaps'] = wandb.Image(pil_image)
+        metrics['fisher_trace/trace_heatmaps'] = wandb.Image(pil_image)
         
         wandb.log(metrics, step=int(env_steps))
     
@@ -585,33 +599,43 @@ class MetricPreservationGoalProposal(GoalProposer):
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         # Log visualizations only at specified intervals to reduce wandb storage
-        if int(training_state.env_steps) % self.LOG_INTERVAL_STEPS == 0:
-            jax.experimental.io_callback(
-                MetricPreservationGoalProposal._log_goal_selection_viz,
-                None,
-                current_states,
-                candidate_goals,
-                env_goals,
-                best_g_indices,
-                best_h_indices,
-                energy_mats,
-                term1_mats,
-                term2_mats,
-                term3_mats,
-                kde_mats,
-                training_state.env_steps,
-                train_env.goal_indices,
-                train_env.x_bounds,
-                train_env.y_bounds
-            )
+        jax.experimental.io_callback(
+            MetricPreservationGoalProposal._log_goal_selection_viz,
+            None,
+            current_states,
+            candidate_goals,
+            env_goals,
+            best_g_indices,
+            best_h_indices,
+            energy_mats,
+            term1_mats,
+            term2_mats,
+            term3_mats,
+            kde_mats,
+            training_state.env_steps,
+            train_env.goal_indices,
+            train_env.x_bounds,
+            train_env.y_bounds,
+            self.LOG_INTERVAL_STEPS
+        )
 
         return proposed_goals, buffer_state
+    
+    # Class variable to track last log step
+    _last_logged_at = -500000
     
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
                               best_g_indices, best_h_indices, energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
-                              env_steps, goal_indices, x_bounds, y_bounds):
+                              env_steps, goal_indices, x_bounds, y_bounds, log_interval_steps):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
+        
+        # Only log if enough steps have passed since last log
+        current_step = int(env_steps)
+        if current_step - MetricPreservationGoalProposal._last_logged_at < log_interval_steps:
+            return
+        
+        MetricPreservationGoalProposal._last_logged_at = current_step
         
         # Randomly select 4 states to use in both visualizations
         num_states = current_states.shape[0]
