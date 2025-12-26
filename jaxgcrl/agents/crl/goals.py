@@ -61,6 +61,7 @@ class ReplayBufferGoalProposal(GoalProposer):
 @dataclass
 class FisherTraceGoalProposal(GoalProposer):
     energy_fn_name: str
+    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
@@ -83,76 +84,89 @@ class FisherTraceGoalProposal(GoalProposer):
         last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
         candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
-        def compute_grad_norms_for_state(state):
-            def grad_norm_for_goal(goal):
+        def compute_fisher_traces_for_state(state):
+            def fisher_trace_for_goal(goal):
                 obs = jnp.concatenate([state, goal])                
                 means, log_stds = actor.apply(actor_params, obs[None, :])
                 action = jnp.tanh(means[0])
-                
-                # Compute state-action representation (frozen, no grad needed)
                 sa_pair = jnp.concatenate([state, action])
-                phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pair[None, :])[0]
                 
-                def energy_wrt_goal(g):
-                    psi_g = g_encoder.apply(critic_params['g_encoder'], g[None, :])[0]
+                def log_q_value(phi_params, psi_params):
+                    """Energy output is already log Q-function"""
+                    phi_sa = sa_encoder.apply(phi_params, sa_pair[None, :])[0]
+                    psi_g = g_encoder.apply(psi_params, goal[None, :])[0]
                     return energy_fn(self.energy_fn_name, phi_sa, psi_g)
                 
-                # Compute gradient of energy w.r.t. goal
-                grad_energy = jax.grad(energy_wrt_goal)(goal)  # (goal_dim,)
+                grad_phi_params = jax.grad(lambda p: log_q_value(p, critic_params['g_encoder']))(
+                    critic_params['sa_encoder']
+                )
                 
-                # Return magnitude of gradient
-                grad_norm = jnp.sqrt(jnp.sum(grad_energy ** 2))
+                # Gradient w.r.t. psi (g_encoder) parameters
+                grad_psi_params = jax.grad(lambda p: log_q_value(critic_params['sa_encoder'], p))(
+                    critic_params['g_encoder']
+                )
                 
-                return grad_norm
+                # Flatten and compute squared norm of gradients
+                flat_grad_phi = jax.flatten_util.ravel_pytree(grad_phi_params)[0]
+                flat_grad_psi = jax.flatten_util.ravel_pytree(grad_psi_params)[0]
+                
+                # Fisher trace: sum of squared gradients across all parameters
+                fisher_trace_phi = jnp.sum(flat_grad_phi ** 2)
+                fisher_trace_psi = jnp.sum(flat_grad_psi ** 2)
+                
+                total_fisher_trace = fisher_trace_phi + fisher_trace_psi
+                
+                return total_fisher_trace
             
-            # Compute gradient norm for each candidate goal
-            grad_norms = jax.vmap(grad_norm_for_goal)(candidate_goals)  # (batch_size,)
+            # Compute Fisher trace for each candidate goal
+            fisher_traces = jax.vmap(fisher_trace_for_goal)(candidate_goals)  # (batch_size,)
             
-            return grad_norms
+            return fisher_traces
         
-        # Compute gradient norms for all states: (batch_size, num_candidate_goals)
-        all_grad_norms = jax.vmap(compute_grad_norms_for_state)(current_states)
+        # Compute Fisher traces for all states: (batch_size, num_candidate_goals)
+        all_fisher_traces = jax.vmap(compute_fisher_traces_for_state)(current_states)
         
-        # For each state, select the candidate goal with the largest gradient norm
-        best_goal_indices = jnp.argmax(all_grad_norms, axis=1)  # (batch_size,)
+        # For each state, select the candidate goal with the largest Fisher trace
+        best_goal_indices = jnp.argmax(all_fisher_traces, axis=1)  # (batch_size,)
         proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_size)
         
-        # Log gradient norm statistics with visualization
-        jax.experimental.io_callback(
-            FisherTraceGoalProposal._log_gradient_norm_statistics,
-            None,
-            all_grad_norms,
-            candidate_goals,
-            current_states,
-            train_env.goal_indices,
-            training_state.env_steps
-        )
+        # Log Fisher trace statistics with visualization only at specified intervals
+        if int(training_state.env_steps) % self.LOG_INTERVAL_STEPS == 0:
+            jax.experimental.io_callback(
+                FisherTraceGoalProposal._log_fisher_trace_statistics,
+                None,
+                all_fisher_traces,
+                candidate_goals,
+                current_states,
+                train_env.goal_indices,
+                training_state.env_steps
+            )
         
         return proposed_goals, buffer_state
     
     @staticmethod
-    def _log_gradient_norm_statistics(all_grad_norms, candidate_goals, current_states, goal_indices, env_steps):
-        # all_grad_norms: (batch_size, num_candidates)
-        max_norms_per_state = jnp.max(all_grad_norms, axis=1)  # (batch_size,)
+    def _log_fisher_trace_statistics(all_fisher_traces, candidate_goals, current_states, goal_indices, env_steps):
+        # all_fisher_traces: (batch_size, num_candidates)
+        max_traces_per_state = jnp.max(all_fisher_traces, axis=1)  # (batch_size,)
         
         metrics = {
-            'fisher_trace/max_grad_norm_mean': float(jnp.mean(max_norms_per_state)),
-            'fisher_trace/max_grad_norm_std': float(jnp.std(max_norms_per_state)),
-            'fisher_trace/max_grad_norm_max': float(jnp.max(max_norms_per_state)),
-            'fisher_trace/max_grad_norm_min': float(jnp.min(max_norms_per_state)),
+            'fisher_trace/max_trace_mean': float(jnp.mean(max_traces_per_state)),
+            'fisher_trace/max_trace_std': float(jnp.std(max_traces_per_state)),
+            'fisher_trace/max_trace_max': float(jnp.max(max_traces_per_state)),
+            'fisher_trace/max_trace_min': float(jnp.min(max_traces_per_state)),
         }
         
-        # Create visualization of gradient norm maps
-        pil_image = FisherTraceGoalProposal._create_grad_norm_heatmaps(all_grad_norms, candidate_goals, current_states, goal_indices)
+        # Create visualization of Fisher trace maps
+        pil_image = FisherTraceGoalProposal._create_fisher_trace_heatmaps(all_fisher_traces, candidate_goals, current_states, goal_indices)
         if pil_image is not None:
-            metrics['fisher_trace/grad_norm_heatmaps'] = wandb.Image(pil_image)
+            metrics['fisher_trace/trace_heatmaps'] = wandb.Image(pil_image)
         
         wandb.log(metrics, step=int(env_steps))
     
     @staticmethod
-    def _create_grad_norm_heatmaps(all_grad_norms, candidate_goals, current_states, goal_indices):
-        batch_size = all_grad_norms.shape[0]
-        num_candidates = all_grad_norms.shape[1]
+    def _create_fisher_trace_heatmaps(all_fisher_traces, candidate_goals, current_states, goal_indices):
+        batch_size = all_fisher_traces.shape[0]
+        num_candidates = all_fisher_traces.shape[1]
         
         # Extract goal portion from current states
         current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
@@ -167,23 +181,23 @@ class FisherTraceGoalProposal(GoalProposer):
         for plot_idx, state_idx in enumerate(random_state_indices):
             ax = axes[plot_idx]
             
-            grad_norms = all_grad_norms[state_idx]  # (num_candidates,)
+            fisher_traces = all_fisher_traces[state_idx]  # (num_candidates,)
             current_goal = current_goals[state_idx]  # (goal_dim,)
             
-            # Color by gradient norm value
+            # Color by Fisher trace value
             scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                                c=grad_norms, cmap='hot', s=150, alpha=0.8,
+                                c=fisher_traces, cmap='hot', s=150, alpha=0.8,
                                 edgecolors='black', linewidths=0.5, label='Candidate Goals')
             # Plot the current state as a star
             ax.scatter(current_goal[0], current_goal[1], c='cyan', s=400, marker='*',
                         edgecolors='black', linewidths=2, zorder=5, label='Current State')
         
-            plt.colorbar(scatter, ax=ax, label='Gradient Norm')
+            plt.colorbar(scatter, ax=ax, label='Fisher Trace')
             
-            max_norm_idx = int(np.argmax(grad_norms))
-            max_norm_val = float(np.max(grad_norms))
+            max_trace_idx = int(np.argmax(fisher_traces))
+            max_trace_val = float(np.max(fisher_traces))
             
-            ax.set_title(f'State {state_idx}: Max Grad Norm = {max_norm_val:.4f} (Goal {max_norm_idx})',
+            ax.set_title(f'State {state_idx}: Max Fisher Trace = {max_trace_val:.4f} (Goal {max_trace_idx})',
                         fontsize=11, fontweight='bold')
             ax.grid(True, alpha=0.3)
             ax.legend(loc='upper right', fontsize=9)
@@ -384,6 +398,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     use_kde_correction: bool = False
     use_waypoint_difficulty: bool = True
     zero_out_cand_goals: bool = True
+    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,
@@ -569,24 +584,26 @@ class MetricPreservationGoalProposal(GoalProposer):
 
         proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
-        jax.experimental.io_callback(
-            MetricPreservationGoalProposal._log_goal_selection_viz,
-            None,
-            current_states,
-            candidate_goals,
-            env_goals,
-            best_g_indices,
-            best_h_indices,
-            energy_mats,
-            term1_mats,
-            term2_mats,
-            term3_mats,
-            kde_mats,
-            training_state.env_steps,
-            train_env.goal_indices,
-            train_env.x_bounds,
-            train_env.y_bounds
-        )
+        # Log visualizations only at specified intervals to reduce wandb storage
+        if int(training_state.env_steps) % self.LOG_INTERVAL_STEPS == 0:
+            jax.experimental.io_callback(
+                MetricPreservationGoalProposal._log_goal_selection_viz,
+                None,
+                current_states,
+                candidate_goals,
+                env_goals,
+                best_g_indices,
+                best_h_indices,
+                energy_mats,
+                term1_mats,
+                term2_mats,
+                term3_mats,
+                kde_mats,
+                training_state.env_steps,
+                train_env.goal_indices,
+                train_env.x_bounds,
+                train_env.y_bounds
+            )
 
         return proposed_goals, buffer_state
     
