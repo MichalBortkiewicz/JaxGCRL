@@ -678,16 +678,6 @@ class TD3:
             last_batch = jax.tree_util.tree_map(lambda x: x[-1], transitions)
             return training_state, buffer_state, metrics, last_batch
 
-        def scan_train_steps(n, ts, bs, update_key):
-            def body(carry, unused_t):
-                ts, bs, update_key, _ = carry  # Unpack 4 values including previous last_batch
-                new_key, update_key = jax.random.split(update_key)
-                ts, bs, metrics, last_batch = train_steps(ts, bs, update_key)
-                return (ts, bs, new_key, last_batch), metrics
-
-            (ts, bs, new_key, last_batch), metrics_scan = jax.lax.scan(body, (ts, bs, update_key, None), (), length=n)
-            return (ts, bs, new_key), metrics_scan, last_batch
-
         def training_epoch(
             training_state: TrainingState,
             env_state: envs.State,
@@ -698,7 +688,19 @@ class TD3:
                 ts, es, bs, k = carry
                 k, new_key, update_key = jax.random.split(k, 3)
                 ts, es, bs, metrics = training_step(ts, es, bs, k)
-                (ts, bs, update_key), _, last_batch = scan_train_steps(self.train_step_multiplier - 1, ts, bs, update_key)
+                
+                # Run train_steps for train_step_multiplier times
+                def scan_body(carry, unused):
+                    ts, bs, update_key = carry
+                    new_key, update_key = jax.random.split(update_key)
+                    ts, bs, step_metrics, last_batch = train_steps(ts, bs, update_key)
+                    return (ts, bs, new_key), last_batch
+                
+                (ts, bs, _), last_batches = jax.lax.scan(
+                    scan_body, (ts, bs, update_key), (), length=self.train_step_multiplier
+                )
+                # Take the last batch from the scan
+                last_batch = jax.tree_util.tree_map(lambda x: x[-1], last_batches)
                 return (ts, es, bs, new_key), (metrics, last_batch)
 
             (training_state, env_state, buffer_state, key), (metrics, last_batches) = jax.lax.scan(
