@@ -218,6 +218,8 @@ class TD3:
     smoothing_noise: int = 0.2
     exploration_noise: float = 0.4
     use_her: bool = False
+    h_dim: int = 256
+    n_hidden: int = 4
     # Proportion of goals coming from goal proposer (random mixing)
     goal_proposal_prob: float = 0.0
     # Which goal proposer to use
@@ -307,6 +309,7 @@ class TD3:
             observation_size=obs_size,
             action_size=action_size,
             preprocess_observations_fn=normalize_fn,
+            hidden_layer_sizes=[self.h_dim] * self.n_hidden,
         )
         make_policy = networks.make_inference_fn(td3_network)
 
