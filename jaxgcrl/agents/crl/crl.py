@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, mix_goals
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -499,7 +499,7 @@ class CRL:
                 )
                 return (env_state, next_key, proposed_goals, was_proposed_goal_mask), transition
 
-            key, proposal_key = jax.random.split(key)
+            key, proposal_key, mix_key = jax.random.split(key, 3)
             
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
@@ -522,8 +522,8 @@ class CRL:
             else:
                 curr_goal_proposal_prob = self.goal_proposal_prob
 
-            use_proposed_mask = jax.random.bernoulli(key, curr_goal_proposal_prob, shape=(new_goals.shape[0], 1))
-            mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
+            # Use shared mix_goals helper
+            mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, curr_goal_proposal_prob, mix_key)
 
             proposed_goals = jax.lax.cond(
                 training_state.env_steps >= self.goal_proposal_warmup_steps,

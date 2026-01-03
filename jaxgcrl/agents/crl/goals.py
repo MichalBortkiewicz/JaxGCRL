@@ -1,61 +1,44 @@
-from abc import ABC, abstractmethod
+"""CRL-specific goal proposal algorithms.
+
+This module extends the base goal proposers from jaxgcrl.utils.goals with
+CRL-specific proposers that use contrastive learning networks.
+"""
+import io
+
 import jax
 import jax.numpy as jnp
-from flax.struct import dataclass
-from jaxgcrl.agents.crl.losses import energy_fn
 import matplotlib.pyplot as plt
-import wandb
-from PIL import Image
-import io
 import numpy as np
+import wandb
+from flax.struct import dataclass
+from PIL import Image
 
-@dataclass
-class GoalProposer(ABC):
-    @abstractmethod
-    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
-                     actor_params, critic_params, sa_encoder, g_encoder):
-        '''Goal proposal algorithm. This should return a (batch_size, goal_size) array of proposed goals.
-        
-        Args:
-            replay_buffer: Replay buffer to sample from
-            buffer_state: Current buffer state
-            train_env: Training environment
-            env_state: Current environment state (contains current observations)
-            key: JAX random key
-            actor: Actor network
-            actor_params: Actor parameters
-            critic_params: Critic parameters
-            sa_encoder: State-action encoder
-            g_encoder: Goal encoder
-            
-        Returns:
-            proposed_goals: (batch_size, goal_size) array of proposed goals
-            buffer_state: Updated buffer state
-        '''
-        pass
+from jaxgcrl.agents.crl.losses import energy_fn
+# Import base classes and utilities from shared module
+from jaxgcrl.utils.goals import (
+    GoalProposer,
+    ReplayBufferGoalProposal as BaseReplayBufferGoalProposal,
+    mix_goals,
+)
+
+# Re-export for convenience
+__all__ = ['GoalProposer', 'ReplayBufferGoalProposal', 'FisherTraceGoalProposal', 
+           'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'mix_goals']
 
 
-@dataclass
+@dataclass 
 class ReplayBufferGoalProposal(GoalProposer):
+    """CRL-compatible wrapper for ReplayBufferGoalProposal.
+    
+    Accepts CRL-specific arguments but delegates to base implementation.
+    """
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
-        buffer_state, sampled_transitions = replay_buffer.sample(buffer_state)
-        traj_ids = sampled_transitions.extras["state_extras"]["traj_id"]  # (num_envs, episode_length)
-        observations = sampled_transitions.observation  # (num_envs, episode_length, obs_size)
-        
-        def get_last_state(obs_seq, traj_id_seq):
-            """Get the last state for each trajectory"""
-            seq_len = obs_seq.shape[0]
-            mask = traj_id_seq == traj_id_seq[0]
-            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-            return obs_seq[last_idx]
-        
-        # Extract last states for each batch element
-        last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (batch_size, state_size)
-        # Extract goal positions from these last states
-        proposed_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
-        
-        return proposed_goals, buffer_state
+        # Delegate to base proposer, ignoring CRL-specific params
+        base_proposer = BaseReplayBufferGoalProposal()
+        return base_proposer.propose_goals(
+            replay_buffer, buffer_state, train_env, env_state, key
+        )
 
 
 @dataclass

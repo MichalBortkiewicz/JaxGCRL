@@ -17,7 +17,7 @@
 import functools
 import logging
 import time
-from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -35,6 +35,12 @@ from flax.struct import dataclass
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import Evaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
+from jaxgcrl.utils.goals import (
+    GoalProposer,
+    ReplayBufferGoalProposal,
+    create_goal_proposer,
+    mix_goals,
+)
 
 from . import losses as losses
 from . import networks as networks
@@ -212,6 +218,10 @@ class TD3:
     smoothing_noise: int = 0.2
     exploration_noise: float = 0.4
     use_her: bool = False
+    # Proportion of goals coming from goal proposer (random mixing)
+    goal_proposal_prob: float = 0.0
+    # Which goal proposer to use (currently only replay_buffer supported)
+    goal_proposer_name: Literal["replay_buffer"] = "replay_buffer"
 
     def train_fn(
         self,
@@ -422,6 +432,9 @@ class TD3:
             )
             return (new_training_state, key), metrics
 
+        # Initialize goal proposer
+        goal_proposer = create_goal_proposer(self.goal_proposer_name)
+
         def get_experience(
             normalizer_params: running_statistics.RunningStatisticsState,
             policy_params: Params,
@@ -439,10 +452,41 @@ class TD3:
                 noise_clip=self.noise_clip,
             )
 
+            # Goal mixing using goal proposer framework
+            key, proposal_key, mix_key = jax.random.split(key, 3)
+            original_goals = env_state.obs[:, unwrapped_env.state_dim:]
+            
+            # Sample proposed goals from goal proposer if buffer has data
+            buffer_size = replay_buffer.size(buffer_state)
+            def sample_proposed_goals(args):
+                buffer_state, proposal_key = args
+                proposed_goals, _ = goal_proposer.propose_goals(
+                    replay_buffer, buffer_state, unwrapped_env, env_state, proposal_key
+                )
+                return proposed_goals
+            
+            def use_original_goals(args):
+                return original_goals
+            
+            new_goals = jax.lax.cond(
+                buffer_size > 0,
+                sample_proposed_goals,
+                use_original_goals,
+                (buffer_state, proposal_key)
+            )
+            
+            # Mix goals based on goal_proposal_prob
+            mixed_goals, _ = mix_goals(original_goals, new_goals, self.goal_proposal_prob, mix_key)
+
             @jax.jit
             def f(carry, unused_t):
-                env_state, current_key = carry
+                env_state, current_key, proposed_goals = carry
                 current_key, next_key = jax.random.split(current_key)
+                
+                # Overwrite goals in observation with proposed goals (must be done each step)
+                new_obs = jnp.concatenate([env_state.obs[:, :unwrapped_env.state_dim], proposed_goals], axis=1)
+                env_state = env_state.replace(obs=new_obs)
+                
                 env_state, transition = actor_step(
                     env,
                     env_state,
@@ -453,9 +497,9 @@ class TD3:
                         "traj_id",
                     ),
                 )
-                return (env_state, next_key), transition
+                return (env_state, next_key, proposed_goals), transition
 
-            (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
+            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, mixed_goals), (), length=self.unroll_length)
 
             normalizer_params = running_statistics.update(
                 normalizer_params,
