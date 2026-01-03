@@ -609,7 +609,7 @@ class TD3:
                 env_steps=training_state.env_steps + env_steps_per_actor_step,
             )
 
-            training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
+            training_state, buffer_state, metrics, _ = train_steps(training_state, buffer_state, training_key)
             return training_state, env_state, buffer_state, metrics
 
         def prefill_replay_buffer(
@@ -679,8 +679,8 @@ class TD3:
             return training_state, buffer_state, metrics, last_batch
 
         def scan_train_steps(n, ts, bs, update_key):
-            def body(carry, unsued_t):
-                ts, bs, update_key = carry
+            def body(carry, unused_t):
+                ts, bs, update_key, _ = carry  # Unpack 4 values including previous last_batch
                 new_key, update_key = jax.random.split(update_key)
                 ts, bs, metrics, last_batch = train_steps(ts, bs, update_key)
                 return (ts, bs, new_key, last_batch), metrics
@@ -767,6 +767,7 @@ class TD3:
             
             state_dim = train_env.state_dim
             states = obs[:, :state_dim]  # (batch_size, state_dim)
+            final_states = next_obs[:, :state_dim]  # (batch_size, state_dim) - always extract
             
             total_samples = states.shape[0]
             if num_samples > total_samples:
@@ -783,7 +784,6 @@ class TD3:
                 final_xy = np.array(last_traj_state[sample_indices][:, train_env.goal_indices])
                 intermediate_xy = np.array(intermediate_traj[sample_indices][:, :, train_env.goal_indices])
             else:
-                final_states = next_obs[:, :state_dim]
                 final_xy = np.array(final_states[sample_indices][:, train_env.goal_indices])
                 intermediate_xy = None
             
@@ -912,10 +912,18 @@ class TD3:
             # Optimization
             epoch_key, local_key = jax.random.split(local_key)
             epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
-            (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
+            (training_state, env_state, buffer_state, training_metrics, last_batch) = training_epoch_with_timing(
                 training_state, env_state, buffer_state, epoch_keys
             )
             current_step = int(_unpmap(training_state.env_steps))
+
+            # Visualize goals every epoch (like CRL)
+            vis_batch = _unpmap(last_batch)
+            visualize_goals(
+                unwrapped_env, vis_batch,
+                _unpmap(training_state), td3_network,
+                num_samples=5, wandb_key="training"
+            )
 
             # Eval and logging
             if process_id == 0:
@@ -930,6 +938,8 @@ class TD3:
                     _unpmap((training_state.normalizer_params, training_state.policy_params)),
                     training_metrics,
                 )
+                logging.info("step: %d", current_step)
+
                 do_render = (eval_epoch_num % config.visualization_interval) == 0
                 progress_fn(
                     current_step,
