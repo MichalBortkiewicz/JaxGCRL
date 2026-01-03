@@ -385,6 +385,8 @@ class TD3:
 
         dummy_obs = jnp.zeros((obs_size,))
         dummy_action = jnp.zeros((action_size,))
+        # Goal dimension is obs_size - state_dim
+        goal_dim = obs_size - unwrapped_env.state_dim
         dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
             observation=dummy_obs,
             next_observation=dummy_obs,
@@ -397,6 +399,7 @@ class TD3:
                     "traj_id": 0.0,
                 },
                 "policy_extras": {},
+                "proposed_goals": jnp.zeros((goal_dim,)),
             },
         )
         replay_buffer = jit_wrap(
