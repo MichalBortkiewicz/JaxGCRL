@@ -220,7 +220,7 @@ class TD3:
     use_her: bool = False
     # Proportion of goals coming from goal proposer (random mixing)
     goal_proposal_prob: float = 0.0
-    # Which goal proposer to use (currently only replay_buffer supported)
+    # Which goal proposer to use
     goal_proposer_name: Literal["replay_buffer"] = "replay_buffer"
 
     def train_fn(
