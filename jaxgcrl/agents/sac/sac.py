@@ -20,7 +20,7 @@ See: https://arxiv.org/pdf/1812.05905.pdf
 import functools
 import logging
 import time
-from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,12 @@ from flax.struct import dataclass
 
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import Evaluator
+from jaxgcrl.utils.goals import (
+    GoalProposer,
+    ReplayBufferGoalProposal,
+    create_goal_proposer,
+    mix_goals,
+)
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from . import networks
@@ -212,11 +218,15 @@ class SAC:
     train_step_multiplier: int = 1
     unroll_length: int = 50
     h_dim: int = 256
-    n_hidden: int = 2
+    n_hidden: int = 4
     # layer norm
     use_ln: bool = False
     # hindsight experience replay
     use_her: bool = False
+    # Proportion of goals coming from goal proposer (random mixing)
+    goal_proposal_prob: float = 0.0
+    # Which goal proposer to use
+    goal_proposer_name: Literal["replay_buffer"] = "replay_buffer"
 
     def train_fn(
         self,
@@ -312,6 +322,8 @@ class SAC:
 
         dummy_obs = jnp.zeros((obs_size,))
         dummy_action = jnp.zeros((action_size,))
+        # Goal dimension is obs_size - state_dim
+        goal_dim = obs_size - unwrapped_env.state_dim
         dummy_transition = Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
             observation=dummy_obs,
             next_observation=dummy_obs,
@@ -324,6 +336,7 @@ class SAC:
                     "traj_id": 0.0,
                 },
                 "policy_extras": {},
+                "proposed_goals": jnp.zeros((goal_dim,)),
             },
         )
         replay_buffer = jit_wrap(
@@ -351,6 +364,9 @@ class SAC:
         actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
             actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
         )
+
+        # Initialize goal proposer
+        goal_proposer = create_goal_proposer(self.goal_proposer_name)
 
         def update_step(
             carry: Tuple[TrainingState, PRNGKey], transitions: Transition
@@ -428,10 +444,41 @@ class SAC:
         ]:
             policy = make_policy((normalizer_params, policy_params))
 
+            # Goal mixing using goal proposer framework
+            key, proposal_key, mix_key = jax.random.split(key, 3)
+            original_goals = env_state.obs[:, unwrapped_env.state_dim:]
+            
+            # Sample proposed goals from goal proposer if buffer has data
+            buffer_size = replay_buffer.size(buffer_state)
+            def sample_proposed_goals(args):
+                buffer_state, proposal_key = args
+                proposed_goals, _ = goal_proposer.propose_goals(
+                    replay_buffer, buffer_state, unwrapped_env, env_state, proposal_key
+                )
+                return proposed_goals
+            
+            def use_original_goals(args):
+                return original_goals
+            
+            new_goals = jax.lax.cond(
+                buffer_size > 0,
+                sample_proposed_goals,
+                use_original_goals,
+                (buffer_state, proposal_key)
+            )
+            
+            # Mix goals based on goal_proposal_prob
+            mixed_goals, _ = mix_goals(original_goals, new_goals, self.goal_proposal_prob, mix_key)
+
             @jax.jit
             def f(carry, unused_t):
-                env_state, current_key = carry
+                env_state, current_key, proposed_goals = carry
                 current_key, next_key = jax.random.split(current_key)
+                
+                # Overwrite goals in observation with proposed goals (must be done each step)
+                new_obs = jnp.concatenate([env_state.obs[:, :unwrapped_env.state_dim], proposed_goals], axis=1)
+                env_state = env_state.replace(obs=new_obs)
+                
                 env_state, transition = actor_step(
                     env,
                     env_state,
@@ -442,9 +489,15 @@ class SAC:
                         "traj_id",
                     ),
                 )
-                return (env_state, next_key), transition
+                # Add proposed goals to extras for visualization
+                enhanced_extras = {
+                    **transition.extras,
+                    "proposed_goals": proposed_goals,
+                }
+                transition = transition._replace(extras=enhanced_extras)
+                return (env_state, next_key, proposed_goals), transition
 
-            (env_state, _), data = jax.lax.scan(f, (env_state, key), (), length=self.unroll_length)
+            (env_state, _, _), data = jax.lax.scan(f, (env_state, key, mixed_goals), (), length=self.unroll_length)
 
             normalizer_params = running_statistics.update(
                 normalizer_params,
