@@ -595,7 +595,7 @@ class SAC:
                 env_steps=training_state.env_steps + env_steps_per_actor_step,
             )
 
-            training_state, buffer_state, metrics = train_steps(training_state, buffer_state, training_key)
+            training_state, buffer_state, metrics, _ = train_steps(training_state, buffer_state, training_key)
             return training_state, env_state, buffer_state, metrics
 
         def prefill_replay_buffer(
