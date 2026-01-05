@@ -228,10 +228,19 @@ def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_p
     
     # Encode state-action pairs
     sa_pairs = np.concatenate([state_expanded, actions], axis=1)  # (grid_resolution^2, state_dim + action_dim)
-    phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pairs)  # (grid_resolution^2, repr_dim)
+    
+    # Handle both single critic and ensemble cases
+    sa_encoder_params = critic_params['sa_encoder']
+    g_encoder_params = critic_params['g_encoder']
+    if isinstance(sa_encoder_params, list):
+        # Ensemble case: use first critic for visualization
+        sa_encoder_params = sa_encoder_params[0]
+        g_encoder_params = g_encoder_params[0]
+    
+    phi_sa = sa_encoder.apply(sa_encoder_params, sa_pairs)  # (grid_resolution^2, repr_dim)
     
     # Encode all goals in batch
-    psi_g = g_encoder.apply(critic_params['g_encoder'], goals_grid)  # (grid_resolution^2, repr_dim)
+    psi_g = g_encoder.apply(g_encoder_params, goals_grid)  # (grid_resolution^2, repr_dim)
 
     q_values = energy_fn(energy_fn_name, phi_sa, psi_g)
     
