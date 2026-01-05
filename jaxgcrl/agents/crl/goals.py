@@ -455,6 +455,24 @@ class QEpistemicGoalProposal(GoalProposer):
         num_candidates = candidate_goals.shape[0]
         num_ensemble = self.num_ensemble
         
+        # Stack ensemble parameters into arrays for JAX-compatible indexing
+        # This converts list of pytrees into a pytree of stacked arrays
+        stacked_sa_params = jax.tree_util.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), 
+            *critic_params['sa_encoder']
+        )
+        stacked_g_params = jax.tree_util.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), 
+            *critic_params['g_encoder']
+        )
+        
+        def compute_q_for_single_critic(sa_params, g_params, sa_pairs, goals):
+            """Compute Q-values for a single critic."""
+            phi_sa = sa_encoder.apply(sa_params, sa_pairs)  # (num_candidates, repr_dim)
+            psi_g = g_encoder.apply(g_params, goals)  # (num_candidates, repr_dim)
+            q_values = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (num_candidates,)
+            return q_values
+        
         def compute_q_std_for_state(state):
             """For a single state, compute Q-value std across ensemble for all candidate goals.
             
@@ -475,20 +493,11 @@ class QEpistemicGoalProposal(GoalProposer):
             # Compute state-action pairs
             sa_pairs = jnp.concatenate([state_expanded, actions], axis=1)
             
-            def compute_q_for_ensemble_member(i):
-                """Compute Q-values for one ensemble member."""
-                sa_params = critic_params['sa_encoder'][i]
-                g_params = critic_params['g_encoder'][i]
-                
-                phi_sa = sa_encoder.apply(sa_params, sa_pairs)  # (num_candidates, repr_dim)
-                psi_g = g_encoder.apply(g_params, candidate_goals)  # (num_candidates, repr_dim)
-                
-                # Compute Q-values (energy function)
-                q_values = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (num_candidates,)
-                return q_values
-            
-            # Compute Q-values for all ensemble members
-            all_q_values = jax.vmap(compute_q_for_ensemble_member)(jnp.arange(num_ensemble))  # (num_ensemble, num_candidates)
+            # Compute Q-values for all ensemble members using vmap over the stacked params
+            # vmap over the first axis (ensemble dimension) of the stacked params
+            all_q_values = jax.vmap(
+                lambda sa_p, g_p: compute_q_for_single_critic(sa_p, g_p, sa_pairs, candidate_goals)
+            )(stacked_sa_params, stacked_g_params)  # (num_ensemble, num_candidates)
             
             # Compute standard deviation across ensemble for each candidate goal
             q_stds = jnp.std(all_q_values, axis=0)  # (num_candidates,)
