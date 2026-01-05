@@ -49,7 +49,6 @@ from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 from jaxgcrl.utils.visualize import (
     visualize_sac_goals_2d,
     visualize_kde_heatmap,
-    visualize_sac_q_function_2d,
 )
 
 from . import networks
@@ -789,21 +788,6 @@ class SAC:
                 f"{wandb_key}/achieved_states_heatmap",
                 x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
             )
-            
-            # Visualize Q-functions for a few samples
-            for i in range(min(3, num_samples)):
-                idx = sample_indices[i]
-                visualize_sac_q_function_2d(
-                    sac_network.policy_network,
-                    sac_network.q_network,
-                    training_state.normalizer_params,
-                    training_state.policy_params,
-                    training_state.q_params,
-                    np.array(states[idx]),
-                    train_env.goal_indices,
-                    train_env.x_bounds, train_env.y_bounds,
-                    f"{wandb_key}/q_function_sample_{i}",
-                )
             
             logging.info(f"Plotted SAC visualizations at env step {training_state.env_steps.item()}")
 
