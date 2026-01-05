@@ -24,6 +24,7 @@ from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from brax import base, envs
 from brax.io import model
@@ -45,6 +46,11 @@ from jaxgcrl.utils.goals import (
     mix_goals,
 )
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
+from jaxgcrl.utils.visualize import (
+    visualize_sac_goals_2d,
+    visualize_kde_heatmap,
+    visualize_sac_q_function_2d,
+)
 
 from . import networks
 
@@ -92,8 +98,69 @@ ReplayBufferState = Any
 _PMAP_AXIS_NAME = "i"
 
 
+def get_last_traj_state(obs, traj_ids):
+    """Returns the last state of each trajectory for each timestep."""
+    seq_len = obs.shape[0]
+    def last_state_for_t(i):
+        mask = traj_ids == traj_ids[i]
+        last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+        return obs[last_idx]
+    return jax.vmap(last_state_for_t)(jnp.arange(seq_len))
+
+
+def get_intermediate_trajectory_states(obs, traj_ids, num_intermediate=6):
+    """Returns evenly spaced states along the remaining trajectory for each timestep."""
+    seq_len = obs.shape[0]
+    obs_dim = obs.shape[1]
+    
+    def intermediate_states_for_t(i):
+        # Mask for same trajectory AND future timesteps (including current)
+        same_traj_mask = traj_ids == traj_ids[i]
+        future_mask = jnp.arange(seq_len) >= i
+        mask = same_traj_mask & future_mask
+
+        # Get sorted valid indices for future steps
+        indices = jnp.where(mask, jnp.arange(seq_len), seq_len)
+        sorted_indices = jnp.sort(indices)
+        num_future = jnp.sum(mask)
+
+        # Compute evenly spaced fractional positions in (0, 1)
+        fractions = (jnp.arange(1, num_intermediate + 1) / (num_intermediate + 1))
+
+        # Map fractions to integer positions within the valid range
+        idxs = jnp.floor(fractions * num_future).astype(jnp.int32)
+        idxs = jnp.clip(idxs, 0, jnp.maximum(num_future - 1, 0))
+
+        # Gather actual indices in the trajectory
+        actual_idxs = sorted_indices[idxs]
+
+        # Get the corresponding future states (with padding for no valid futures)
+        def get_state(idx):
+            return jnp.where(num_future > 0, obs[idx], jnp.zeros(obs_dim))
+
+        states = jax.vmap(get_state)(actual_idxs)
+        return states
+            
+    return jax.vmap(intermediate_states_for_t)(jnp.arange(seq_len))
+
+
 @functools.partial(jax.jit, static_argnames=["config", "env"])
 def flatten_batch(config, env, transition: Transition, sample_key: PRNGKey) -> Transition:
+    seq_len = transition.observation.shape[0]
+    traj_ids = transition.extras["state_extras"]["traj_id"]
+    
+    # Compute trajectory information for visualization
+    last_traj_state = get_last_traj_state(transition.observation, traj_ids)
+    intermediate_traj = get_intermediate_trajectory_states(transition.observation, traj_ids)
+    
+    # Add trajectory info to extras
+    enhanced_extras = {
+        **transition.extras,
+        "last_traj_state": last_traj_state,
+        "intermediate_traj": intermediate_traj,
+    }
+    transition = transition._replace(extras=enhanced_extras)
+    
     if config.use_her:
         # Find truncation indexes if present
         seq_len = transition.observation.shape[0]
@@ -591,14 +658,17 @@ class SAC:
             (training_state, _), metrics = jax.lax.scan(
                 update_step, (training_state, training_key), transitions
             )
-            return training_state, buffer_state, metrics
+            
+            # Return last batch of transitions for visualization
+            last_batch = jax.tree_util.tree_map(lambda x: x[-1], transitions)
+            return training_state, buffer_state, metrics, last_batch
 
         def scan_train_steps(n, ts, bs, update_key):
             def body(carry, unsued_t):
                 ts, bs, update_key = carry
                 new_key, update_key = jax.random.split(update_key)
-                ts, bs, metrics = train_steps(ts, bs, update_key)
-                return (ts, bs, new_key), metrics
+                ts, bs, metrics, last_batch = train_steps(ts, bs, update_key)
+                return (ts, bs, new_key), last_batch
 
             return jax.lax.scan(body, (ts, bs, update_key), (), length=n)
 
@@ -607,23 +677,37 @@ class SAC:
             env_state: envs.State,
             buffer_state: ReplayBufferState,
             key: PRNGKey,
-        ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
+        ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics, Transition]:
             def f(carry, unused_t):
                 ts, es, bs, k = carry
                 k, new_key, update_key = jax.random.split(k, 3)
                 ts, es, bs, metrics = training_step(ts, es, bs, k)
-                (ts, bs, update_key), _ = scan_train_steps(self.train_step_multiplier - 1, ts, bs, update_key)
-                return (ts, es, bs, new_key), metrics
+                
+                # Run train_steps for train_step_multiplier times
+                def scan_body(carry, unused):
+                    ts, bs, update_key = carry
+                    new_key, update_key = jax.random.split(update_key)
+                    ts, bs, step_metrics, last_batch = train_steps(ts, bs, update_key)
+                    return (ts, bs, new_key), last_batch
+                
+                (ts, bs, _), last_batches = jax.lax.scan(
+                    scan_body, (ts, bs, update_key), (), length=self.train_step_multiplier
+                )
+                # Take the last batch from the scan
+                last_batch = jax.tree_util.tree_map(lambda x: x[-1], last_batches)
+                return (ts, es, bs, new_key), (metrics, last_batch)
 
-            (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
+            (training_state, env_state, buffer_state, key), (metrics, last_batches) = jax.lax.scan(
                 f,
                 (training_state, env_state, buffer_state, key),
                 (),
                 length=num_training_steps_per_epoch,
             )
+            # Take the last batch from the scan for visualization
+            last_batch = jax.tree_util.tree_map(lambda x: x[-1], last_batches)
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-            return training_state, env_state, buffer_state, metrics
+            return training_state, env_state, buffer_state, metrics, last_batch
 
         training_epoch = jax.pmap(training_epoch, axis_name=_PMAP_AXIS_NAME)
 
@@ -633,10 +717,10 @@ class SAC:
             env_state: envs.State,
             buffer_state: ReplayBufferState,
             key: PRNGKey,
-        ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
+        ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics, Transition]:
             nonlocal training_walltime
             t = time.time()
-            (training_state, env_state, buffer_state, metrics) = training_epoch(
+            (training_state, env_state, buffer_state, metrics, last_batch) = training_epoch(
                 training_state, env_state, buffer_state, key
             )
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
@@ -655,7 +739,73 @@ class SAC:
                 env_state,
                 buffer_state,
                 metrics,
+                last_batch,
             )  # pytype: disable=bad-return-type  # py311-upgrade
+        
+        def visualize_goals(train_env, transitions, training_state, sac_network, num_samples, wandb_key):
+            '''Visualize SAC goal proposals and Q-functions.'''
+            # Extract data from transitions
+            obs = transitions.observation  # (batch_size, obs_dim)
+            next_obs = transitions.next_observation  # (batch_size, obs_dim)
+            
+            # Extract from extras
+            proposed_goals = transitions.extras["proposed_goals"]  # (batch_size, goal_dim)
+            intermediate_traj = transitions.extras["intermediate_traj"]  # (batch_size, num_intermediate, obs_dim)
+            last_traj_state = transitions.extras["last_traj_state"]  # (batch_size, obs_dim)
+            
+            state_dim = train_env.state_dim
+            states = obs[:, :state_dim]  # (batch_size, state_dim)
+            final_states = next_obs[:, :state_dim]  # (batch_size, state_dim)
+            
+            total_samples = states.shape[0]
+            if num_samples > total_samples:
+                num_samples = total_samples
+            
+            sample_indices = np.random.choice(total_samples, num_samples, replace=False)
+            
+            # Extract 2D goal positions for visualization
+            start_xy = np.array(states[sample_indices][:, train_env.goal_indices])
+            proposed_xy = np.array(proposed_goals[sample_indices])
+            final_xy = np.array(last_traj_state[sample_indices][:, train_env.goal_indices])
+            intermediate_xy = np.array(intermediate_traj[sample_indices][:, :, train_env.goal_indices])
+            
+            # Visualize goal proposals (shows start, proposed goal, and final achieved state with trajectory)
+            visualize_sac_goals_2d(
+                start_xy, proposed_xy, final_xy,
+                f"{wandb_key}/goal_proposals",
+                intermediate_xy=intermediate_xy,
+                x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
+            )
+            
+            # Visualize heatmaps
+            visualize_kde_heatmap(
+                np.array(proposed_goals), "Proposed Goals",
+                f"{wandb_key}/proposed_goal_heatmap",
+                x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
+            )
+            
+            visualize_kde_heatmap(
+                np.array(final_states[:, train_env.goal_indices]), "Achieved States",
+                f"{wandb_key}/achieved_states_heatmap",
+                x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
+            )
+            
+            # Visualize Q-functions for a few samples
+            for i in range(min(3, num_samples)):
+                idx = sample_indices[i]
+                visualize_sac_q_function_2d(
+                    sac_network.policy_network,
+                    sac_network.q_network,
+                    training_state.normalizer_params,
+                    training_state.policy_params,
+                    training_state.q_params,
+                    np.array(states[idx]),
+                    train_env.goal_indices,
+                    train_env.x_bounds, train_env.y_bounds,
+                    f"{wandb_key}/q_function_sample_{i}",
+                )
+            
+            logging.info(f"Plotted SAC visualizations at env step {training_state.env_steps.item()}")
 
         global_key, local_key = jax.random.split(rng)
         local_key = jax.random.fold_in(local_key, process_id)
@@ -740,10 +890,18 @@ class SAC:
             # Optimization
             epoch_key, local_key = jax.random.split(local_key)
             epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
-            (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
+            (training_state, env_state, buffer_state, training_metrics, last_batch) = training_epoch_with_timing(
                 training_state, env_state, buffer_state, epoch_keys
             )
             current_step = int(_unpmap(training_state.env_steps))
+
+            # Visualize goals every epoch (like TD3)
+            vis_batch = _unpmap(last_batch)
+            visualize_goals(
+                unwrapped_env, vis_batch,
+                _unpmap(training_state), sac_network,
+                num_samples=5, wandb_key="training"
+            )
 
             # Eval and logging
             if process_id == 0:
