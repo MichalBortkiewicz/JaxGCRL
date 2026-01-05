@@ -48,14 +48,28 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         log_prob -= jnp.log((1 - jnp.square(action)) + 1e-6)
         log_prob = log_prob.sum(-1)  # dimension = B
 
-        sa_encoder_params, g_encoder_params = (
-            critic_params["sa_encoder"],
-            critic_params["g_encoder"],
-        )
-        sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
-        g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
-
-        qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
+        # Handle both single critic and ensemble cases
+        is_ensemble = isinstance(critic_params["sa_encoder"], list)
+        
+        if is_ensemble:
+            # For ensemble, compute mean Q-value across all critics
+            all_qf_pi = []
+            for i in range(len(critic_params["sa_encoder"])):
+                sa_encoder_params = critic_params["sa_encoder"][i]
+                g_encoder_params = critic_params["g_encoder"][i]
+                sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
+                g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
+                qf_pi_i = energy_fn(config["energy_fn"], sa_repr, g_repr)
+                all_qf_pi.append(qf_pi_i)
+            qf_pi = jnp.mean(jnp.stack(all_qf_pi, axis=0), axis=0)
+        else:
+            sa_encoder_params, g_encoder_params = (
+                critic_params["sa_encoder"],
+                critic_params["g_encoder"],
+            )
+            sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
+            g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
+            qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
 
         per_sample_loss = jnp.exp(log_alpha) * log_prob - qf_pi
 
@@ -147,46 +161,96 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
 
 
 def update_critic(config, networks, transitions, training_state, key):
-    def critic_loss(critic_params, transitions, key):
-        sa_encoder_params, g_encoder_params = (
-            critic_params["sa_encoder"],
-            critic_params["g_encoder"],
-        )
-
+    """Update critic(s). Supports both single critic and ensemble of critics."""
+    
+    critic_params = training_state.critic_state.params
+    is_ensemble = isinstance(critic_params["sa_encoder"], list)
+    
+    def single_critic_loss(sa_params, g_params, transitions, key):
+        """Loss for a single critic."""
         state = transitions.observation[:, : config["state_size"]]
         action = transitions.action
 
-        sa_repr = networks["sa_encoder"].apply(sa_encoder_params, jnp.concatenate([state, action], axis=-1))
+        sa_repr = networks["sa_encoder"].apply(sa_params, jnp.concatenate([state, action], axis=-1))
         g_repr = networks["g_encoder"].apply(
-            g_encoder_params, transitions.observation[:, config["state_size"] :]
+            g_params, transitions.observation[:, config["state_size"] :]
         )
 
         # InfoNCE
         logits = energy_fn(config["energy_fn"], sa_repr[:, None, :], g_repr[None, :, :])
-        critic_loss = contrastive_loss_fn(config["contrastive_loss_fn"], logits)
+        loss = contrastive_loss_fn(config["contrastive_loss_fn"], logits)
 
         # logsumexp regularisation
         logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)
-        critic_loss += config["logsumexp_penalty_coeff"] * jnp.mean(logsumexp**2)
+        loss += config["logsumexp_penalty_coeff"] * jnp.mean(logsumexp**2)
 
         I = jnp.eye(logits.shape[0])
         correct = jnp.argmax(logits, axis=1) == jnp.argmax(I, axis=1)
         logits_pos = jnp.sum(logits * I) / jnp.sum(I)
         logits_neg = jnp.sum(logits * (1 - I)) / jnp.sum(1 - I)
 
-        return critic_loss, (logsumexp, I, correct, logits_pos, logits_neg)
+        return loss, (logsumexp, correct, logits_pos, logits_neg)
+    
+    if is_ensemble:
+        # Ensemble case: train each critic independently with the full optimizer
+        num_ensemble = len(critic_params["sa_encoder"])
+        
+        def ensemble_loss(critic_params, transitions, key):
+            """Combined loss for all ensemble members."""
+            total_loss = 0.0
+            all_logsumexp = []
+            all_correct = []
+            all_logits_pos = []
+            all_logits_neg = []
+            
+            for i in range(num_ensemble):
+                sa_params = critic_params["sa_encoder"][i]
+                g_params = critic_params["g_encoder"][i]
+                loss, (logsumexp, correct, logits_pos, logits_neg) = single_critic_loss(
+                    sa_params, g_params, transitions, key
+                )
+                total_loss += loss
+                all_logsumexp.append(logsumexp)
+                all_correct.append(correct)
+                all_logits_pos.append(logits_pos)
+                all_logits_neg.append(logits_neg)
+            
+            avg_loss = total_loss / num_ensemble
+            avg_logsumexp = jnp.mean(jnp.stack(all_logsumexp, axis=0), axis=0)
+            avg_correct = jnp.mean(jnp.stack(all_correct, axis=0), axis=0)
+            avg_logits_pos = jnp.mean(jnp.array(all_logits_pos))
+            avg_logits_neg = jnp.mean(jnp.array(all_logits_neg))
+            
+            return avg_loss, (avg_logsumexp, avg_correct, avg_logits_pos, avg_logits_neg)
+        
+        (loss, (logsumexp, correct, logits_pos, logits_neg)), grad = jax.value_and_grad(
+            ensemble_loss, has_aux=True
+        )(training_state.critic_state.params, transitions, key)
+        new_critic_state = training_state.critic_state.apply_gradients(grads=grad)
+        training_state = training_state.replace(critic_state=new_critic_state)
+        logsumexp_mean = logsumexp.mean()
+    else:
+        # Single critic case (original implementation)
+        def critic_loss(critic_params, transitions, key):
+            return single_critic_loss(
+                critic_params["sa_encoder"], 
+                critic_params["g_encoder"], 
+                transitions, 
+                key
+            )
 
-    (loss, (logsumexp, I, correct, logits_pos, logits_neg)), grad = jax.value_and_grad(
-        critic_loss, has_aux=True
-    )(training_state.critic_state.params, transitions, key)
-    new_critic_state = training_state.critic_state.apply_gradients(grads=grad)
-    training_state = training_state.replace(critic_state=new_critic_state)
+        (loss, (logsumexp, correct, logits_pos, logits_neg)), grad = jax.value_and_grad(
+            critic_loss, has_aux=True
+        )(training_state.critic_state.params, transitions, key)
+        new_critic_state = training_state.critic_state.apply_gradients(grads=grad)
+        training_state = training_state.replace(critic_state=new_critic_state)
+        logsumexp_mean = logsumexp.mean()
 
     metrics = {
         "categorical_accuracy": jnp.mean(correct),
         "logits_pos": logits_pos,
         "logits_neg": logits_neg,
-        "logsumexp": logsumexp.mean(),
+        "logsumexp": logsumexp_mean,
         "critic_loss": loss,
     }
 
