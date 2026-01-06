@@ -426,6 +426,7 @@ class QEpistemicGoalProposal(GoalProposer):
     energy_fn_name: str
     num_ensemble: int = 5  # Number of critics in the ensemble
     use_env_goals: bool = False  # If True, use environment goals; if False, use replay buffer final states
+    zero_center: bool = False  # If True, center each critic's predictions before computing std
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
@@ -496,14 +497,14 @@ class QEpistemicGoalProposal(GoalProposer):
             q_values = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (num_candidates,)
             return q_values
         
-        def compute_q_std_for_state(state):
-            """For a single state, compute Q-value std across ensemble for all candidate goals.
+        def compute_q_values_for_state(state):
+            """For a single state, compute Q-values across ensemble for all candidate goals.
             
             Args:
                 state: (state_dim,) array
                 
             Returns:
-                q_stds: (num_candidates,) array of Q-value standard deviations
+                all_q_values: (num_ensemble, num_candidates) array of Q-values
             """
             # Create observations by concatenating state with each candidate goal
             state_expanded = jnp.tile(state, (num_candidates, 1))  # (num_candidates, state_dim)
@@ -522,13 +523,22 @@ class QEpistemicGoalProposal(GoalProposer):
                 lambda sa_p, g_p: compute_q_for_single_critic(sa_p, g_p, sa_pairs, candidate_goals)
             )(stacked_sa_params, stacked_g_params)  # (num_ensemble, num_candidates)
             
-            # Compute standard deviation across ensemble for each candidate goal
-            q_stds = jnp.std(all_q_values, axis=0)  # (num_candidates,)
-            
-            return q_stds, all_q_values
+            return all_q_values
         
-        # Compute Q-value stds for all states
-        all_q_stds, all_ensemble_q_values = jax.vmap(compute_q_std_for_state)(current_states)  # (batch_size, num_candidates)
+        # Compute Q-values for all states: (batch_size, num_ensemble, num_candidates)
+        all_ensemble_q_values = jax.vmap(compute_q_values_for_state)(current_states)
+        
+        # Optionally center each critic's predictions by subtracting its mean
+        if self.zero_center:
+            # Compute mean for each critic across all states and candidates
+            critic_means = jnp.mean(all_ensemble_q_values, axis=(0, 2), keepdims=True)  # (1, num_ensemble, 1)
+            # Subtract the mean from each critic's predictions to remove translational offset
+            q_values_for_std = all_ensemble_q_values - critic_means  # (batch_size, num_ensemble, num_candidates)
+        else:
+            q_values_for_std = all_ensemble_q_values
+        
+        # Compute standard deviation across ensemble for each (state, candidate) pair
+        all_q_stds = jnp.std(q_values_for_std, axis=1)  # (batch_size, num_candidates)
         
         # For each state, select the candidate goal with highest std
         best_goal_indices = jnp.argmax(all_q_stds, axis=1)  # (batch_size,)

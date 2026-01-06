@@ -255,6 +255,8 @@ class CRL:
     q_epistemic_num_ensemble: int = 5
     # Whether to use environment goals (True) or replay buffer final states (False) for q_epistemic
     q_epistemic_use_env_goals: bool = False
+    # Whether to zero-center each critic's predictions before computing std (removes translational offset)
+    q_zero_center: bool = False
 
     def check_config(self, config):
         """
@@ -467,7 +469,8 @@ class CRL:
             goal_proposer = QEpistemicGoalProposal(
                 energy_fn_name=self.energy_fn,
                 num_ensemble=self.q_epistemic_num_ensemble,
-                use_env_goals=self.q_epistemic_use_env_goals
+                use_env_goals=self.q_epistemic_use_env_goals,
+                zero_center=self.q_zero_center
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
