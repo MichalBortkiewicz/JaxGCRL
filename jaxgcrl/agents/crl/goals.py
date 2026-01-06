@@ -44,6 +44,8 @@ class ReplayBufferGoalProposal(GoalProposer):
 @dataclass
 class FisherTraceGoalProposal(GoalProposer):
     energy_fn_name: str
+    use_critic_gradients: bool = True  # Include critic (phi, psi encoder) gradients in Fisher trace
+    use_actor_gradients: bool = False  # Include actor gradients in Fisher trace
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
     _last_log_step: int = -500000  # Track last logged step (start negative to log first time)
 
@@ -68,9 +70,23 @@ class FisherTraceGoalProposal(GoalProposer):
         last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
         candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
+        use_critic = self.use_critic_gradients
+        use_actor = self.use_actor_gradients
+        
         def compute_fisher_traces_for_state(state):
             def fisher_trace_for_goal(carry, goal):
-                obs = jnp.concatenate([state, goal])                
+                obs = jnp.concatenate([state, goal])
+                
+                def get_action_and_q(actor_p):
+                    """Compute action from actor and Q-value."""
+                    means, log_stds = actor.apply(actor_p, obs[None, :])
+                    action = jnp.tanh(means[0])
+                    sa_pair = jnp.concatenate([state, action])
+                    phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pair[None, :])[0]
+                    psi_g = g_encoder.apply(critic_params['g_encoder'], goal[None, :])[0]
+                    return energy_fn(self.energy_fn_name, phi_sa, psi_g)
+                
+                # Get action for critic gradients (use stop_gradient on actor params)
                 means, log_stds = actor.apply(actor_params, obs[None, :])
                 action = jnp.tanh(means[0])
                 sa_pair = jnp.concatenate([state, action])
@@ -81,24 +97,31 @@ class FisherTraceGoalProposal(GoalProposer):
                     psi_g = g_encoder.apply(psi_params, goal[None, :])[0]
                     return energy_fn(self.energy_fn_name, phi_sa, psi_g)
                 
-                grad_phi_params = jax.grad(lambda p: log_q_value(p, critic_params['g_encoder']))(
-                    critic_params['sa_encoder']
-                )
+                total_fisher_trace = 0.0
                 
-                # Gradient w.r.t. psi (g_encoder) parameters
-                grad_psi_params = jax.grad(lambda p: log_q_value(critic_params['sa_encoder'], p))(
-                    critic_params['g_encoder']
-                )
+                # Critic gradients (phi and psi encoders)
+                if use_critic:
+                    grad_phi_params = jax.grad(lambda p: log_q_value(p, critic_params['g_encoder']))(
+                        critic_params['sa_encoder']
+                    )
+                    grad_psi_params = jax.grad(lambda p: log_q_value(critic_params['sa_encoder'], p))(
+                        critic_params['g_encoder']
+                    )
+                    
+                    flat_grad_phi = jax.flatten_util.ravel_pytree(grad_phi_params)[0]
+                    flat_grad_psi = jax.flatten_util.ravel_pytree(grad_psi_params)[0]
+                    
+                    fisher_trace_phi = jnp.sum(flat_grad_phi ** 2)
+                    fisher_trace_psi = jnp.sum(flat_grad_psi ** 2)
+                    
+                    total_fisher_trace += fisher_trace_phi + fisher_trace_psi
                 
-                # Flatten and compute squared norm of gradients
-                flat_grad_phi = jax.flatten_util.ravel_pytree(grad_phi_params)[0]
-                flat_grad_psi = jax.flatten_util.ravel_pytree(grad_psi_params)[0]
-                
-                # Fisher trace: sum of squared gradients across all parameters
-                fisher_trace_phi = jnp.sum(flat_grad_phi ** 2)
-                fisher_trace_psi = jnp.sum(flat_grad_psi ** 2)
-                
-                total_fisher_trace = fisher_trace_phi + fisher_trace_psi
+                # Actor gradients
+                if use_actor:
+                    grad_actor_params = jax.grad(get_action_and_q)(actor_params)
+                    flat_grad_actor = jax.flatten_util.ravel_pytree(grad_actor_params)[0]
+                    fisher_trace_actor = jnp.sum(flat_grad_actor ** 2)
+                    total_fisher_trace += fisher_trace_actor
                 
                 return carry, total_fisher_trace
             
