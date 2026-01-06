@@ -228,10 +228,19 @@ def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_p
     
     # Encode state-action pairs
     sa_pairs = np.concatenate([state_expanded, actions], axis=1)  # (grid_resolution^2, state_dim + action_dim)
-    phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pairs)  # (grid_resolution^2, repr_dim)
+    
+    # Handle both single critic and ensemble cases
+    sa_encoder_params = critic_params['sa_encoder']
+    g_encoder_params = critic_params['g_encoder']
+    if isinstance(sa_encoder_params, list):
+        # Ensemble case: use first critic for visualization
+        sa_encoder_params = sa_encoder_params[0]
+        g_encoder_params = g_encoder_params[0]
+    
+    phi_sa = sa_encoder.apply(sa_encoder_params, sa_pairs)  # (grid_resolution^2, repr_dim)
     
     # Encode all goals in batch
-    psi_g = g_encoder.apply(critic_params['g_encoder'], goals_grid)  # (grid_resolution^2, repr_dim)
+    psi_g = g_encoder.apply(g_encoder_params, goals_grid)  # (grid_resolution^2, repr_dim)
 
     q_values = energy_fn(energy_fn_name, phi_sa, psi_g)
     
@@ -472,3 +481,125 @@ def visualize_td3_q_function_2d(policy_network, q_network, normalizer_params, po
     
     pil_image = Image.open(buf)
     wandb.log({wandb_key: wandb.Image(pil_image)})
+
+
+def visualize_sac_goals_2d(start_xy, proposed_goals_xy, final_states_xy, wandb_key,
+                            intermediate_xy=None, x_bounds=None, y_bounds=None):
+    '''Visualize 2D goals for SAC-style goal-conditioned RL.
+    Shows trajectories from start state to final achieved state, with proposed goals.
+    - start_xy: (num_samples, 2) array of start states
+    - proposed_goals_xy: (num_samples, 2) array of proposed goals (from replay buffer)
+    - final_states_xy: (num_samples, 2) array of final achieved states
+    - wandb_key: str, key to log the plot in WandB
+    - intermediate_xy: optional (num_samples, num_intermediate, 2) array of intermediate trajectory states
+    - x_bounds: tuple (min, max) for x-axis range, or None for auto
+    - y_bounds: tuple (min, max) for y-axis range, or None for auto
+    '''
+    assert start_xy.shape[1] == 2, "Goal visualization only supported for 2D goals"
+    assert proposed_goals_xy.shape[1] == 2, "Goal visualization only supported for 2D goals"
+    assert final_states_xy.shape[1] == 2, "Goal visualization only supported for 2D goals"
+    if intermediate_xy is not None:
+        assert intermediate_xy.shape[2] == 2, "Intermediate trajectory visualization only supported for 2D"
+    
+    fig = go.Figure()
+    
+    num_samples = start_xy.shape[0]
+    
+    # Plot trajectories first (so points appear on top)
+    for i in range(num_samples):
+        # If we have intermediate states, plot full trajectory line through them
+        if intermediate_xy is not None:
+            # Build full trajectory: start -> intermediate -> final
+            full_traj_xy = np.vstack([
+                start_xy[i:i+1],
+                intermediate_xy[i],
+                final_states_xy[i:i+1]
+            ])
+            
+            # Full trajectory line
+            fig.add_trace(go.Scatter(
+                x=full_traj_xy[:, 0],
+                y=full_traj_xy[:, 1],
+                mode='lines',
+                line=dict(color='purple', width=1.5),
+                opacity=0.4,
+                showlegend=(i == 0),
+                name='Trajectory' if i == 0 else '',
+                hoverinfo='skip'
+            ))
+            
+            # Intermediate trajectory points
+            fig.add_trace(go.Scatter(
+                x=intermediate_xy[i, :, 0],
+                y=intermediate_xy[i, :, 1],
+                mode='markers',
+                marker=dict(color='purple', size=3, opacity=0.5),
+                showlegend=(i == 0),
+                name='Trajectory Points' if i == 0 else '',
+                hovertemplate='Intermediate<br>x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>'
+            ))
+        else:
+            # Simple line from start state to final state
+            fig.add_trace(go.Scatter(
+                x=[start_xy[i, 0], final_states_xy[i, 0]],
+                y=[start_xy[i, 1], final_states_xy[i, 1]],
+                mode='lines',
+                line=dict(color='purple', width=1.5),
+                opacity=0.4,
+                showlegend=(i == 0),
+                name='Trajectory' if i == 0 else '',
+                hoverinfo='skip'
+            ))
+        
+        # Dashed line from proposed goal to final state (goal-achievement gap)
+        fig.add_trace(go.Scatter(
+            x=[proposed_goals_xy[i, 0], final_states_xy[i, 0]],
+            y=[proposed_goals_xy[i, 1], final_states_xy[i, 1]],
+            mode='lines',
+            line=dict(color='orange', width=1, dash='dash'),
+            opacity=0.3,
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+    
+    # Plot start states (green circles)
+    fig.add_trace(go.Scatter(
+        x=start_xy[:, 0], y=start_xy[:, 1],
+        mode='markers',
+        marker=dict(color='green', size=10, symbol='circle'),
+        name='Start State',
+        hovertemplate='Start<br>x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>'
+    ))
+    
+    # Plot proposed goals (blue diamonds)
+    fig.add_trace(go.Scatter(
+        x=proposed_goals_xy[:, 0], y=proposed_goals_xy[:, 1],
+        mode='markers',
+        marker=dict(color='blue', size=12, symbol='diamond'),
+        name='Proposed Goal',
+        hovertemplate='Proposed Goal<br>x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>'
+    ))
+    
+    # Plot final achieved states (red stars)
+    fig.add_trace(go.Scatter(
+        x=final_states_xy[:, 0], y=final_states_xy[:, 1],
+        mode='markers',
+        marker=dict(color='red', size=14, symbol='star'),
+        name='Final State',
+        hovertemplate='Final State<br>x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title='SAC Goal Proposals and Achieved Trajectories',
+        xaxis_title='x',
+        yaxis_title='y',
+        xaxis=dict(range=x_bounds) if x_bounds else {},
+        yaxis=dict(range=y_bounds) if y_bounds else {},
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        hovermode='closest',
+        width=800,
+        height=800,
+    )
+    
+    # Log to WandB as interactive plot
+    wandb.log({wandb_key: fig})
