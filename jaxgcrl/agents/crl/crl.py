@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, mix_goals
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -246,11 +246,15 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "fisher_trace"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "fisher_trace", "q_epistemic"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
     zero_out_cand_goals: bool = True
+    # Number of critics in the ensemble (for q_epistemic goal proposer)
+    q_epistemic_num_ensemble: int = 5
+    # Whether to use environment goals (True) or replay buffer final states (False) for q_epistemic
+    q_epistemic_use_env_goals: bool = False
 
     def check_config(self, config):
         """
@@ -358,7 +362,6 @@ class CRL:
             use_relu=self.use_relu,
             use_ln=self.use_ln,
         )
-        sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
         g_encoder = Encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
@@ -367,7 +370,19 @@ class CRL:
             use_relu=self.use_relu,
             use_ln=self.use_ln,
         )
-        g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
+        
+        # Initialize critic params - use ensemble if q_epistemic, otherwise single critic
+        if self.goal_proposer_name == "q_epistemic":
+            # Initialize ensemble of critics with different random keys
+            sa_keys = jax.random.split(sa_key, self.q_epistemic_num_ensemble)
+            g_keys = jax.random.split(g_key, self.q_epistemic_num_ensemble)
+            sa_encoder_params = [sa_encoder.init(k, np.ones([1, state_size + action_size])) for k in sa_keys]
+            g_encoder_params = [g_encoder.init(k, np.ones([1, goal_size])) for k in g_keys]
+        else:
+            # Single critic
+            sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
+            g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
+        
         critic_state = TrainState.create(
             apply_fn=None,
             params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
@@ -444,6 +459,12 @@ class CRL:
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "fisher_trace":
             goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn)
+        elif self.goal_proposer_name == "q_epistemic":
+            goal_proposer = QEpistemicGoalProposal(
+                energy_fn_name=self.energy_fn,
+                num_ensemble=self.q_epistemic_num_ensemble,
+                use_env_goals=self.q_epistemic_use_env_goals
+            )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
 
@@ -499,7 +520,7 @@ class CRL:
                 )
                 return (env_state, next_key, proposed_goals, was_proposed_goal_mask), transition
 
-            key, proposal_key = jax.random.split(key)
+            key, proposal_key, mix_key = jax.random.split(key, 3)
             
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
@@ -522,8 +543,8 @@ class CRL:
             else:
                 curr_goal_proposal_prob = self.goal_proposal_prob
 
-            use_proposed_mask = jax.random.bernoulli(key, curr_goal_proposal_prob, shape=(new_goals.shape[0], 1))
-            mixed_goals = jnp.where(use_proposed_mask, new_goals, original_goals)
+            # Use shared mix_goals helper
+            mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, curr_goal_proposal_prob, mix_key)
 
             proposed_goals = jax.lax.cond(
                 training_state.env_steps >= self.goal_proposal_warmup_steps,

@@ -1,61 +1,44 @@
-from abc import ABC, abstractmethod
+"""CRL-specific goal proposal algorithms.
+
+This module extends the base goal proposers from jaxgcrl.utils.goals with
+CRL-specific proposers that use contrastive learning networks.
+"""
+import io
+
 import jax
 import jax.numpy as jnp
-from flax.struct import dataclass
-from jaxgcrl.agents.crl.losses import energy_fn
 import matplotlib.pyplot as plt
-import wandb
-from PIL import Image
-import io
 import numpy as np
+import wandb
+from flax.struct import dataclass
+from PIL import Image
 
-@dataclass
-class GoalProposer(ABC):
-    @abstractmethod
-    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
-                     actor_params, critic_params, sa_encoder, g_encoder):
-        '''Goal proposal algorithm. This should return a (batch_size, goal_size) array of proposed goals.
-        
-        Args:
-            replay_buffer: Replay buffer to sample from
-            buffer_state: Current buffer state
-            train_env: Training environment
-            env_state: Current environment state (contains current observations)
-            key: JAX random key
-            actor: Actor network
-            actor_params: Actor parameters
-            critic_params: Critic parameters
-            sa_encoder: State-action encoder
-            g_encoder: Goal encoder
-            
-        Returns:
-            proposed_goals: (batch_size, goal_size) array of proposed goals
-            buffer_state: Updated buffer state
-        '''
-        pass
+from jaxgcrl.agents.crl.losses import energy_fn
+# Import base classes and utilities from shared module
+from jaxgcrl.utils.goals import (
+    GoalProposer,
+    ReplayBufferGoalProposal as BaseReplayBufferGoalProposal,
+    mix_goals,
+)
+
+# Re-export for convenience
+__all__ = ['GoalProposer', 'ReplayBufferGoalProposal', 'FisherTraceGoalProposal', 
+           'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'QEpistemicGoalProposal', 'mix_goals']
 
 
-@dataclass
+@dataclass 
 class ReplayBufferGoalProposal(GoalProposer):
+    """CRL-compatible wrapper for ReplayBufferGoalProposal.
+    
+    Accepts CRL-specific arguments but delegates to base implementation.
+    """
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
-        buffer_state, sampled_transitions = replay_buffer.sample(buffer_state)
-        traj_ids = sampled_transitions.extras["state_extras"]["traj_id"]  # (num_envs, episode_length)
-        observations = sampled_transitions.observation  # (num_envs, episode_length, obs_size)
-        
-        def get_last_state(obs_seq, traj_id_seq):
-            """Get the last state for each trajectory"""
-            seq_len = obs_seq.shape[0]
-            mask = traj_id_seq == traj_id_seq[0]
-            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-            return obs_seq[last_idx]
-        
-        # Extract last states for each batch element
-        last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (batch_size, state_size)
-        # Extract goal positions from these last states
-        proposed_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
-        
-        return proposed_goals, buffer_state
+        # Delegate to base proposer, ignoring CRL-specific params
+        base_proposer = BaseReplayBufferGoalProposal()
+        return base_proposer.propose_goals(
+            replay_buffer, buffer_state, train_env, env_state, key
+        )
 
 
 @dataclass
@@ -404,6 +387,231 @@ class MediumEnergyGoalProposal(GoalProposer):
         }
         
         wandb.log(energy_stats, step=int(env_steps))
+
+@dataclass
+class QEpistemicGoalProposal(GoalProposer):
+    """Proposes goals by selecting those with highest epistemic uncertainty.
+    
+    Uses an ensemble of critics to estimate uncertainty. For each state in the batch:
+    1. Sample candidate goals from replay buffer final states or environment goals
+    2. For each (state, candidate_goal) pair, sample an action from the policy
+    3. Compute Q-values for the triplet (state, action, goal) across the ensemble
+    4. Select the goal with highest standard deviation across the ensemble
+    
+    This encourages exploration by selecting goals where the agent is most uncertain.
+    """
+    energy_fn_name: str
+    num_ensemble: int = 5  # Number of critics in the ensemble
+    use_env_goals: bool = False  # If True, use environment goals; if False, use replay buffer final states
+    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
+
+    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
+                     actor_params, critic_params, sa_encoder, g_encoder):
+        """Propose goals with highest epistemic uncertainty.
+        
+        Args:
+            replay_buffer: Replay buffer to sample from
+            buffer_state: Current buffer state
+            training_state: Current training state
+            train_env: Training environment
+            env_state: Current environment state
+            key: JAX random key
+            actor: Actor network
+            actor_params: Actor parameters
+            critic_params: Critic parameters (contains ensemble of sa_encoder and g_encoder params)
+            sa_encoder: State-action encoder network
+            g_encoder: Goal encoder network
+            
+        Returns:
+            proposed_goals: (batch_size, goal_size) array of proposed goals
+            buffer_state: Updated buffer state
+        """
+        # Get current states from env_state
+        state_size = train_env.state_dim
+        current_states = env_state.obs[:, :state_size]  # (batch_size, state_dim)
+        batch_size = current_states.shape[0]
+        
+        # Get candidate goals based on configuration
+        if self.use_env_goals:
+            assert hasattr(train_env, 'possible_goals'), \
+                "Environment must store property `possible_goals` for QEpistemicGoalProposal with use_env_goals=True."
+            candidate_goals = train_env.possible_goals  # (num_candidate_goals, goal_size)
+        else:
+            # Sample from replay buffer final states
+            buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
+            traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
+            candidate_obs = candidate_transitions.observation
+            
+            def get_last_state(obs_seq, traj_id_seq):
+                """Get the last state for each trajectory"""
+                seq_len = obs_seq.shape[0]
+                mask = traj_id_seq == traj_id_seq[0]
+                last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+                return obs_seq[last_idx]
+            
+            last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+            candidate_goals = last_states[:, train_env.goal_indices]  # (num_candidates, goal_size)
+        
+        num_candidates = candidate_goals.shape[0]
+        num_ensemble = self.num_ensemble
+        
+        # Stack ensemble parameters into arrays for JAX-compatible indexing
+        # This converts list of pytrees into a pytree of stacked arrays
+        stacked_sa_params = jax.tree_util.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), 
+            *critic_params['sa_encoder']
+        )
+        stacked_g_params = jax.tree_util.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), 
+            *critic_params['g_encoder']
+        )
+        
+        def compute_q_for_single_critic(sa_params, g_params, sa_pairs, goals):
+            """Compute Q-values for a single critic."""
+            phi_sa = sa_encoder.apply(sa_params, sa_pairs)  # (num_candidates, repr_dim)
+            psi_g = g_encoder.apply(g_params, goals)  # (num_candidates, repr_dim)
+            q_values = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (num_candidates,)
+            return q_values
+        
+        def compute_q_std_for_state(state):
+            """For a single state, compute Q-value std across ensemble for all candidate goals.
+            
+            Args:
+                state: (state_dim,) array
+                
+            Returns:
+                q_stds: (num_candidates,) array of Q-value standard deviations
+            """
+            # Create observations by concatenating state with each candidate goal
+            state_expanded = jnp.tile(state, (num_candidates, 1))  # (num_candidates, state_dim)
+            obs_batch = jnp.concatenate([state_expanded, candidate_goals], axis=1)
+            
+            # Sample actions from policy
+            means, log_stds = actor.apply(actor_params, obs_batch)
+            actions = jnp.tanh(means)  # (num_candidates, action_dim)
+            
+            # Compute state-action pairs
+            sa_pairs = jnp.concatenate([state_expanded, actions], axis=1)
+            
+            # Compute Q-values for all ensemble members using vmap over the stacked params
+            # vmap over the first axis (ensemble dimension) of the stacked params
+            all_q_values = jax.vmap(
+                lambda sa_p, g_p: compute_q_for_single_critic(sa_p, g_p, sa_pairs, candidate_goals)
+            )(stacked_sa_params, stacked_g_params)  # (num_ensemble, num_candidates)
+            
+            # Compute standard deviation across ensemble for each candidate goal
+            q_stds = jnp.std(all_q_values, axis=0)  # (num_candidates,)
+            
+            return q_stds, all_q_values
+        
+        # Compute Q-value stds for all states
+        all_q_stds, all_ensemble_q_values = jax.vmap(compute_q_std_for_state)(current_states)  # (batch_size, num_candidates)
+        
+        # For each state, select the candidate goal with highest std
+        best_goal_indices = jnp.argmax(all_q_stds, axis=1)  # (batch_size,)
+        proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_size)
+        
+        # Log Q-epistemic statistics
+        jax.experimental.io_callback(
+            QEpistemicGoalProposal._log_q_epistemic_statistics,
+            None,
+            all_q_stds,
+            candidate_goals,
+            current_states,
+            train_env.goal_indices,
+            training_state.env_steps,
+            self.LOG_INTERVAL_STEPS
+        )
+        
+        return proposed_goals, buffer_state
+    
+    # Class variable to track last log step
+    _last_logged_at = -500000
+    
+    @staticmethod
+    def _log_q_epistemic_statistics(all_q_stds, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
+        """Log Q-epistemic uncertainty statistics."""
+        # Only log if enough steps have passed since last log
+        current_step = int(env_steps)
+        if current_step - QEpistemicGoalProposal._last_logged_at < log_interval_steps:
+            return
+        
+        QEpistemicGoalProposal._last_logged_at = current_step
+        
+        # all_q_stds: (batch_size, num_candidates)
+        max_stds_per_state = jnp.max(all_q_stds, axis=1)  # (batch_size,)
+        
+        metrics = {
+            'q_epistemic/max_std_mean': float(jnp.mean(max_stds_per_state)),
+            'q_epistemic/max_std_std': float(jnp.std(max_stds_per_state)),
+            'q_epistemic/max_std_max': float(jnp.max(max_stds_per_state)),
+            'q_epistemic/max_std_min': float(jnp.min(max_stds_per_state)),
+            'q_epistemic/mean_std_across_candidates': float(jnp.mean(all_q_stds)),
+        }
+        
+        # Create visualization of Q-epistemic uncertainty maps
+        pil_image = QEpistemicGoalProposal._create_q_epistemic_heatmaps(
+            all_q_stds, candidate_goals, current_states, goal_indices
+        )
+        metrics['q_epistemic/uncertainty_heatmaps'] = wandb.Image(pil_image)
+        
+        wandb.log(metrics, step=int(env_steps))
+    
+    @staticmethod
+    def _create_q_epistemic_heatmaps(all_q_stds, candidate_goals, current_states, goal_indices):
+        """Create heatmap visualizations of Q-epistemic uncertainty."""
+        batch_size = all_q_stds.shape[0]
+        
+        # Extract goal portion from current states
+        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
+        
+        # Select 4 random states
+        num_plots = min(4, batch_size)
+        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
+        
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        axes = axes.flatten()
+        
+        for plot_idx, state_idx in enumerate(random_state_indices):
+            ax = axes[plot_idx]
+            
+            q_stds = all_q_stds[state_idx]  # (num_candidates,)
+            current_goal = current_goals[state_idx]  # (goal_dim,)
+            
+            # Color by Q-value standard deviation
+            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                                c=q_stds, cmap='hot', s=150, alpha=0.8,
+                                edgecolors='black', linewidths=0.5, label='Candidate Goals')
+            # Plot the current state as a star
+            ax.scatter(current_goal[0], current_goal[1], c='cyan', s=400, marker='*',
+                        edgecolors='black', linewidths=2, zorder=5, label='Current State')
+        
+            plt.colorbar(scatter, ax=ax, label='Q-value Std (Epistemic Uncertainty)')
+            
+            max_std_idx = int(np.argmax(q_stds))
+            max_std_val = float(np.max(q_stds))
+            
+            ax.set_title(f'State {state_idx}: Max Q-Std = {max_std_val:.4f} (Goal {max_std_idx})',
+                        fontsize=11, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper right', fontsize=9)
+            if candidate_goals.shape[1] >= 2:
+                ax.set_aspect('equal', adjustable='box')
+        
+        # Hide unused subplots
+        for i in range(num_plots, len(axes)):
+            axes[i].axis('off')
+        
+        plt.tight_layout()
+        
+        # Save to buffer and convert to PIL Image
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return Image.open(buf)
+
 
 @dataclass
 class MetricPreservationGoalProposal(GoalProposer):
