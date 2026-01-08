@@ -656,6 +656,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     zero_out_cand_goals: bool = True
     zero_out_state: bool = False  # If True, zero out the current state when computing energy terms
     propose_env_goals: bool = False  # If True, propose environment goals instead of waypoint goals
+    goal_sampling_temperature: float = 1.0  # Temperature for softmax sampling over M matrix (0 = greedy, >0 = softmax)
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
@@ -774,8 +775,18 @@ class MetricPreservationGoalProposal(GoalProposer):
         kde_mats = energy_results[4]  # (batch, num_cand, 1)
 
         def select_goal_max(M):
-            idx_flat = jnp.argmax(M)
-            g_idx, h_idx = jnp.unravel_index(idx_flat, M.shape)
+            """Select goal using softmax sampling over M matrix if temperature > 0, else greedy."""
+            if self.goal_sampling_temperature > 0:
+                # Softmax sampling: flatten M, compute softmax, sample
+                M_flat = M.flatten()
+                logits = M_flat / self.goal_sampling_temperature
+                probs = jax.nn.softmax(logits)
+                idx_flat = jax.random.choice(key, a=M_flat.size, p=probs)
+                g_idx, h_idx = jnp.unravel_index(idx_flat, M.shape)
+            else:
+                # Greedy: take argmax
+                idx_flat = jnp.argmax(M)
+                g_idx, h_idx = jnp.unravel_index(idx_flat, M.shape)
             return g_idx, h_idx
 
         def select_goal_minimax(M):

@@ -261,6 +261,8 @@ class CRL:
     q_epistemic_use_env_goals: bool = False
     # Whether to zero-center each critic's predictions before computing std (removes translational offset)
     q_zero_center: bool = False
+    # Temperature for softmax goal sampling over M matrix (0 = greedy, >0 = softmax sampling)
+    goal_sampling_temperature: float = 1.0
 
     def check_config(self, config):
         """
@@ -456,15 +458,15 @@ class CRL:
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
         elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "metric_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "max_waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "fisher_trace":
             goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False)
         elif self.goal_proposer_name == "fisher_trace_actor":
