@@ -753,7 +753,7 @@ class MetricPreservationGoalProposal(GoalProposer):
 
             proposed_goal_densites = estimate_log_density_knn(candidate_goals)
             
-            # Compute individual terms
+            # Compute M matrix for goal selection
             term1 = f_sag[:, None]  # f(s, a1, g) - shape (num_cand, 1)
             term2 = f_gah  # f(g, a2, h) - shape (num_cand, num_env)
             term3 = f_sah[None, :]  # -f(s, a3, h) - shape (1, num_env)
@@ -764,15 +764,77 @@ class MetricPreservationGoalProposal(GoalProposer):
                 M += term1
             if self.use_kde_correction:
                 M += kde_term
+            return M
+        
+        def energy_triplet_with_terms(state):
+            """Compute M and all individual terms for visualization (only called for one state)."""
+            # Optionally zero out everything except goal indices
+            if self.zero_out_state:
+                zeroed_state = jnp.zeros_like(state)
+                state = zeroed_state.at[train_env.goal_indices].set(state[train_env.goal_indices])
+            
+            def estimate_log_density_knn(goals_batch):
+                distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
+                k = int(np.sqrt(goals_batch.shape[0]))
+                sorted_distances = jnp.sort(distances, axis=1)
+                knn_distances = sorted_distances[:, k]
+                d = goals_batch.shape[1]
+                log_densities = jnp.log(k / goals_batch.shape[0]) - d * jnp.log(knn_distances + 1e-10)
+                return log_densities
+            
+            num_cand = candidate_goals.shape[0]
+            num_env = env_goals.shape[0]
+
+            s1 = jnp.repeat(state[None, :], num_cand, axis=0)
+            obs_sg = jnp.concatenate([s1, candidate_goals], axis=1)
+            means, _ = actor.apply(actor_params, obs_sg)
+            a1 = jnp.tanh(means)
+            phi_sg = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s1, a1], axis=1))
+            psi_g = g_encoder.apply(critic_params['g_encoder'], candidate_goals)
+            f_sag = energy_fn(self.energy_fn_name, phi_sg, psi_g)
+
+            g_exp = jnp.repeat(candidate_goals_full[:, None, :], num_env, axis=1)
+            h_exp = jnp.repeat(env_goals[None, :, :], num_cand, axis=0)
+            obs_gh = jnp.concatenate([g_exp, h_exp], axis=-1).reshape(num_cand * num_env, -1)
+            means2, _ = actor.apply(actor_params, obs_gh)
+            a2 = jnp.tanh(means2)
+            phi_gh = sa_encoder.apply(critic_params['sa_encoder'],
+                                      jnp.concatenate([g_exp.reshape(-1, g_exp.shape[-1]), a2], axis=1))
+            psi_h = g_encoder.apply(critic_params['g_encoder'], env_goals)
+            psi_h_rep = jnp.repeat(psi_h[None, :, :], num_cand, axis=0).reshape(num_cand * num_env, -1)
+            f_gah = energy_fn(self.energy_fn_name, phi_gh, psi_h_rep).reshape(num_cand, num_env)
+
+            s3 = jnp.repeat(state[None, :], num_env, axis=0)
+            obs_sh = jnp.concatenate([s3, env_goals], axis=1)
+            means3, _ = actor.apply(actor_params, obs_sh)
+            a3 = jnp.tanh(means3)
+            phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
+            f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)
+
+            proposed_goal_densites = estimate_log_density_knn(candidate_goals)
+            
+            term1 = f_sag[:, None]
+            term2 = f_gah
+            term3 = f_sah[None, :]
+            kde_term = proposed_goal_densites[:, None]
+            
+            M = term2 - term3
+            if self.use_waypoint_difficulty:
+                M += term1
+            if self.use_kde_correction:
+                M += kde_term
             return M, term1, term2, term3, kde_term
 
-        # compute for all states
-        energy_results = jax.vmap(energy_triplet)(current_states)
-        energy_mats = energy_results[0]  # (batch, num_cand, num_env)
-        term1_mats = energy_results[1]  # (batch, num_cand, 1)
-        term2_mats = energy_results[2]  # (batch, num_cand, num_env)
-        term3_mats = energy_results[3]  # (batch, 1, num_env)
-        kde_mats = energy_results[4]  # (batch, num_cand, 1)
+        # compute M for all states (only M, not term matrices)
+        energy_mats = jax.vmap(energy_triplet)(current_states)  # (batch, num_cand, num_env)
+        
+        # Select random state indices for visualization (done here so term matrices match)
+        num_states = current_states.shape[0]
+        viz_state_indices = jax.random.choice(key, num_states, shape=(min(4, num_states),), replace=False)
+        
+        # compute term matrices for ONE state only (for visualization)
+        viz_state_idx = viz_state_indices[0]
+        _, term1_single, term2_single, term3_single, kde_single = energy_triplet_with_terms(current_states[viz_state_idx])
 
         def select_goal_max(M):
             """Select goal using softmax sampling over M matrix if temperature > 0, else greedy."""
@@ -875,10 +937,11 @@ class MetricPreservationGoalProposal(GoalProposer):
             best_g_indices,
             best_h_indices,
             energy_mats,
-            term1_mats,
-            term2_mats,
-            term3_mats,
-            kde_mats,
+            term1_single,
+            term2_single,
+            term3_single,
+            kde_single,
+            viz_state_indices,
             training_state.env_steps,
             train_env.goal_indices,
             train_env.x_bounds,
@@ -893,7 +956,8 @@ class MetricPreservationGoalProposal(GoalProposer):
     
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
-                              best_g_indices, best_h_indices, energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
+                              best_g_indices, best_h_indices, energy_mats, 
+                              term1_single, term2_single, term3_single, kde_single, viz_state_indices,
                               env_steps, goal_indices, x_bounds, y_bounds, log_interval_steps):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
         
@@ -904,9 +968,8 @@ class MetricPreservationGoalProposal(GoalProposer):
         
         MetricPreservationGoalProposal._last_logged_at = current_step
         
-        # Randomly select 4 states to use in both visualizations
-        num_states = current_states.shape[0]
-        random_state_indices = np.random.choice(num_states, size=min(4, num_states), replace=False)
+        # Use pre-selected viz_state_indices (first one matches term matrices)
+        random_state_indices = np.array(viz_state_indices)
         
         # Generate both visualizations with the same states
         pil_image1 = MetricPreservationGoalProposal._create_goal_selection_plot(
@@ -914,8 +977,9 @@ class MetricPreservationGoalProposal(GoalProposer):
             goal_indices, random_state_indices, x_bounds, y_bounds
         )
         pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
-            current_states, candidate_goals, env_goals, energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
-            goal_indices, random_state_indices, x_bounds, y_bounds
+            current_states, candidate_goals, env_goals, energy_mats, 
+            term1_single, term2_single, term3_single, kde_single, random_state_indices[0],
+            goal_indices, x_bounds, y_bounds
         )
         
         metrics = {
@@ -997,8 +1061,8 @@ class MetricPreservationGoalProposal(GoalProposer):
 
     @staticmethod
     def _create_env_goal_ranking_plot(current_states, candidate_goals, env_goals,
-                                        energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
-                                        goal_indices, random_state_indices, x_bounds, y_bounds):
+                                        energy_mats, term1_single, term2_single, term3_single, kde_single, viz_state_idx,
+                                        goal_indices, x_bounds, y_bounds):
         """Create env goal ranking visualization showing M matrix and its 4 component terms (3x2 grid with 6 plots).
         
         The M matrix is composed of:
@@ -1016,19 +1080,19 @@ class MetricPreservationGoalProposal(GoalProposer):
         
         num_env_goals = env_goals.shape[0]
         
-        # Select just one state and one env goal
-        state_idx = random_state_indices[0]
+        # Use the viz_state_idx that we computed terms for
+        state_idx = int(viz_state_idx)
         env_idx = np.random.choice(num_env_goals)
         
         current_state = current_states[state_idx][goal_indices]
         env_goal = env_goals[env_idx]
         
-        # Get all matrices for this state
+        # Get M matrix for this state, use single-state term matrices
         M = energy_mats[state_idx]  # (num_candidates, num_env_goals)
-        term1 = term1_mats[state_idx]  # (num_candidates, 1)
-        term2 = term2_mats[state_idx]  # (num_candidates, num_env_goals)
-        term3 = term3_mats[state_idx]  # (1, num_env_goals)
-        kde = kde_mats[state_idx]  # (num_candidates, 1)
+        term1 = term1_single  # (num_candidates, 1)
+        term2 = term2_single  # (num_candidates, num_env_goals)
+        term3 = term3_single  # (1, num_env_goals)
+        kde = kde_single  # (num_candidates, 1)
         
         # Extract values for this env_goal
         energies_full = M[:, env_idx]
