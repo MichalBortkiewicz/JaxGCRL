@@ -740,7 +740,7 @@ class CRL:
         ):
             @jax.jit
             def f(carry, unused_t):
-                ts, es, bs, k = carry
+                ts, es, bs, k, _ = carry
                 k, train_key = jax.random.split(k, 2)
                 (
                     (
@@ -751,27 +751,41 @@ class CRL:
                     ),
                     metrics,
                 ) = training_step(ts, es, bs, train_key)
-                return (ts, es, bs, k), (metrics, last_batch)
+                # Keep last_batch in carry to avoid stacking all batches in memory
+                return (ts, es, bs, k, last_batch), metrics
 
-            (training_state, env_state, buffer_state, key), (metrics, last_batch) = jax.lax.scan(
-                f,
-                (training_state, env_state, buffer_state, key),
-                (),
-                length=num_training_steps_per_epoch,
+            # Run one step to get initial last_batch structure for carry
+            key, first_key = jax.random.split(key)
+            ((training_state, env_state, buffer_state, init_batch), first_metrics) = training_step(
+                training_state, env_state, buffer_state, first_key
             )
 
+            (training_state, env_state, buffer_state, _, last_batch), rest_metrics = jax.lax.scan(
+                f,
+                (training_state, env_state, buffer_state, key, init_batch),
+                (),
+                length=num_training_steps_per_epoch - 1,
+            )
+
+            # Combine metrics from first step with rest
+            metrics = jax.tree_util.tree_map(
+                lambda a, b: jnp.concatenate([a[None], b]),
+                first_metrics,
+                rest_metrics,
+            )
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             return training_state, env_state, buffer_state, metrics, last_batch
         
         def visualize_goals(train_env, transitions, actor_state, critic_state, sa_encoder, g_encoder, energy_fn, num_samples, wandb_key):
-            obs = transitions.observation # (n, episode_len-1, batch_size, obs_dim)
-            future_state = transitions.extras["future_state"] # (n, episode_len-1, batch_size, obs_dim)
-            last_traj_state = transitions.extras["last_traj_state"][:, :, :, :state_size] # (n, episode_len-1, batch_size, obs_dim)
+            # Shape is now (episode_len-1, batch_size, ...) since we only keep the last training step's batch
+            obs = transitions.observation # (episode_len-1, batch_size, obs_dim)
+            future_state = transitions.extras["future_state"] # (episode_len-1, batch_size, obs_dim)
+            last_traj_state = transitions.extras["last_traj_state"][:, :, :state_size] # (episode_len-1, batch_size, state_size)
             last_traj_state_flat = last_traj_state.reshape(-1, state_size)
-            intermediate_traj = transitions.extras["intermediate_traj"] # (n, episode_len-1, batch_size, num_intermediate_states, obs_dim)
+            intermediate_traj = transitions.extras["intermediate_traj"] # (episode_len-1, batch_size, num_intermediate_states, obs_dim)
             
-            states = obs[:, :, :, :state_size].reshape(-1, state_size)
-            contrastive_goals = future_state[:, :, :, train_env.goal_indices].reshape(-1, len(train_env.goal_indices))
+            states = obs[:, :, :state_size].reshape(-1, state_size)
+            contrastive_goals = future_state[:, :, train_env.goal_indices].reshape(-1, len(train_env.goal_indices))
             proposed_goals = transitions.extras["proposed_goals"].reshape(-1, len(train_env.goal_indices))
             
             # Flatten intermediate trajectories to shape (total_samples, num_intermediate_states, obs_dim)
