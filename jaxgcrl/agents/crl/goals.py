@@ -1062,6 +1062,8 @@ class MetricPreservationGoalProposal(GoalProposer):
         scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
                             c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
                             edgecolors='black', linewidths=0.5)
+        axes[3].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
         axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
                 edgecolors='black', linewidths=2, zorder=9, label='Current State')
         plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
