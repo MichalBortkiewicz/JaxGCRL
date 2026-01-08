@@ -247,11 +247,17 @@ def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_p
     # Reshape back to grid
     q_grid = q_values.reshape(grid_resolution, grid_resolution)
     
+    # Use percentile-based clipping to handle outliers better
+    # This makes the colormap more informative for the main range
+    q_flat = q_grid.flatten()
+    vmin = np.percentile(q_flat, 2)  # 2nd percentile
+    vmax = np.percentile(q_flat, 98)  # 98th percentile
+    
     # Create heatmap
     fig, ax = plt.subplots(figsize=(8, 8))
     
     im = ax.imshow(q_grid, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]],
-                   origin='lower', cmap='viridis', aspect='equal')
+                   origin='lower', cmap='viridis', aspect='equal', vmin=vmin, vmax=vmax)
     
     # Mark the current state position
     state_goal_pos = state[goal_indices]

@@ -246,15 +246,21 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
     zero_out_cand_goals: bool = True
+    # Whether to zero out the current state when computing energy terms
+    zero_out_state: bool = False
+    # Whether to propose environment goals instead of waypoint goals (for max_waypoint_ratio)
+    propose_env_goals: bool = False
     # Number of critics in the ensemble (for q_epistemic goal proposer)
     q_epistemic_num_ensemble: int = 5
     # Whether to use environment goals (True) or replay buffer final states (False) for q_epistemic
     q_epistemic_use_env_goals: bool = False
+    # Whether to zero-center each critic's predictions before computing std (removes translational offset)
+    q_zero_center: bool = False
 
     def check_config(self, config):
         """
@@ -450,13 +456,15 @@ class CRL:
         elif self.goal_proposer_name == "replay_buffer":
             goal_proposer = ReplayBufferGoalProposal()
         elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
         elif self.goal_proposer_name == "metric_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
         elif self.goal_proposer_name == "waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state)
+        elif self.goal_proposer_name == "max_waypoint_ratio":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "fisher_trace":
             goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False)
         elif self.goal_proposer_name == "fisher_trace_actor":
@@ -467,7 +475,8 @@ class CRL:
             goal_proposer = QEpistemicGoalProposal(
                 energy_fn_name=self.energy_fn,
                 num_ensemble=self.q_epistemic_num_ensemble,
-                use_env_goals=self.q_epistemic_use_env_goals
+                use_env_goals=self.q_epistemic_use_env_goals,
+                zero_center=self.q_zero_center
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
