@@ -654,6 +654,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     use_waypoint_difficulty: bool = True
     use_max: bool = False  # If True, simply take max over all (g, h) pairs instead of using logsumexp
     zero_out_cand_goals: bool = True
+    zero_out_state: bool = False  # If True, zero out the current state when computing energy terms
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
@@ -693,7 +694,12 @@ class MetricPreservationGoalProposal(GoalProposer):
         env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
 
         def energy_triplet(state):
-            """Compute M[g,h] for a single state and return individual terms."""            
+            """Compute M[g,h] for a single state and return individual terms."""
+            # Optionally zero out everything except goal indices
+            if self.zero_out_state:
+                zeroed_state = jnp.zeros_like(state)
+                state = zeroed_state.at[train_env.goal_indices].set(state[train_env.goal_indices])
+            
             def estimate_log_density_knn(goals_batch):
                 """Estimate log p(s,g) using k-NN density estimation."""
                 # Use all candidate observations as reference samples
