@@ -652,6 +652,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     use_one_env_goal: bool = False
     use_kde_correction: bool = False
     use_waypoint_difficulty: bool = True
+    use_max: bool = False  # If True, simply take max over all (g, h) pairs instead of using logsumexp
     zero_out_cand_goals: bool = True
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
@@ -765,7 +766,7 @@ class MetricPreservationGoalProposal(GoalProposer):
         term3_mats = energy_results[3]  # (batch, 1, num_env)
         kde_mats = energy_results[4]  # (batch, num_cand, 1)
 
-        def select_goal(M):
+        def select_goal_max(M):
             idx_flat = jnp.argmax(M)
             g_idx, h_idx = jnp.unravel_index(idx_flat, M.shape)
             return g_idx, h_idx
@@ -805,7 +806,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             weights = jax.nn.softmax(score)
             g_idx = jax.random.choice(key, a=M.shape[0], p=weights)
 
-            h_idx = jnp.argmin(M[g_idx])
+            h_idx = jnp.argmax(M[g_idx])
             return g_idx, h_idx
         
         def select_goal_maxlogsumexp_one_env(M, rand_key):
@@ -822,7 +823,10 @@ class MetricPreservationGoalProposal(GoalProposer):
             
             return g_idx, h_idx
 
-        if self.use_one_env_goal:
+        if self.use_max:
+            # Simple max selection over all (g, h) pairs
+            best_g_indices, best_h_indices = jax.vmap(select_goal_max)(energy_mats)
+        elif self.use_one_env_goal:
             # Split the key for each batch element
             batch_size = energy_mats.shape[0]
             batch_keys = jax.random.split(key, batch_size)

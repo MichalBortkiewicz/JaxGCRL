@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
@@ -459,6 +459,8 @@ class CRL:
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
+        elif self.goal_proposer_name == "max_waypoint_ratio":
+            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals)
         elif self.goal_proposer_name == "fisher_trace":
             goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False)
         elif self.goal_proposer_name == "fisher_trace_actor":
