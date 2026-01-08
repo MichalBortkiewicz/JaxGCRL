@@ -655,6 +655,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     use_max: bool = False  # If True, simply take max over all (g, h) pairs instead of using logsumexp
     zero_out_cand_goals: bool = True
     zero_out_state: bool = False  # If True, zero out the current state when computing energy terms
+    propose_env_goals: bool = False  # If True, propose environment goals instead of waypoint goals
     LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
@@ -847,7 +848,11 @@ class MetricPreservationGoalProposal(GoalProposer):
                 best_g_indices, best_h_indices = jax.vmap(select_goal_maxlogsumexp)(energy_mats)
 
 
-        proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
+        # Select proposed goals: either candidate goals (waypoints) or environment goals
+        if self.propose_env_goals:
+            proposed_goals = env_goals[best_h_indices]  # (batch, goal_dim)
+        else:
+            proposed_goals = candidate_goals[best_g_indices]      # (batch, goal_dim)
 
         # Log visualizations only at specified intervals to reduce wandb storage
         jax.experimental.io_callback(
@@ -983,7 +988,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     def _create_env_goal_ranking_plot(current_states, candidate_goals, env_goals,
                                         energy_mats, term1_mats, term2_mats, term3_mats, kde_mats,
                                         goal_indices, random_state_indices, x_bounds, y_bounds):
-        """Create env goal ranking visualization showing M matrix and its 4 component terms (3x2 grid with 5 plots).
+        """Create env goal ranking visualization showing M matrix and its 4 component terms (3x2 grid with 6 plots).
         
         The M matrix is composed of:
         M[g,h] = f(s,a1,g) + f(g,a2,h) - f(s,a3,h) + KDE_correction
@@ -993,6 +998,7 @@ class MetricPreservationGoalProposal(GoalProposer):
         Plot 3: Term 2 - f(g,a2,h)  
         Plot 4: Term 3 - f(s,a3,h)
         Plot 5: KDE correction - log_density(g)
+        Plot 6: Environment goals ranked by max M value, with waypoints colored by f(w, g)
         """
         fig, axes = plt.subplots(3, 2, figsize=(16, 16))
         axes = axes.flatten()
@@ -1094,8 +1100,44 @@ class MetricPreservationGoalProposal(GoalProposer):
         axes[4].set_xlim(x_bounds)
         axes[4].set_ylim(y_bounds)
         
-        # Hide the 6th subplot
-        axes[5].axis('off')
+        # Plot 6: Environment goals ranked by max M value, waypoints colored by f(w, g)
+        # For each env goal, find the waypoint that maximizes M
+        max_m_per_env = jnp.max(M, axis=0)  # (num_env_goals,)
+        best_waypoint_per_env = jnp.argmax(M, axis=0)  # (num_env_goals,)
+        
+        # Get f(w, g) values for the best waypoint of each env goal
+        best_waypoint_energies = term2[best_waypoint_per_env, jnp.arange(num_env_goals)]
+        
+        scatter6 = axes[5].scatter(env_goals[:, 0], env_goals[:, 1],
+                            c=max_m_per_env, cmap='plasma', s=200, alpha=0.8,
+                            edgecolors='black', linewidths=1.5, label='Env Goals', marker='s')
+        
+        # For each env goal, draw a line to its best waypoint colored by f(w, g)
+        for h_idx in range(num_env_goals):
+            g_idx = best_waypoint_per_env[h_idx]
+            waypoint = candidate_goals[g_idx]
+            env_g = env_goals[h_idx]
+            # Line color represents f(w, g) value
+            f_wg_val = best_waypoint_energies[h_idx]
+            axes[5].plot([waypoint[0], env_g[0]], [waypoint[1], env_g[1]], 
+                        color=plt.cm.cool(float((f_wg_val - jnp.min(best_waypoint_energies)) / 
+                                              (jnp.max(best_waypoint_energies) - jnp.min(best_waypoint_energies) + 1e-6))),
+                        linewidth=1.5, alpha=0.6, zorder=2)
+        
+        # Also scatter the best waypoints for each env goal
+        best_waypoints = candidate_goals[best_waypoint_per_env]
+        scatter6b = axes[5].scatter(best_waypoints[:, 0], best_waypoints[:, 1],
+                            c=best_waypoint_energies, cmap='cool', s=100, alpha=0.8,
+                            edgecolors='red', linewidths=2, marker='o', label='Best Waypoints', zorder=4)
+        
+        plt.colorbar(scatter6, ax=axes[5], label='Max M[g, h]')
+        axes[5].set_title(f'Env Goal Rankings: Max M value (size), Waypoint connections colored by f(w, g)', 
+                         fontsize=12, fontweight='bold')
+        axes[5].legend(loc='upper right', fontsize=9)
+        axes[5].grid(True, alpha=0.3)
+        axes[5].set_aspect('equal', adjustable='box')
+        axes[5].set_xlim(x_bounds)
+        axes[5].set_ylim(y_bounds)
 
         plt.tight_layout()
         buf = io.BytesIO()
