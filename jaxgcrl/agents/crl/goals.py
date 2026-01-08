@@ -828,12 +828,8 @@ class MetricPreservationGoalProposal(GoalProposer):
         # compute M for all states (only M, not term matrices)
         energy_mats = jax.vmap(energy_triplet)(current_states)  # (batch, num_cand, num_env)
         
-        # Select random state indices for visualization (done here so term matrices match)
-        num_states = current_states.shape[0]
-        viz_state_indices = jax.random.choice(key, num_states, shape=(min(4, num_states),), replace=False)
-        
         # compute term matrices for ONE state only (for visualization)
-        viz_state_idx = viz_state_indices[0]
+        viz_state_idx = 0
         _, term1_single, term2_single, term3_single, kde_single = energy_triplet_with_terms(current_states[viz_state_idx])
 
         def select_goal_max(M):
@@ -941,7 +937,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             term2_single,
             term3_single,
             kde_single,
-            viz_state_indices,
+            viz_state_idx,
             training_state.env_steps,
             train_env.goal_indices,
             train_env.x_bounds,
@@ -957,7 +953,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
                               best_g_indices, best_h_indices, energy_mats, 
-                              term1_single, term2_single, term3_single, kde_single, viz_state_indices,
+                              term1_single, term2_single, term3_single, kde_single, viz_state_idx,
                               env_steps, goal_indices, x_bounds, y_bounds, log_interval_steps):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
         
@@ -968,8 +964,11 @@ class MetricPreservationGoalProposal(GoalProposer):
         
         MetricPreservationGoalProposal._last_logged_at = current_step
         
-        # Use pre-selected viz_state_indices (first one matches term matrices)
-        random_state_indices = np.array(viz_state_indices)
+        # Use viz_state_idx for env_goal_ranking plot, random for goal_selection plot
+        num_states = current_states.shape[0]
+        random_state_indices = np.random.choice(num_states, size=min(4, num_states), replace=False)
+        # Make sure viz_state_idx is in random_state_indices for consistency
+        random_state_indices[0] = int(viz_state_idx)
         
         # Generate both visualizations with the same states
         pil_image1 = MetricPreservationGoalProposal._create_goal_selection_plot(
@@ -978,7 +977,7 @@ class MetricPreservationGoalProposal(GoalProposer):
         )
         pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
             current_states, candidate_goals, env_goals, energy_mats, 
-            term1_single, term2_single, term3_single, kde_single, random_state_indices[0],
+            term1_single, term2_single, term3_single, kde_single, viz_state_idx,
             goal_indices, x_bounds, y_bounds
         )
         

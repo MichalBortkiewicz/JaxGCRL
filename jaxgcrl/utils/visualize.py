@@ -193,7 +193,7 @@ def visualize_kde_heatmap(data_xy, plot_title, wandb_key, x_bounds=None, y_bound
 
 def visualize_q_function_2d(actor, sa_encoder, g_encoder, actor_params, critic_params, 
                             state, goal_indices, x_bounds, y_bounds, wandb_key, 
-                            energy_fn_name, grid_resolution=100):
+                            energy_fn_name, grid_resolution=50):
     '''Visualize Q-function as a heatmap over 2D goal space with policy-generated actions.
     - actor: actor network
     - sa_encoder: state-action encoder network
