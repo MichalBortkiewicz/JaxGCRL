@@ -25,6 +25,7 @@ from jaxgcrl.utils.goals import (
 __all__ = ['GoalProposer', 'ReplayBufferGoalProposal', 'FisherTraceGoalProposal', 
            'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'QEpistemicGoalProposal', 'mix_goals']
 
+
 def gaussian_kernel_density(x, data, bandwidth):
     """Compute Gaussian kernel density estimate.
     
@@ -81,6 +82,131 @@ def compute_kl_divergence_empirical(desired_goals, achieved_goals, bandwidth=0.1
     
     return kl_div
 
+"""
+UCGR (Unsupervised Contrastive Goal-Reaching) Goal Proposer
+
+Implementation following Algorithm 1 from the paper:
+"Unsupervised Contrastive Goal-Reaching" by Turkman, Ghugare, and Eysenbach (2025)
+
+The key innovation is the MinLSE (Minimum LogSumExp) goal selection strategy:
+    S(g) = log Σ_{i=1}^K exp(f(s_i, a_i, g))
+    g* = argmin_{g ∈ G_cand} S(g)
+
+where f(s, a, g) is the critic function from contrastive RL.
+"""
+
+import jax
+import jax.numpy as jnp
+from flax.struct import dataclass
+from typing import Any
+
+
+@dataclass
+class UCGRGoalProposal:
+    """
+    Unsupervised Contrastive Goal-Reaching (UCGR) proposer.
+    
+    Attributes:
+        energy_fn_name: Energy function to use ("dot" for inner product)
+    """
+    energy_fn_name: str = "dot"  # Energy function: f(s,a,g) = φ(s,a)^T ψ(g)
+    
+    def propose_goals(
+        self, 
+        replay_buffer, 
+        buffer_state, 
+        training_state, 
+        train_env, 
+        env_state, 
+        key,
+        actor, 
+        actor_params, 
+        critic_params, 
+        sa_encoder, 
+        g_encoder
+    ):
+        """
+        Propose goals using the MinLSE strategy.
+        
+        This follows Algorithm 1, lines 9-11:
+        1. Sample K state-action pairs from replay buffer
+        2. For each positive goal g_j^+, compute S(g_j^+) = log Σ_i exp(f(s_i, a_i, g_j^+))
+        3. Select g* = argmin_g S(g)
+        
+        Returns:
+            proposed_goals: (batch_size, goal_dim) array of proposed goals
+            buffer_state: Updated buffer state
+        """        
+        batch_size = env_state.obs.shape[0]
+        goal_indices = train_env.goal_indices
+        
+        # Phase 1: Sample K state-action pairs from replay buffer (Algorithm 1, line 5)
+        sample_key, select_key = jax.random.split(key)
+        buffer_state, sample_batch = replay_buffer.sample(buffer_state, key=sample_key)
+        
+        # Extract state-action pairs and achieved goals from batch
+        # sample_batch.observation contains [state, goal] concatenated
+        state_size = train_env.state_dim
+        observations = sample_batch.observation  # (K, obs_dim) where obs_dim = state_dim + goal_dim
+        states = observations[:, :state_size]  # (K, state_dim)
+        actions = sample_batch.action  # (K, action_dim)
+        
+        # Extract achieved goals (positive samples from trajectories)
+        # These are the g_j^+ in Algorithm 1, line 10
+        achieved_goals = observations[:, goal_indices]  # (K, goal_dim)
+        
+        # Phase 2: Compute MinLSE scores (Algorithm 1, line 10)
+        # For each goal g_j, compute S(g_j) = log Σ_{i=1}^K exp(f(s_i, a_i, g_j))
+        
+        def compute_score(goal):
+            """
+            Compute the MinLSE score S(g) for a single goal.
+            
+            S(g) = log Σ_{i=1}^K exp(f(s_i, a_i, g))
+            
+            where f(s, a, g) = φ(s,a)^T ψ(g) is the critic function.
+            """
+            # Compute state-action encodings φ(s_i, a_i) for all i
+            state_actions = jnp.concatenate([states, actions], axis=-1)  # (K, state_dim + action_dim)
+            sa_encodings = sa_encoder.apply(
+                critic_params["sa_encoder"], 
+                state_actions
+            )  # (K, encoding_dim)
+            
+            # Compute goal encoding ψ(g)
+            goal_encoding = g_encoder.apply(
+                critic_params["g_encoder"],
+                goal[None, :]  # Add batch dimension
+            )[0]  # (encoding_dim,)
+            
+            # Compute critic values f(s_i, a_i, g) for all i
+            # f(s, a, g) = energy_fn(φ(s,a), ψ(g))
+            def compute_energy(sa_enc):
+                return energy_fn(self.energy_fn_name, sa_enc, goal_encoding)
+            
+            energies = jax.vmap(compute_energy)(sa_encodings)  # (K,)
+            
+            # Compute LogSumExp: log Σ_i exp(f(s_i, a_i, g))
+            # Use logsumexp for numerical stability
+            score = jax.scipy.special.logsumexp(energies)
+            
+            return score
+        
+        # Compute scores for all candidate goals
+        scores = jax.vmap(compute_score)(achieved_goals)  # (K,)
+        
+        # Phase 3: Select goals with minimum scores (Algorithm 1, line 11)
+        # g* = argmin_g S(g)
+        # We need batch_size goals, one for each parallel environment
+        
+        min_idx = jnp.argmin(scores)
+        proposed_goals = jnp.repeat(
+            achieved_goals[min_idx][None, :],
+            batch_size,
+            axis=0,
+        )
+        
+        return proposed_goals, buffer_state
 
 @dataclass  
 class MEGAGoalProposal:
