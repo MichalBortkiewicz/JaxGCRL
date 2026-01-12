@@ -340,6 +340,8 @@ class CRL:
         # These will be updated only at episode boundaries
         env_state.info["proposed_goals"] = env_state.obs[:, -len(train_env.goal_indices):]
         env_state.info["was_proposed_goal_mask"] = jnp.zeros((config.num_envs,))
+        # Track traj_id to detect episode boundaries (set to -1 so first step triggers new episode)
+        env_state.info["last_traj_id"] = env_state.info["traj_id"] - 1
 
         # Dimensions definitions and sanity checks
         action_size = train_env.action_size
@@ -536,12 +538,13 @@ class CRL:
             )
 
         def propose_goals_for_new_episodes(env_state, training_state, buffer_state, key):
-            """Propose new goals only for environments that just started a new episode (steps == 0)."""
+            """Propose new goals only for environments that just started a new episode."""
             proposal_key, mix_key = jax.random.split(key)
             
-            # Get mask for environments at the start of a new episode
-            is_new_episode = env_state.info["steps"] == 0  # shape (num_envs,)
-            jax.debug.print("New episode mask: {x}", x=is_new_episode)
+            # Compare current traj_id with stored traj_id to detect resets
+            current_traj_id = env_state.info["traj_id"]
+            stored_traj_id = env_state.info.get("last_traj_id", current_traj_id - 1)
+            is_new_episode = current_traj_id != stored_traj_id  # shape (num_envs,)
             
             # Propose new goals
             new_goals, buffer_state = goal_proposer.propose_goals(
@@ -609,6 +612,9 @@ class CRL:
                     env_state, training_state, buffer_state, proposal_key
                 )
                 
+                # Store the current traj_id before the step (to detect changes after step)
+                pre_step_traj_id = env_state.info["traj_id"]
+                
                 # Update env_state.info with the current goals
                 env_state.info["proposed_goals"] = proposed_goals
                 env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
@@ -623,9 +629,11 @@ class CRL:
                     extra_fields=("truncation", "traj_id"),
                 )
                 
-                # Preserve the goal info in the new state
+                # Preserve info in the new state returned by env.step()
+                # last_traj_id is set to pre-step value so we can detect if traj_id changed
                 env_state.info["proposed_goals"] = proposed_goals
                 env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
+                env_state.info["last_traj_id"] = pre_step_traj_id
                 
                 return (env_state, training_state, buffer_state, next_key), transition
 
