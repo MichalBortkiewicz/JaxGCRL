@@ -157,42 +157,40 @@ class UCGRGoalProposal:
         # Phase 2: Compute MinLSE scores (Algorithm 1, line 10)
         # For each goal g_j, compute S(g_j) = log Σ_{i=1}^K exp(f(s_i, a_i, g_j))
         
-        def compute_score(goal):
-            """
-            Compute the MinLSE score S(g) for a single goal.
-            
-            S(g) = log Σ_{i=1}^K exp(f(s_i, a_i, g))
-            
-            where f(s, a, g) = φ(s,a)^T ψ(g) is the critic function.
-            """
-            # Compute state-action encodings φ(s_i, a_i) for all i
-            state_actions = jnp.concatenate([states, actions], axis=-1)  # (K, state_dim + action_dim)
-            sa_encodings = sa_encoder.apply(
-                critic_params["sa_encoder"], 
-                state_actions
-            )  # (K, encoding_dim)
-            
-            # Compute goal encoding ψ(g)
-            goal_encoding = g_encoder.apply(
-                critic_params["g_encoder"],
-                goal[None, :]  # Add batch dimension
-            )[0]  # (encoding_dim,)
-            
-            # Compute critic values f(s_i, a_i, g) for all i
-            # f(s, a, g) = energy_fn(φ(s,a), ψ(g))
-            def compute_energy(sa_enc):
-                return energy_fn(self.energy_fn_name, sa_enc, goal_encoding)
-            
-            energies = jax.vmap(compute_energy)(sa_encodings)  # (K,)
-            
-            # Compute LogSumExp: log Σ_i exp(f(s_i, a_i, g))
-            # Use logsumexp for numerical stability
-            score = jax.scipy.special.logsumexp(energies)
-            
-            return score
+        # Vectorized computation: compute scores for all goals at once
+        # states: (K, state_dim), actions: (K, action_dim), achieved_goals: (K, goal_dim)
         
-        # Compute scores for all candidate goals
-        scores = jax.vmap(compute_score)(achieved_goals)  # (K,)
+        # Compute state-action encodings φ(s_i, a_i) for all i
+        state_actions = jnp.concatenate([states, actions], axis=-1)  # (K, state_dim + action_dim)
+        sa_encodings = sa_encoder.apply(
+            critic_params["sa_encoder"], 
+            state_actions
+        )  # (K, encoding_dim)
+        
+        # Compute goal encodings ψ(g_j) for all j
+        psi_g = g_encoder.apply(
+            critic_params["g_encoder"],
+            achieved_goals
+        )  # (K, encoding_dim)
+        
+        # Compute all critic values f(s_i, a_i, g_j) 
+        # We need to compute: for each goal j, log Σ_i exp(f(s_i, a_i, g_j))
+        # Reshape for batch computation: repeat sa_encodings for each goal
+        K = sa_encodings.shape[0]
+        sa_rep = jnp.repeat(sa_encodings[:, None, :], K, axis=1)  # (K, K, encoding_dim)
+        psi_rep = jnp.repeat(psi_g[None, :, :], K, axis=0)  # (K, K, encoding_dim)
+        
+        # Reshape for energy computation
+        sa_flat = sa_rep.reshape(-1, sa_rep.shape[-1])  # (K*K, encoding_dim)
+        psi_flat = psi_rep.reshape(-1, psi_rep.shape[-1])  # (K*K, encoding_dim)
+        
+        # Compute energies for all pairs
+        energies_flat = energy_fn(self.energy_fn_name, sa_flat, psi_flat)  # (K*K,)
+        energies = energies_flat.reshape(K, K)  # (K, K) - energies[i, j] = f(s_i, a_i, g_j)
+        
+        # Compute scores: S(g_j) = log Σ_i exp(f(s_i, a_i, g_j))
+        # For each column j, compute logsumexp of column
+        scores = jax.scipy.special.logsumexp(energies, axis=0)  # (K,)
         
         # Phase 3: Select goals with minimum scores (Algorithm 1, line 11)
         # g* = argmin_g S(g)
@@ -256,9 +254,8 @@ class MEGAGoalProposal:
         achieved_goals = sample_batch.observation[:, goal_indices]  # (buffer_batch, goal_dim)
         
         # For each environment state, select minimum density goal from candidates
-        def select_goal_for_state(state_idx):
+        def select_goal_for_state(current_state):
             """Select minimum density goal for one environment state."""
-            current_state = env_state.obs[state_idx, :state_size]
             candidate_goals = achieved_goals
             
             # Compute density for each candidate using KDE
@@ -303,7 +300,8 @@ class MEGAGoalProposal:
     
         
         # Process all states in batch
-        proposed_goals = jax.vmap(select_goal_for_state)(jnp.arange(batch_size))
+        current_states = env_state.obs[:, :state_size]
+        proposed_goals = jax.vmap(select_goal_for_state)(current_states)
         
         return proposed_goals, buffer_state
 
