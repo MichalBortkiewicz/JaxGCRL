@@ -335,6 +335,11 @@ class CRL:
         env_keys = jax.random.split(env_key, config.num_envs)
         env_state = jax.jit(train_env.reset)(env_keys)
         train_env.step = jax.jit(train_env.step)
+        
+        # Initialize proposed_goals tracking in env_state.info
+        # These will be updated only at episode boundaries
+        env_state.info["proposed_goals"] = env_state.obs[:, -len(train_env.goal_indices):]
+        env_state.info["was_proposed_goal_mask"] = jnp.zeros((config.num_envs,))
 
         # Dimensions definitions and sanity checks
         action_size = train_env.action_size
@@ -530,34 +535,25 @@ class CRL:
                 extras={"state_extras": state_extras},
             )
 
-        @jax.jit
-        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
-            @jax.jit
-            def f(carry, unused_t):
-                env_state, current_key, proposed_goals, was_proposed_goal_mask = carry
-                current_key, next_key = jax.random.split(current_key)
-                env_state, transition = actor_step(
-                    actor_state,
-                    train_env,
-                    env_state,
-                    proposed_goals,
-                    was_proposed_goal_mask,
-                    current_key,
-                    extra_fields=("truncation", "traj_id"),
-                )
-                return (env_state, next_key, proposed_goals, was_proposed_goal_mask), transition
-
-            key, proposal_key, mix_key = jax.random.split(key, 3)
+        def propose_goals_for_new_episodes(env_state, training_state, buffer_state, key):
+            """Propose new goals only for environments that just started a new episode (steps == 0)."""
+            proposal_key, mix_key = jax.random.split(key)
             
+            # Get mask for environments at the start of a new episode
+            is_new_episode = env_state.info["steps"] == 0  # shape (num_envs,)
+            jax.debug.print("New episode mask: {x}", x=is_new_episode)
+            
+            # Propose new goals
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
                 training_state, train_env, env_state,
                 proposal_key,
-                actor, actor_state.params, critic_state.params,
+                actor, training_state.actor_state.params, training_state.critic_state.params,
                 sa_encoder, g_encoder
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 
+            # Compute mixing probability
             if self.use_adaptive_mixing:
                 curr_goal_proposal_prob = jax.lax.cond(
                     training_state.env_steps >= self.adaptive_mixing_warmup_steps,
@@ -570,23 +566,73 @@ class CRL:
             else:
                 curr_goal_proposal_prob = self.goal_proposal_prob
 
-            # Use shared mix_goals helper
+            # Mix goals for new episodes
             mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, curr_goal_proposal_prob, mix_key)
 
-            proposed_goals = jax.lax.cond(
-                training_state.env_steps >= self.goal_proposal_warmup_steps,
+            # Apply warmup: only use proposed goals after warmup period
+            should_use_proposed = training_state.env_steps >= self.goal_proposal_warmup_steps
+            new_proposed_goals = jax.lax.cond(
+                should_use_proposed,
                 lambda: mixed_goals,
                 lambda: original_goals,
             )
-
-            was_proposed_goal_mask = jax.lax.cond(
-                training_state.env_steps >= self.goal_proposal_warmup_steps,
+            new_was_proposed_mask = jax.lax.cond(
+                should_use_proposed,
                 lambda: use_proposed_mask.squeeze(-1),
                 lambda: jnp.zeros_like(use_proposed_mask.squeeze(-1)),
             )
 
+            # Only update goals for environments that are starting a new episode
+            # Keep existing goals for environments mid-episode
+            proposed_goals = jnp.where(
+                is_new_episode[:, None],
+                new_proposed_goals,
+                env_state.info["proposed_goals"]
+            )
+            was_proposed_goal_mask = jnp.where(
+                is_new_episode,
+                new_was_proposed_mask,
+                env_state.info["was_proposed_goal_mask"]
+            )
+
+            return proposed_goals, was_proposed_goal_mask, buffer_state
+
+        @jax.jit
+        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
+            @jax.jit
+            def f(carry, unused_t):
+                env_state, training_state, buffer_state, current_key = carry
+                current_key, next_key, proposal_key = jax.random.split(current_key, 3)
+                
+                # Check for new episodes and propose goals only for those environments
+                proposed_goals, was_proposed_goal_mask, buffer_state = propose_goals_for_new_episodes(
+                    env_state, training_state, buffer_state, proposal_key
+                )
+                
+                # Update env_state.info with the current goals
+                env_state.info["proposed_goals"] = proposed_goals
+                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
+                
+                env_state, transition = actor_step(
+                    actor_state,
+                    train_env,
+                    env_state,
+                    proposed_goals,
+                    was_proposed_goal_mask,
+                    current_key,
+                    extra_fields=("truncation", "traj_id"),
+                )
+                
+                # Preserve the goal info in the new state
+                env_state.info["proposed_goals"] = proposed_goals
+                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
+                
+                return (env_state, training_state, buffer_state, next_key), transition
+
             # data.observation has shape (unroll_length, batch_size, obs_size)
-            (env_state, _, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals, was_proposed_goal_mask), (), length=self.unroll_length)
+            (env_state, _, buffer_state, _), data = jax.lax.scan(
+                f, (env_state, training_state, buffer_state, key), (), length=self.unroll_length
+            )
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state

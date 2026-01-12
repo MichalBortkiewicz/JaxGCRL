@@ -146,13 +146,13 @@ class UCGRGoalProposal:
         # Extract state-action pairs and achieved goals from batch
         # sample_batch.observation contains [state, goal] concatenated
         state_size = train_env.state_dim
-        observations = sample_batch.observation  # (K, obs_dim) where obs_dim = state_dim + goal_dim
-        states = observations[:, :state_size]  # (K, state_dim)
-        actions = sample_batch.action  # (K, action_dim)
+        observations = sample_batch.observation  # (N, K, obs_dim) where obs_dim = state_dim + goal_dim
+        states = observations[:, :state_size]  # (N, K, state_dim)
+        actions = sample_batch.action  # (N, K, action_dim)
         
         # Extract achieved goals (positive samples from trajectories)
         # These are the g_j^+ in Algorithm 1, line 10
-        achieved_goals = observations[:, goal_indices]  # (K, goal_dim)
+        achieved_goals = observations[:, :, goal_indices]  # (K, goal_dim)
         
         # Phase 2: Compute MinLSE scores (Algorithm 1, line 10)
         # For each goal g_j, compute S(g_j) = log Σ_{i=1}^K exp(f(s_i, a_i, g_j))
@@ -161,7 +161,7 @@ class UCGRGoalProposal:
         # states: (K, state_dim), actions: (K, action_dim), achieved_goals: (K, goal_dim)
         
         # Compute state-action encodings φ(s_i, a_i) for all i
-        state_actions = jnp.concatenate([states, actions], axis=-1)  # (K, state_dim + action_dim)
+        state_actions = jnp.concatenate([states, actions], axis=-1)  # (N, K, state_dim + action_dim)
         sa_encodings = sa_encoder.apply(
             critic_params["sa_encoder"], 
             state_actions
