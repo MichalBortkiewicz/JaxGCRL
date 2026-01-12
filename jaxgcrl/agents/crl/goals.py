@@ -251,8 +251,7 @@ class MEGAGoalProposal:
         goal_indices = train_env.goal_indices
         
         # Sample a large batch from replay buffer to get candidate goals
-        sample_key, select_key = jax.random.split(key)
-        buffer_state, sample_batch = replay_buffer.sample(buffer_state, key=sample_key)
+        buffer_state, sample_batch = replay_buffer.sample(buffer_state)
         
         # Extract achieved goals from the batch (use final states from trajectories)
         achieved_goals = sample_batch.observation[:, goal_indices]  # (buffer_batch, goal_dim)
@@ -341,7 +340,6 @@ class OMEGAGoalProposal:
         
         batch_size = env_state.obs.shape[0]
         goal_indices = train_env.goal_indices
-        current_step = training_state.env_steps
         
         # Get desired goals from environment (same as MetricPreservationGoalProposal)
         desired_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
@@ -350,8 +348,7 @@ class OMEGAGoalProposal:
         # Use a simple heuristic: compute every alpha_update_freq steps
         def compute_alpha():
             # Sample from replay buffer to estimate achieved goal distribution
-            sample_key = jax.random.PRNGKey(int(current_step))
-            _, achieved_trans = replay_buffer.sample(buffer_state, key=sample_key)
+            _, achieved_trans = replay_buffer.sample(buffer_state)
             achieved_goals = achieved_trans.observation[:, goal_indices]
             
             # Compute KL divergence between desired and achieved goal distributions
@@ -380,7 +377,7 @@ class OMEGAGoalProposal:
         )
         
         # Decide whether to use MEGA or environment goals
-        key, choice_key, mega_key, env_key = jax.random.split(key, 4)
+        key, choice_key, mega_key = jax.random.split(key, 3)
         use_env_goals = jax.random.uniform(choice_key, (batch_size,)) < alpha
         
         # Get MEGA goals (always compute these since we might need them)
