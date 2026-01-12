@@ -545,7 +545,6 @@ class CRL:
             current_traj_id = env_state.info["traj_id"]
             stored_traj_id = env_state.info.get("last_traj_id", current_traj_id - 1)
             is_new_episode = current_traj_id != stored_traj_id  # shape (num_envs,)
-            jax.debug.print("New episode mask: {}", is_new_episode[:8])
             
             # Propose new goals
             new_goals, buffer_state = goal_proposer.propose_goals(
