@@ -788,8 +788,8 @@ class CRL:
 
                 training_state = training_state.replace(optimal_goal_proposal_prob=smoothed_mixing)
 
-                metrics['adaptive_mixing_raw'] = mixing_star
-                metrics['adaptive_mixing_smoothed'] = smoothed_mixing
+                metrics['adaptive_mixing/mixing_raw'] = mixing_star
+                metrics['adaptive_mixing/mixing_smoothed'] = smoothed_mixing
 
             return (
                 training_state,
