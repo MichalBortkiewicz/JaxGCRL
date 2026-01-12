@@ -25,6 +25,248 @@ from jaxgcrl.utils.goals import (
 __all__ = ['GoalProposer', 'ReplayBufferGoalProposal', 'FisherTraceGoalProposal', 
            'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'QEpistemicGoalProposal', 'mix_goals']
 
+def gaussian_kernel_density(x, data, bandwidth):
+    """Compute Gaussian kernel density estimate.
+    
+    Args:
+        x: (n, d) points to evaluate density at
+        data: (m, d) data points
+        bandwidth: kernel bandwidth
+        
+    Returns:
+        densities: (n,) density estimates
+    """
+    # Compute pairwise squared distances: ||x_i - data_j||^2
+    # x: (n, d), data: (m, d) -> dists: (n, m)
+    diffs = x[:, None, :] - data[None, :, :]  # (n, m, d)
+    sq_dists = jnp.sum(diffs ** 2, axis=-1)  # (n, m)
+    
+    # Gaussian kernel: exp(-||x - data||^2 / (2 * bandwidth^2))
+    kernel_vals = jnp.exp(-sq_dists / (2 * bandwidth ** 2))
+    
+    # Normalize by number of data points and bandwidth
+    d = x.shape[-1]
+    norm_const = (2 * jnp.pi * bandwidth ** 2) ** (d / 2)
+    densities = jnp.mean(kernel_vals, axis=1) / norm_const
+    
+    return densities
+
+
+def compute_kl_divergence_empirical(desired_goals, achieved_goals, bandwidth=0.1):
+    """Compute empirical KL divergence D_KL(p_dg || p_ag) using KDE.
+    
+    Returns a large value if supports don't overlap (achieved doesn't cover desired).
+    """
+    # Normalize goals
+    all_goals = jnp.concatenate([desired_goals, achieved_goals], axis=0)
+    mean = jnp.mean(all_goals, axis=0)
+    std = jnp.std(all_goals, axis=0) + 1e-6
+    
+    desired_normalized = (desired_goals - mean) / std
+    achieved_normalized = (achieved_goals - mean) / std
+    
+    # Compute densities at desired goal samples
+    p_desired = gaussian_kernel_density(desired_normalized, desired_normalized, bandwidth)
+    p_achieved = gaussian_kernel_density(desired_normalized, achieved_normalized, bandwidth)
+    
+    # Add small epsilon to avoid log(0)
+    p_desired = jnp.maximum(p_desired, 1e-10)
+    p_achieved = jnp.maximum(p_achieved, 1e-10)
+    
+    # KL divergence: E[log(p_desired / p_achieved)]
+    kl_div = jnp.mean(jnp.log(p_desired) - jnp.log(p_achieved))
+    
+    # Return large value if supports don't overlap
+    kl_div = jnp.where(jnp.any(p_achieved < 1e-8), 1000.0, kl_div)
+    
+    return kl_div
+
+
+@dataclass  
+class MEGAGoalProposal:
+    """Maximum Entropy Goal Achievement (MEGA) proposer.
+    
+    Selects goals from low-density regions of the achieved goal distribution
+    to maximize exploration at the frontier of achievable goals.
+    
+    Based on Algorithm 2 from the MEGA paper.
+    """
+    num_candidates: int = 100  # N in the paper
+    bandwidth: float = 0.1  # KDE bandwidth
+    use_q_cutoff: bool = True  # Whether to eliminate unachievable goals using Q-values
+    cutoff_percentile: float = 0.3  # Q-value percentile for cutoff (lower = more restrictive)
+    energy_fn_name: str = "dot"  # Energy function to use for Q-value computation
+    
+    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, 
+                     actor, actor_params, critic_params, sa_encoder, g_encoder):
+        """Propose goals by selecting minimum density candidates from replay buffer.
+        
+        Args:
+            replay_buffer: Replay buffer containing past transitions
+            buffer_state: Current state of replay buffer
+            training_state: Training state with networks
+            train_env: Training environment
+            env_state: Current environment state
+            key: JAX random key
+            actor: Actor network
+            actor_params: Actor parameters
+            critic_params: Critic parameters  
+            sa_encoder: State-action encoder network
+            g_encoder: Goal encoder network
+            
+        Returns:
+            proposed_goals: (batch_size, goal_dim) array of proposed goals
+            buffer_state: Updated buffer state
+        """
+        from jaxgcrl.agents.crl.losses import energy_fn
+        
+        batch_size = env_state.obs.shape[0]
+        state_size = train_env.state_dim
+        goal_indices = train_env.goal_indices
+        
+        # Sample a large batch from replay buffer to get candidate goals
+        sample_key, select_key = jax.random.split(key)
+        buffer_state, sample_batch = replay_buffer.sample(buffer_state, key=sample_key)
+        
+        # Extract achieved goals from the batch (use final states from trajectories)
+        achieved_goals = sample_batch.observation[:, goal_indices]  # (buffer_batch, goal_dim)
+        
+        # For each environment state, select minimum density goal from candidates
+        def select_goal_for_state(state_idx):
+            """Select minimum density goal for one environment state."""
+            current_state = env_state.obs[state_idx, :state_size]
+            candidate_goals = achieved_goals
+            
+            # Compute density for each candidate using KDE
+            # Normalize for numerical stability
+            mean = jnp.mean(achieved_goals, axis=0)
+            std = jnp.std(achieved_goals, axis=0) + 1e-6
+            
+            achieved_normalized = (achieved_goals - mean) / std
+            candidates_normalized = (candidate_goals - mean) / std
+            
+            # Compute densities using Gaussian KDE
+            densities = gaussian_kernel_density(candidates_normalized, achieved_normalized, self.bandwidth)
+            
+            # Optional: Filter unachievable goals using Q-values
+            if self.use_q_cutoff:
+                def compute_q_value(goal):
+                    """Compute Q-value for reaching goal from current state."""
+                    obs = jnp.concatenate([current_state, goal])
+                    means, _ = actor.apply(actor_params, obs[None, :])
+                    action = jnp.tanh(means[0])
+                    
+                    sa_repr = sa_encoder.apply(critic_params["sa_encoder"],
+                                                jnp.concatenate([current_state, action])[None, :])[0]
+                    g_repr = g_encoder.apply(critic_params["g_encoder"], goal[None, :])[0]
+                    return energy_fn(self.energy_fn_name, sa_repr, g_repr)
+                
+                q_values = jax.vmap(compute_q_value)(candidate_goals)
+                
+                # Compute adaptive cutoff (percentile of Q-values)
+                cutoff_value = jnp.percentile(q_values, self.cutoff_percentile * 100)
+                
+                # Set density of unachievable goals to infinity (so they won't be selected)
+                densities = jnp.where(q_values >= cutoff_value, densities, jnp.inf)
+            
+            # Select minimum density candidate
+            min_idx = jnp.argmin(densities)
+            return candidate_goals[min_idx]
+    
+        
+        # Process all states in batch
+        proposed_goals = jax.vmap(select_goal_for_state)(jnp.arange(batch_size))
+        
+        return proposed_goals, buffer_state
+
+
+@dataclass
+class OMEGAGoalProposal:
+    """OMEGA (annealing MEGA to desired goals) proposer.
+    
+    Anneals from MEGA exploration to desired goal distribution using α parameter
+    that depends on KL divergence between desired and achieved distributions.
+    
+    α = 1 / max(b + D_KL(p_dg || p_ag), 1)
+    
+    With probability α: sample from desired goal distribution
+    With probability 1-α: use MEGA to explore low-density regions
+    
+    Based on Algorithm 2 from the MEGA paper.
+    """
+    num_candidates: int = 100
+    bandwidth: float = 0.1  
+    use_q_cutoff: bool = True
+    cutoff_percentile: float = 0.3
+    energy_fn_name: str = "dot"
+    bias_param: float = -3.0  # 'b' in paper, controls annealing speed (-3 recommended)
+    alpha_update_freq: int = 1000  # Update α every N environment steps
+    
+    def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key,
+                     actor, actor_params, critic_params, sa_encoder, g_encoder):
+        """Propose goals by annealing between MEGA and desired goals.
+        
+        Returns:
+            proposed_goals: (batch_size, goal_dim) array of proposed goals
+            buffer_state: Updated buffer state
+        """
+        assert hasattr(train_env, 'possible_goals'), \
+            "Environment must store property `possible_goals` for OMEGAGoalProposal."
+        
+        batch_size = env_state.obs.shape[0]
+        goal_indices = train_env.goal_indices
+        current_step = training_state.env_steps
+        
+        # Get desired goals from environment (same as MetricPreservationGoalProposal)
+        desired_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
+        
+        # Compute α periodically based on KL divergence
+        # Use a simple heuristic: compute every alpha_update_freq steps
+        def compute_alpha():
+            # Sample from replay buffer to estimate achieved goal distribution
+            sample_key = jax.random.PRNGKey(int(current_step))
+            _, achieved_trans = replay_buffer.sample(buffer_state, key=sample_key)
+            achieved_goals = achieved_trans.observation[:, goal_indices]
+            
+            # Compute KL divergence between desired and achieved goal distributions
+            kl_div = compute_kl_divergence_empirical(desired_goals, achieved_goals, self.bandwidth)
+            
+            # Compute α
+            alpha = 1.0 / jnp.maximum(self.bias_param + kl_div, 1.0)
+            return alpha
+        
+        # Compute alpha (in practice you'd cache this and update periodically)
+        alpha = compute_alpha()
+        
+        # Log alpha value for debugging
+        jax.debug.print("OMEGA alpha: {}", alpha)
+        
+        # Decide whether to use MEGA or environment goals
+        key, choice_key, mega_key, env_key = jax.random.split(key, 4)
+        use_env_goals = jax.random.uniform(choice_key, (batch_size,)) < alpha
+        
+        # Get MEGA goals (always compute these since we might need them)
+        mega_proposer = MEGAGoalProposal(
+            num_candidates=self.num_candidates,
+            bandwidth=self.bandwidth,
+            use_q_cutoff=self.use_q_cutoff,
+            cutoff_percentile=self.cutoff_percentile,
+            energy_fn_name=self.energy_fn_name
+        )
+        mega_goals, buffer_state = mega_proposer.propose_goals(
+            replay_buffer, buffer_state, training_state, train_env, env_state,
+            mega_key, actor, actor_params, critic_params, sa_encoder, g_encoder
+        )
+        
+        # Mix goals based on α
+        proposed_goals = jnp.where(
+            use_env_goals[:, None],
+            desired_goals,
+            mega_goals
+        )
+        
+        return proposed_goals, buffer_state
+
 
 @dataclass 
 class ReplayBufferGoalProposal(GoalProposer):
@@ -46,7 +288,7 @@ class FisherTraceGoalProposal(GoalProposer):
     energy_fn_name: str
     use_critic_gradients: bool = True  # Include critic (phi, psi encoder) gradients in Fisher trace
     use_actor_gradients: bool = False  # Include actor gradients in Fisher trace
-    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
+    LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
     _last_log_step: int = -500000  # Track last logged step (start negative to log first time)
 
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
@@ -427,7 +669,7 @@ class QEpistemicGoalProposal(GoalProposer):
     num_ensemble: int = 5  # Number of critics in the ensemble
     use_env_goals: bool = False  # If True, use environment goals; if False, use replay buffer final states
     zero_center: bool = False  # If True, center each critic's predictions before computing std
-    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
+    LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, actor, 
                      actor_params, critic_params, sa_encoder, g_encoder):
@@ -657,7 +899,7 @@ class MetricPreservationGoalProposal(GoalProposer):
     zero_out_state: bool = False  # If True, zero out the current state when computing energy terms
     propose_env_goals: bool = False  # If True, propose environment goals instead of waypoint goals
     goal_sampling_temperature: float = 1.0  # Temperature for softmax sampling over M matrix (0 = greedy, >0 = softmax)
-    LOG_INTERVAL_STEPS: int = 500000  # Log visualizations every N environment steps
+    LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
 
     def propose_goals(self, replay_buffer, buffer_state, training_state,
                       train_env, env_state, key, actor, actor_params, critic_params,

@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, mix_goals
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, mix_goals
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic", "mega", "omega"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
@@ -479,6 +479,14 @@ class CRL:
                 num_ensemble=self.q_epistemic_num_ensemble,
                 use_env_goals=self.q_epistemic_use_env_goals,
                 zero_center=self.q_zero_center
+            )
+        elif self.goal_proposer_name == "mega":
+            goal_proposer = MEGAGoalProposal(
+                energy_fn_name=self.energy_fn,
+            )
+        elif self.goal_proposer_name == "omega":
+            goal_proposer = OMEGAGoalProposal(
+                energy_fn_name=self.energy_fn,
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
