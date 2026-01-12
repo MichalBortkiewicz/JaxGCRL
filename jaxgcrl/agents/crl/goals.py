@@ -101,6 +101,51 @@ from flax.struct import dataclass
 from typing import Any
 
 
+def get_final_states_from_batch(observations, traj_ids, goal_indices):
+    """Extract final states from each trajectory in a batch, respecting traj_id boundaries.
+    
+    Args:
+        observations: (N, K, obs_dim) sampled observations where N = num trajectory samples, K = episode_length
+        traj_ids: (N, K) trajectory IDs for each timestep
+        goal_indices: indices to extract goal dimensions from observation
+        
+    Returns:
+        final_goals: (N, goal_dim) final state goals from each sampled trajectory
+    """
+    def get_last_state(obs_seq, traj_id_seq):
+        """Get the last state for the first trajectory in sequence."""
+        seq_len = obs_seq.shape[0]
+        # Find indices that match the first timestep's traj_id
+        mask = traj_id_seq == traj_id_seq[0]
+        # Get the last index in the trajectory
+        last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+        return obs_seq[last_idx]
+    
+    # Apply to each sampled trajectory
+    last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (N, obs_dim)
+    final_goals = last_states[:, goal_indices]  # (N, goal_dim)
+    return final_goals
+
+
+def flatten_trajectory_data(observations, actions, traj_ids, state_size):
+    """Flatten 3D trajectory data to 2D for batch processing.
+    
+    Args:
+        observations: (N, K, obs_dim) where N = num trajectory samples, K = episode_length
+        actions: (N, K, action_dim)
+        traj_ids: (N, K)
+        state_size: size of state portion of observation
+        
+    Returns:
+        states: (N * K, state_size) flattened states
+        actions: (N * K, action_dim) flattened actions
+    """
+    N, K = observations.shape[:2]
+    states = observations[:, :, :state_size].reshape(-1, state_size)
+    actions_flat = actions.reshape(-1, actions.shape[-1])
+    return states, actions_flat
+
+
 @dataclass
 class UCGRGoalProposal:
     """
@@ -108,8 +153,10 @@ class UCGRGoalProposal:
     
     Attributes:
         energy_fn_name: Energy function to use ("dot" for inner product)
+        num_samples: Number of (s, a) pairs to sample for MinLSE computation
     """
     energy_fn_name: str = "dot"  # Energy function: f(s,a,g) = φ(s,a)^T ψ(g)
+    num_samples: int = 100  # Number of (s, a) pairs to sample
     
     def propose_goals(
         self, 
@@ -129,9 +176,10 @@ class UCGRGoalProposal:
         Propose goals using the MinLSE strategy.
         
         This follows Algorithm 1, lines 9-11:
-        1. Sample K state-action pairs from replay buffer
-        2. For each positive goal g_j^+, compute S(g_j^+) = log Σ_i exp(f(s_i, a_i, g_j^+))
-        3. Select g* = argmin_g S(g)
+        1. Sample K (s, a) pairs from replay buffer
+        2. For each (s, a) pair, find its trajectory's final state as candidate goal
+        3. Compute S(g_j) = log Σ_i exp(f(s_i, a_i, g_j)) for each candidate goal
+        4. Select g* = argmin_g S(g)
         
         Returns:
             proposed_goals: (batch_size, goal_dim) array of proposed goals
@@ -139,66 +187,78 @@ class UCGRGoalProposal:
         """        
         batch_size = env_state.obs.shape[0]
         goal_indices = train_env.goal_indices
+        state_size = train_env.state_dim
+        K = self.num_samples  # Number of (s, a) pairs to sample
         
-        # Phase 1: Sample K state-action pairs from replay buffer (Algorithm 1, line 5)
+        # Sample trajectories from replay buffer
         buffer_state, sample_batch = replay_buffer.sample(buffer_state)
         
-        # Extract state-action pairs and achieved goals from batch
-        # sample_batch.observation contains [state, goal] concatenated
-        state_size = train_env.state_dim
-        observations = sample_batch.observation  # (N, K, obs_dim) where obs_dim = state_dim + goal_dim
-        states = observations[:, :state_size]  # (N, K, state_dim)
-        actions = sample_batch.action  # (N, K, action_dim)
+        # sample_batch.observation has shape (N, ep_len, obs_dim)
+        observations = sample_batch.observation  # (N, ep_len, obs_dim)
+        actions = sample_batch.action  # (N, ep_len, action_dim)
+        traj_ids = sample_batch.extras["state_extras"]["traj_id"]  # (N, ep_len)
         
-        # Extract achieved goals (positive samples from trajectories)
-        # These are the g_j^+ in Algorithm 1, line 10
-        achieved_goals = observations[:, :, goal_indices]  # (K, goal_dim)
+        N, ep_len = observations.shape[:2]
         
-        # Phase 2: Compute MinLSE scores (Algorithm 1, line 10)
-        # For each goal g_j, compute S(g_j) = log Σ_{i=1}^K exp(f(s_i, a_i, g_j))
+        # Randomly sample K indices from all (trajectory, timestep) pairs
+        key, sample_key = jax.random.split(key)
+        total_pairs = N * ep_len
+        # Sample K random indices (with replacement if K > total_pairs)
+        flat_indices = jax.random.randint(sample_key, (K,), 0, total_pairs)
+        traj_indices = flat_indices // ep_len  # Which trajectory
+        time_indices = flat_indices % ep_len   # Which timestep within trajectory
         
-        # Vectorized computation: compute scores for all goals at once
-        # states: (K, state_dim), actions: (K, action_dim), achieved_goals: (K, goal_dim)
+        # Extract the K sampled (s, a) pairs
+        sampled_states = observations[traj_indices, time_indices, :state_size]  # (K, state_dim)
+        sampled_actions = actions[traj_indices, time_indices]  # (K, action_dim)
         
-        # Compute state-action encodings φ(s_i, a_i) for all i
-        state_actions = jnp.concatenate([states, actions], axis=-1)  # (N, K, state_dim + action_dim)
-        sa_encodings = sa_encoder.apply(
-            critic_params["sa_encoder"], 
-            state_actions
-        )  # (K, encoding_dim)
+        # For each sampled (s, a), find the final state of its trajectory
+        # First get the traj_id for each sampled pair
+        sampled_traj_ids = traj_ids[traj_indices, time_indices]  # (K,)
         
-        # Compute goal encodings ψ(g_j) for all j
-        psi_g = g_encoder.apply(
-            critic_params["g_encoder"],
-            achieved_goals
-        )  # (K, encoding_dim)
+        def get_final_state_for_sample(traj_idx, time_idx, sampled_traj_id):
+            """Get the final state of the trajectory containing this (s, a) pair."""
+            obs_seq = observations[traj_idx]  # (ep_len, obs_dim)
+            traj_id_seq = traj_ids[traj_idx]  # (ep_len,)
+            
+            # Find the last timestep with the same traj_id
+            mask = traj_id_seq == sampled_traj_id
+            last_idx = jnp.max(jnp.where(mask, jnp.arange(ep_len), 0))
+            return obs_seq[last_idx, goal_indices]  # (goal_dim,)
         
-        # Compute all critic values f(s_i, a_i, g_j) 
-        # We need to compute: for each goal j, log Σ_i exp(f(s_i, a_i, g_j))
-        # Reshape for batch computation: repeat sa_encodings for each goal
-        K = sa_encodings.shape[0]
+        # Get candidate goals: final states for each sampled (s, a) pair's trajectory
+        candidate_goals = jax.vmap(get_final_state_for_sample)(
+            traj_indices, time_indices, sampled_traj_ids
+        )  # (K, goal_dim)
+        
+        # Compute MinLSE scores using the K (s, a) pairs
+        # For each goal g_j, compute S(g_j) = log Σ_i exp(f(s_i, a_i, g_j))
+        
+        # Compute state-action encodings φ(s_i, a_i)
+        sa_pairs = jnp.concatenate([sampled_states, sampled_actions], axis=-1)  # (K, state_dim + action_dim)
+        sa_encodings = sa_encoder.apply(critic_params["sa_encoder"], sa_pairs)  # (K, encoding_dim)
+        
+        # Compute goal encodings ψ(g_j)
+        psi_g = g_encoder.apply(critic_params["g_encoder"], candidate_goals)  # (K, encoding_dim)
+        
+        # Compute all pairwise energies f(s_i, a_i, g_j) for i, j in [0, K)
+        # Result: energies[i, j] = f(s_i, a_i, g_j)
         sa_rep = jnp.repeat(sa_encodings[:, None, :], K, axis=1)  # (K, K, encoding_dim)
         psi_rep = jnp.repeat(psi_g[None, :, :], K, axis=0)  # (K, K, encoding_dim)
         
-        # Reshape for energy computation
         sa_flat = sa_rep.reshape(-1, sa_rep.shape[-1])  # (K*K, encoding_dim)
         psi_flat = psi_rep.reshape(-1, psi_rep.shape[-1])  # (K*K, encoding_dim)
         
-        # Compute energies for all pairs
         energies_flat = energy_fn(self.energy_fn_name, sa_flat, psi_flat)  # (K*K,)
         energies = energies_flat.reshape(K, K)  # (K, K) - energies[i, j] = f(s_i, a_i, g_j)
         
         # Compute scores: S(g_j) = log Σ_i exp(f(s_i, a_i, g_j))
-        # For each column j, compute logsumexp of column
         scores = jax.scipy.special.logsumexp(energies, axis=0)  # (K,)
         
-        # Phase 3: Select goals with minimum scores (Algorithm 1, line 11)
-        # g* = argmin_g S(g)
-        # We need batch_size goals, one for each parallel environment
-        
+        # Select goal with minimum score: g* = argmin_g S(g)
         min_idx = jnp.argmin(scores)
         proposed_goals = jnp.repeat(
-            achieved_goals[min_idx][None, :],
+            candidate_goals[min_idx][None, :],
             batch_size,
             axis=0,
         )
@@ -214,14 +274,48 @@ class MEGAGoalProposal:
     
     Based on Algorithm 2 from the MEGA paper.
     """
-    num_candidates: int = 100  # N in the paper
+    num_candidates: int = 100  # Number of candidate goals to sample
     bandwidth: float = 0.1  # KDE bandwidth
     use_q_cutoff: bool = True  # Whether to eliminate unachievable goals using Q-values
     cutoff_percentile: float = 0.3  # Q-value percentile for cutoff (lower = more restrictive)
     energy_fn_name: str = "dot"  # Energy function to use for Q-value computation
     
+    def sample_candidate_goals(self, replay_buffer, buffer_state, train_env, key):
+        """Sample candidate goals from replay buffer.
+        
+        Args:
+            replay_buffer: Replay buffer containing past transitions
+            buffer_state: Current state of replay buffer
+            train_env: Training environment (for goal_indices)
+            key: JAX random key
+            
+        Returns:
+            candidate_goals: (num_candidates, goal_dim) array of sampled goals
+            buffer_state: Updated buffer state
+        """
+        goal_indices = train_env.goal_indices
+        
+        # Sample trajectories from replay buffer
+        buffer_state, sample_batch = replay_buffer.sample(buffer_state)
+        
+        # sample_batch.observation has shape (N, ep_len, obs_dim)
+        observations = sample_batch.observation
+        N, ep_len = observations.shape[:2]
+        
+        # Sample num_candidates random states as candidate goals (any state, not just final)
+        key, sample_key = jax.random.split(key)
+        total_states = N * ep_len
+        flat_indices = jax.random.randint(sample_key, (self.num_candidates,), 0, total_states)
+        traj_indices = flat_indices // ep_len  # Which trajectory
+        time_indices = flat_indices % ep_len   # Which timestep within trajectory
+        
+        # Extract candidate goals from sampled states
+        candidate_goals = observations[traj_indices, time_indices][:, goal_indices]  # (num_candidates, goal_dim)
+        
+        return candidate_goals, buffer_state
+    
     def propose_goals(self, replay_buffer, buffer_state, training_state, train_env, env_state, key, 
-                     actor, actor_params, critic_params, sa_encoder, g_encoder):
+                     actor, actor_params, critic_params, sa_encoder, g_encoder, candidate_goals=None):
         """Propose goals by selecting minimum density candidates from replay buffer.
         
         Args:
@@ -236,6 +330,8 @@ class MEGAGoalProposal:
             critic_params: Critic parameters  
             sa_encoder: State-action encoder network
             g_encoder: Goal encoder network
+            candidate_goals: Optional pre-sampled candidate goals (num_candidates, goal_dim).
+                             If None, samples new candidates from replay buffer.
             
         Returns:
             proposed_goals: (batch_size, goal_dim) array of proposed goals
@@ -245,33 +341,30 @@ class MEGAGoalProposal:
         
         batch_size = env_state.obs.shape[0]
         state_size = train_env.state_dim
-        goal_indices = train_env.goal_indices
         
-        # Sample a large batch from replay buffer to get candidate goals
-        buffer_state, sample_batch = replay_buffer.sample(buffer_state)
-        
-        # Extract achieved goals from the batch (use final states from trajectories)
-        achieved_goals = sample_batch.observation[:, goal_indices]  # (buffer_batch, goal_dim)
+        # Sample candidate goals if not provided
+        if candidate_goals is None:
+            key, sample_key = jax.random.split(key)
+            candidate_goals, buffer_state = self.sample_candidate_goals(
+                replay_buffer, buffer_state, train_env, sample_key
+            )
         
         # For each environment state, select minimum density goal from candidates
         def select_goal_for_state(current_state):
             """Select minimum density goal for one environment state."""
-            candidate_goals = achieved_goals
-            
             # Compute density for each candidate using KDE
             # Normalize for numerical stability
-            mean = jnp.mean(achieved_goals, axis=0)
-            std = jnp.std(achieved_goals, axis=0) + 1e-6
+            mean = jnp.mean(candidate_goals, axis=0)
+            std = jnp.std(candidate_goals, axis=0) + 1e-6
             
-            achieved_normalized = (achieved_goals - mean) / std
             candidates_normalized = (candidate_goals - mean) / std
             
             # Compute densities using Gaussian KDE
-            densities = gaussian_kernel_density(candidates_normalized, achieved_normalized, self.bandwidth)
+            densities = gaussian_kernel_density(candidates_normalized, candidates_normalized, self.bandwidth)
             
             # Optional: Filter unachievable goals using Q-values
             if self.use_q_cutoff:
-                # Vectorized computation like MetricPreservation
+                # Vectorized computation
                 # Create batch of observations [current_state, goal] for all candidate goals
                 s_rep = jnp.repeat(current_state[None, :], len(candidate_goals), axis=0)
                 obs_sg = jnp.concatenate([s_rep, candidate_goals], axis=1)
@@ -340,27 +433,28 @@ class OMEGAGoalProposal:
             "Environment must store property `possible_goals` for OMEGAGoalProposal."
         
         batch_size = env_state.obs.shape[0]
-        goal_indices = train_env.goal_indices
         
-        # Get desired goals from environment (same as MetricPreservationGoalProposal)
+        # Get desired goals from environment
         desired_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
         
-        # Compute α periodically based on KL divergence
-        # Use a simple heuristic: compute every alpha_update_freq steps
-        def compute_alpha():
-            # Sample from replay buffer to estimate achieved goal distribution
-            _, achieved_trans = replay_buffer.sample(buffer_state)
-            achieved_goals = achieved_trans.observation[:, goal_indices]
-            
-            # Compute KL divergence between desired and achieved goal distributions
-            kl_div = compute_kl_divergence_empirical(desired_goals, achieved_goals, self.bandwidth)
-            
-            # Compute α
-            alpha = 1.0 / jnp.maximum(self.bias_param + kl_div, 1.0)
-            return alpha
+        # Create MEGA proposer (used for both sampling and goal selection)
+        mega_proposer = MEGAGoalProposal(
+            num_candidates=self.num_candidates,
+            bandwidth=self.bandwidth,
+            use_q_cutoff=self.use_q_cutoff,
+            cutoff_percentile=self.cutoff_percentile,
+            energy_fn_name=self.energy_fn_name
+        )
         
-        # Compute alpha (in practice you'd cache this and update periodically)
-        alpha = compute_alpha()
+        # Sample candidate goals once - used for both KL divergence and MEGA
+        key, sample_key = jax.random.split(key)
+        achieved_goals, buffer_state = mega_proposer.sample_candidate_goals(
+            replay_buffer, buffer_state, train_env, sample_key
+        )  # (num_candidates, goal_dim)
+        
+        # Compute α based on KL divergence between desired and achieved goal distributions
+        kl_div = compute_kl_divergence_empirical(desired_goals, achieved_goals, self.bandwidth)
+        alpha = 1.0 / jnp.maximum(self.bias_param + kl_div, 1.0)
         
         # Log alpha value using wandb
         def log_alpha_callback(alpha_val, env_steps):
@@ -381,23 +475,22 @@ class OMEGAGoalProposal:
         key, choice_key, mega_key = jax.random.split(key, 3)
         use_env_goals = jax.random.uniform(choice_key, (batch_size,)) < alpha
         
-        # Get MEGA goals (always compute these since we might need them)
-        mega_proposer = MEGAGoalProposal(
-            num_candidates=self.num_candidates,
-            bandwidth=self.bandwidth,
-            use_q_cutoff=self.use_q_cutoff,
-            cutoff_percentile=self.cutoff_percentile,
-            energy_fn_name=self.energy_fn_name
-        )
+        # Get MEGA goals using the same sampled candidates (no redundant sampling)
         mega_goals, buffer_state = mega_proposer.propose_goals(
             replay_buffer, buffer_state, training_state, train_env, env_state,
-            mega_key, actor, actor_params, critic_params, sa_encoder, g_encoder
+            mega_key, actor, actor_params, critic_params, sa_encoder, g_encoder,
+            candidate_goals=achieved_goals  # Reuse the same samples
         )
+        
+        # Sample from desired goals for environments that should use env goals
+        key, sample_key = jax.random.split(key)
+        env_goal_indices = jax.random.randint(sample_key, (batch_size,), 0, len(desired_goals))
+        sampled_env_goals = desired_goals[env_goal_indices]
         
         # Mix goals based on α
         proposed_goals = jnp.where(
             use_env_goals[:, None],
-            desired_goals,
+            sampled_env_goals,
             mega_goals
         )
         
