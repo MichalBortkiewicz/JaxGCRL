@@ -205,7 +205,7 @@ class UCGRGoalProposal:
             batch_size,
             axis=0,
         )
-        
+
         return proposed_goals, buffer_state
 
 @dataclass  
@@ -364,8 +364,20 @@ class OMEGAGoalProposal:
         # Compute alpha (in practice you'd cache this and update periodically)
         alpha = compute_alpha()
         
-        # Log alpha value for debugging
-        jax.debug.print("OMEGA alpha: {}", alpha)
+        # Log alpha value using wandb
+        def log_alpha_callback(alpha_val, env_steps):
+            """Log alpha to wandb."""
+            metrics = {
+                'omega/alpha': float(alpha_val),
+            }
+            wandb.log(metrics, step=int(env_steps))
+        
+        jax.experimental.io_callback(
+            log_alpha_callback,
+            None,
+            alpha,
+            training_state.env_steps
+        )
         
         # Decide whether to use MEGA or environment goals
         key, choice_key, mega_key, env_key = jax.random.split(key, 4)
