@@ -141,8 +141,7 @@ class UCGRGoalProposal:
         goal_indices = train_env.goal_indices
         
         # Phase 1: Sample K state-action pairs from replay buffer (Algorithm 1, line 5)
-        sample_key, select_key = jax.random.split(key)
-        buffer_state, sample_batch = replay_buffer.sample(buffer_state, key=sample_key)
+        buffer_state, sample_batch = replay_buffer.sample(buffer_state)
         
         # Extract state-action pairs and achieved goals from batch
         # sample_batch.observation contains [state, goal] concatenated
@@ -275,18 +274,22 @@ class MEGAGoalProposal:
             
             # Optional: Filter unachievable goals using Q-values
             if self.use_q_cutoff:
-                def compute_q_value(goal):
-                    """Compute Q-value for reaching goal from current state."""
-                    obs = jnp.concatenate([current_state, goal])
-                    means, _ = actor.apply(actor_params, obs[None, :])
-                    action = jnp.tanh(means[0])
-                    
-                    sa_repr = sa_encoder.apply(critic_params["sa_encoder"],
-                                                jnp.concatenate([current_state, action])[None, :])[0]
-                    g_repr = g_encoder.apply(critic_params["g_encoder"], goal[None, :])[0]
-                    return energy_fn(self.energy_fn_name, sa_repr, g_repr)
+                # Vectorized computation like MetricPreservation
+                # Create batch of observations [current_state, goal] for all candidate goals
+                s_rep = jnp.repeat(current_state[None, :], len(candidate_goals), axis=0)
+                obs_sg = jnp.concatenate([s_rep, candidate_goals], axis=1)
                 
-                q_values = jax.vmap(compute_q_value)(candidate_goals)
+                # Compute actions
+                means, _ = actor.apply(actor_params, obs_sg)
+                actions = jnp.tanh(means)
+                
+                # Compute encodings
+                sa_pair = jnp.concatenate([s_rep, actions], axis=1)
+                phi_sg = sa_encoder.apply(critic_params["sa_encoder"], sa_pair)
+                psi_g = g_encoder.apply(critic_params["g_encoder"], candidate_goals)
+                
+                # Compute Q-values for all goals at once
+                q_values = energy_fn(self.energy_fn_name, phi_sg, psi_g)
                 
                 # Compute adaptive cutoff (percentile of Q-values)
                 cutoff_value = jnp.percentile(q_values, self.cutoff_percentile * 100)
