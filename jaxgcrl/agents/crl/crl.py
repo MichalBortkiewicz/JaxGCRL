@@ -475,11 +475,11 @@ class CRL:
         elif self.goal_proposer_name == "max_waypoint_ratio":
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "fisher_trace":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "fisher_trace_actor":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=False, use_actor_gradients=True)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=False, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "fisher_trace_combined":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=True)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "q_epistemic":
             goal_proposer = QEpistemicGoalProposal(
                 energy_fn_name=self.energy_fn,

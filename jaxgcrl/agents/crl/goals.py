@@ -517,6 +517,8 @@ class FisherTraceGoalProposal(GoalProposer):
     energy_fn_name: str
     use_critic_gradients: bool = True  # Include critic (phi, psi encoder) gradients in Fisher trace
     use_actor_gradients: bool = False  # Include actor gradients in Fisher trace
+    temperature: float = 0.0  # Temperature for softmax sampling (0 = argmax, higher = more uniform)
+    propose_env_goals: bool = False  # If True, use environment goals instead of replay buffer samples
     LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
     _last_log_step: int = -500000  # Track last logged step (start negative to log first time)
 
@@ -525,21 +527,23 @@ class FisherTraceGoalProposal(GoalProposer):
         # Get current states from env_state
         state_size = train_env.state_dim
         current_states = env_state.obs[:, :state_size]  # (batch_size, state_dim)
-        
-        # Sample one batch to get candidate final states
-        buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
-        traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
-        candidate_obs = candidate_transitions.observation
-        
-        def get_last_state(obs_seq, traj_id_seq):
-            """Get the last state for each trajectory"""
-            seq_len = obs_seq.shape[0]
-            mask = traj_id_seq == traj_id_seq[0]
-            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-            return obs_seq[last_idx]
-        
-        last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
-        candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
+
+        if self.propose_env_goals:
+            assert hasattr(train_env, 'possible_goals'), "Environment must have 'possible_goals' for propose_env_goals=True."
+            candidate_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
+        else:
+            # Sample one batch to get candidate final states
+            buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
+            traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
+            candidate_obs = candidate_transitions.observation
+            def get_last_state(obs_seq, traj_id_seq):
+                """Get the last state for each trajectory"""
+                seq_len = obs_seq.shape[0]
+                mask = traj_id_seq == traj_id_seq[0]
+                last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
+                return obs_seq[last_idx]
+            last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+            candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
         use_critic = self.use_critic_gradients
         use_actor = self.use_actor_gradients
@@ -547,30 +551,21 @@ class FisherTraceGoalProposal(GoalProposer):
         def compute_fisher_traces_for_state(state):
             def fisher_trace_for_goal(carry, goal):
                 obs = jnp.concatenate([state, goal])
-                
                 def get_action_and_q(actor_p):
-                    """Compute action from actor and Q-value."""
                     means, log_stds = actor.apply(actor_p, obs[None, :])
                     action = jnp.tanh(means[0])
                     sa_pair = jnp.concatenate([state, action])
                     phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pair[None, :])[0]
                     psi_g = g_encoder.apply(critic_params['g_encoder'], goal[None, :])[0]
                     return energy_fn(self.energy_fn_name, phi_sa, psi_g)
-                
-                # Get action for critic gradients (use stop_gradient on actor params)
                 means, log_stds = actor.apply(actor_params, obs[None, :])
                 action = jnp.tanh(means[0])
                 sa_pair = jnp.concatenate([state, action])
-                
                 def log_q_value(phi_params, psi_params):
-                    """Energy output is already log Q-function"""
                     phi_sa = sa_encoder.apply(phi_params, sa_pair[None, :])[0]
                     psi_g = g_encoder.apply(psi_params, goal[None, :])[0]
                     return energy_fn(self.energy_fn_name, phi_sa, psi_g)
-                
                 total_fisher_trace = 0.0
-                
-                # Critic gradients (phi and psi encoders)
                 if use_critic:
                     grad_phi_params = jax.grad(lambda p: log_q_value(p, critic_params['g_encoder']))(
                         critic_params['sa_encoder']
@@ -578,38 +573,35 @@ class FisherTraceGoalProposal(GoalProposer):
                     grad_psi_params = jax.grad(lambda p: log_q_value(critic_params['sa_encoder'], p))(
                         critic_params['g_encoder']
                     )
-                    
                     flat_grad_phi = jax.flatten_util.ravel_pytree(grad_phi_params)[0]
                     flat_grad_psi = jax.flatten_util.ravel_pytree(grad_psi_params)[0]
-                    
                     fisher_trace_phi = jnp.sum(flat_grad_phi ** 2)
                     fisher_trace_psi = jnp.sum(flat_grad_psi ** 2)
-                    
                     total_fisher_trace += fisher_trace_phi + fisher_trace_psi
-                
-                # Actor gradients
                 if use_actor:
                     grad_actor_params = jax.grad(get_action_and_q)(actor_params)
                     flat_grad_actor = jax.flatten_util.ravel_pytree(grad_actor_params)[0]
                     fisher_trace_actor = jnp.sum(flat_grad_actor ** 2)
                     total_fisher_trace += fisher_trace_actor
-                
                 return carry, total_fisher_trace
-            
             # Compute Fisher trace sequentially for each candidate goal to avoid memory explosion
             _, fisher_traces = jax.lax.scan(fisher_trace_for_goal, None, candidate_goals)
-            
             return fisher_traces
-        
-        # Compute Fisher traces for all states sequentially
         def compute_traces_for_all_states(carry, state):
             fisher_traces = compute_fisher_traces_for_state(state)
             return carry, fisher_traces
-        
         _, all_fisher_traces = jax.lax.scan(compute_traces_for_all_states, None, current_states)
         
-        # For each state, select the candidate goal with the largest Fisher trace
-        best_goal_indices = jnp.argmax(all_fisher_traces, axis=1)  # (batch_size,)
+        # For each state, select a candidate goal based on Fisher trace
+        # If temperature == 0, use argmax; otherwise use softmax sampling
+        if self.temperature == 0.0:
+            best_goal_indices = jnp.argmax(all_fisher_traces, axis=1)  # (batch_size,)
+        else:
+            # Softmax sampling with temperature
+            # Higher temperature = more uniform, lower = more peaked
+            logits = all_fisher_traces / self.temperature
+            key, sample_key = jax.random.split(key)
+            best_goal_indices = jax.random.categorical(sample_key, logits, axis=1)  # (batch_size,)
         proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_size)
         
         # Log Fisher trace statistics with visualization only at specified intervals
