@@ -269,7 +269,7 @@ class DISCOVERGoalProposal(GoalProposer):
         
         current_alpha = jax.experimental.io_callback(
             get_current_alpha_callback,
-            jax.ShapedArray((), jnp.float32),  # Return type: scalar float32
+            jax.core.ShapedArray((), jnp.float32),  # Return type: scalar float32
             jnp.float32(self.alpha_0)  # Default alpha
         )
         
