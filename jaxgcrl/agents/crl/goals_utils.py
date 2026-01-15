@@ -677,15 +677,15 @@ def create_env_goal_ranking_plot(
     axes[2].set_ylim(y_bounds)
     
     # Plot 4: Term 3 - -f(s,a3,h)
-        scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                        c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
-                        edgecolors='black', linewidths=0.5)
-        axes[3].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
-                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
-        axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
-        axes[3].set_title(f'Term 3: f(s, g)', fontsize=12, fontweight='bold')
+    scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                    c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
+                    edgecolors='black', linewidths=0.5)
+    axes[3].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+            edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+    axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+            edgecolors='black', linewidths=2, zorder=9, label='Current State')
+    plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
+    axes[3].set_title(f'Term 3: f(s, g)', fontsize=12, fontweight='bold')
     axes[3].legend(loc='upper right', fontsize=9)
     axes[3].grid(True, alpha=0.3)
     axes[3].set_aspect('equal', adjustable='box')
@@ -693,14 +693,14 @@ def create_env_goal_ranking_plot(
     axes[3].set_ylim(y_bounds)
     
     # Plot 5: KDE correction
-        scatter5 = axes[4].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                        c=energies_kde, cmap='Spectral', s=80, alpha=0.7,
-                        edgecolors='black', linewidths=0.5)
-        axes[4].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter5, ax=axes[4], label='log_density(g)')
-        axes[4].set_title(f'Term 4: KDE Correction - log_density(g)', fontsize=12, fontweight='bold')
-        axes[4].legend(loc='upper right', fontsize=9)
+    scatter5 = axes[4].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                    c=energies_kde, cmap='Spectral', s=80, alpha=0.7,
+                    edgecolors='black', linewidths=0.5)
+    axes[4].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+            edgecolors='black', linewidths=2, zorder=9, label='Current State')
+    plt.colorbar(scatter5, ax=axes[4], label='log_density(g)')
+    axes[4].set_title(f'Term 4: KDE Correction - log_density(g)', fontsize=12, fontweight='bold')
+    axes[4].legend(loc='upper right', fontsize=9)
     axes[4].grid(True, alpha=0.3)
     axes[4].set_aspect('equal', adjustable='box')
     axes[4].set_xlim(x_bounds)
