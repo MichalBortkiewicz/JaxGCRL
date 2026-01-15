@@ -244,7 +244,7 @@ class DISCOVERGoalProposal(GoalProposer):
             
             # Get goals from observations (they're concatenated at the end)
             goal_size = len(goal_indices)
-            trajectory_goals = candidate_obs[:, -1, -goal_size:]  # (num_trajs, goal_dim)
+            trajectory_goals = final_states[:, -goal_size:]  # (num_trajs, goal_dim)
             final_state_goals = final_states[:, goal_indices]  # (num_trajs, goal_dim)
             
             # Check if final states are close to their goals (within some threshold)
@@ -260,25 +260,30 @@ class DISCOVERGoalProposal(GoalProposer):
         # Compute p and update alpha_t
         p = compute_goal_achievement_proportion()
         
-        # Get current alpha_t (initialize from instance or use default)
-        current_alpha = getattr(self, '_alpha_t', self.alpha_0)
+        # Get current alpha_t from module-level variable
+        def get_current_alpha_callback(default_alpha):
+            """Get current alpha from module-level variable."""
+            if not hasattr(DISCOVERGoalProposal, '_alpha_t'):
+                DISCOVERGoalProposal._alpha_t = float(default_alpha)
+            return DISCOVERGoalProposal._alpha_t
+        
+        current_alpha = jax.experimental.io_callback(
+            get_current_alpha_callback,
+            jnp.float32,  # Return type
+            jnp.float32(self.alpha_0)  # Default alpha
+        )
+        
         alpha_t_new = jnp.clip(current_alpha + 0.01 * (p - 0.5), 0.0, 1.0)
         
-        # Update instance variable (using a callback since we can't mutate in JAX)
-        def update_alpha_callback(new_alpha, instance_id):
-            """Update alpha_t instance variable."""
-            # Store in a module-level dictionary keyed by instance
-            if not hasattr(DISCOVERGoalProposal, '_alpha_dict'):
-                DISCOVERGoalProposal._alpha_dict = {}
-            DISCOVERGoalProposal._alpha_dict[instance_id] = float(new_alpha)
+        # Update alpha_t (using a callback since we can't mutate in JAX)
+        def update_alpha_callback(new_alpha):
+            """Update alpha_t module-level variable."""
+            DISCOVERGoalProposal._alpha_t = float(new_alpha)
         
-        # Use id(self) as instance identifier (approximate, works for tracking)
-        instance_id = id(self) if hasattr(self, '__dict__') else 0
         jax.experimental.io_callback(
             update_alpha_callback,
             None,
-            alpha_t_new,
-            instance_id
+            alpha_t_new
         )
         
         # Combine components with alpha_t to get final scores
