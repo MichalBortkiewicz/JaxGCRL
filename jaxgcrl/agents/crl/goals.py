@@ -1305,7 +1305,14 @@ class MetricPreservationGoalProposal(GoalProposer):
         
         def select_goal_minlogsumexp(M):
             score = -jax.scipy.special.logsumexp(M, axis=1)
-            weights = jax.nn.softmax(score)
+            if self.goal_sampling_temperature > 0:
+                logits = score / self.goal_sampling_temperature
+                weights = jax.nn.softmax(logits)
+            else:
+                # Greedy: take argmin
+                g_idx = jnp.argmin(-score)  # score is negative, so -score is positive
+                h_idx = jnp.argmin(M[g_idx])
+                return g_idx, h_idx
             g_idx = jax.random.choice(key, a=M.shape[0], p=weights)
 
             h_idx = jnp.argmin(M[g_idx])
@@ -1320,14 +1327,28 @@ class MetricPreservationGoalProposal(GoalProposer):
             h_idx = jax.random.choice(rand_key_h, a=jnp.arange(num_env_goals))
             
             energies_for_h = M[:, h_idx]  # (num_candidate_goals,)
-            weights = jax.nn.softmax(-energies_for_h)
+            score = -energies_for_h  # Negative because we want to minimize
+            if self.goal_sampling_temperature > 0:
+                logits = score / self.goal_sampling_temperature
+                weights = jax.nn.softmax(logits)
+            else:
+                # Greedy: take argmin
+                g_idx = jnp.argmin(-score)  # score is negative, so -score is positive
+                return g_idx, h_idx
             g_idx = jax.random.choice(rand_key_g, a=jnp.arange(M.shape[0]), p=weights)
             
             return g_idx, h_idx
         
         def select_goal_maxlogsumexp(M):
             score = jax.scipy.special.logsumexp(M, axis=1)
-            weights = jax.nn.softmax(score)
+            if self.goal_sampling_temperature > 0:
+                logits = score / self.goal_sampling_temperature
+                weights = jax.nn.softmax(logits)
+            else:
+                # Greedy: take argmax
+                g_idx = jnp.argmax(score)
+                h_idx = jnp.argmax(M[g_idx])
+                return g_idx, h_idx
             g_idx = jax.random.choice(key, a=M.shape[0], p=weights)
 
             h_idx = jnp.argmax(M[g_idx])
@@ -1342,7 +1363,14 @@ class MetricPreservationGoalProposal(GoalProposer):
             h_idx = jax.random.choice(rand_key_h, a=jnp.arange(num_env_goals))
             
             energies_for_h = M[:, h_idx]  # (num_candidate_goals,)
-            weights = jax.nn.softmax(energies_for_h)
+            score = energies_for_h  # Positive because we want to maximize
+            if self.goal_sampling_temperature > 0:
+                logits = score / self.goal_sampling_temperature
+                weights = jax.nn.softmax(logits)
+            else:
+                # Greedy: take argmax
+                g_idx = jnp.argmax(score)
+                return g_idx, h_idx
             g_idx = jax.random.choice(rand_key_g, a=jnp.arange(M.shape[0]), p=weights)
             
             return g_idx, h_idx
