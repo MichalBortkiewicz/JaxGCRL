@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, UCGRGoalProposal, mix_goals
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, UCGRGoalProposal,DISCOVERGoalProposal, mix_goals
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -505,8 +505,7 @@ class CRL:
             goal_proposer = DISCOVERGoalProposal(
                 energy_fn_name=self.energy_fn,
                 num_ensemble=self.num_critic_ensemble if hasattr(self, 'num_critic_ensemble') else 5,
-                alpha_0=0.5,
-                energy_fn_name=self.energy_fn,
+                alpha_0=0.5
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
