@@ -265,7 +265,8 @@ class DISCOVERGoalProposal(GoalProposer):
             """Get current alpha from module-level variable."""
             if not hasattr(DISCOVERGoalProposal, '_alpha_t'):
                 DISCOVERGoalProposal._alpha_t = float(default_alpha)
-            return DISCOVERGoalProposal._alpha_t
+            # Return as numpy array (Python value), JAX will convert based on ShapedArray
+            return np.array(DISCOVERGoalProposal._alpha_t, dtype=np.float32)
         
         current_alpha = jax.experimental.io_callback(
             get_current_alpha_callback,
