@@ -226,8 +226,8 @@ class DISCOVERGoalProposal(GoalProposer):
             return components
         
         # Compute components for all states
-        all_components = jax.vmap(compute_score_components_for_state)(current_states)
-        # Shape: (batch_size, num_candidates, 4) - last dim is [v_s0g, sigma_s0g, v_ggstar_mean, sigma_ggstar_mean]
+        # Returns a tuple of 4 arrays, each of shape (batch_size, num_candidates)
+        v_s0g_all, sigma_s0g_all, v_ggstar_mean_all, sigma_ggstar_mean_all = jax.vmap(compute_score_components_for_state)(current_states)
         
         # Compute p and update alpha_t
         # For now, we'll compute p from the replay buffer by checking if final states
@@ -287,10 +287,6 @@ class DISCOVERGoalProposal(GoalProposer):
         )
         
         # Combine components with alpha_t to get final scores
-        v_s0g_all = all_components[:, :, 0]  # (batch_size, num_candidates)
-        sigma_s0g_all = all_components[:, :, 1]  # (batch_size, num_candidates)
-        v_ggstar_mean_all = all_components[:, :, 2]  # (batch_size, num_candidates)
-        sigma_ggstar_mean_all = all_components[:, :, 3]  # (batch_size, num_candidates)
         
         # Compute final scores with alpha_t
         all_scores = (alpha_t_new * (v_s0g_all + sigma_s0g_all) + 
