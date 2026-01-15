@@ -25,10 +25,14 @@ from jaxgcrl.agents.crl.goals_utils import (
     compute_q_values_ensemble,
     compute_v_and_sigma_ensemble,
     compute_energy_for_state_goal_pairs,
-    create_goal_scatter_plot,
     gaussian_kernel_density,
     estimate_log_density_knn,
     compute_kl_divergence_empirical,
+    create_2x2_scatter_plot,
+    create_energy_histogram_plot,
+    should_log_at_interval,
+    create_goal_selection_plot,
+    create_env_goal_ranking_plot,
 )
 # Import base classes and utilities from shared module
 from jaxgcrl.utils.goals import (
@@ -309,9 +313,6 @@ class DISCOVERGoalProposal(GoalProposer):
 
         return proposed_goals, buffer_state
     
-    # Class variable to track last log step
-    _last_logged_at = -500000
-    
     @staticmethod
     def _log_discover_statistics(
         all_scores, candidate_goals, current_states, best_goal_indices,
@@ -319,99 +320,26 @@ class DISCOVERGoalProposal(GoalProposer):
     ):
         """Log DISCOVER statistics and create visualization."""
         # Only log if enough steps have passed since last log
-        current_step = int(env_steps)
-        if current_step - DISCOVERGoalProposal._last_logged_at < log_interval_steps:
+        if not should_log_at_interval(env_steps, log_interval_steps, 'discover'):
             return
-        
-        DISCOVERGoalProposal._last_logged_at = current_step
-        
-        # Compute statistics
-        max_scores_per_state = jnp.max(all_scores, axis=1)  # (batch_size,)
         
         metrics = {
             'discover/alpha_t': float(alpha_t),
             'discover/goal_achievement_proportion': float(p)
         }
         
-        # Create visualization
-        pil_image = DISCOVERGoalProposal._create_discover_visualization(
-            all_scores, candidate_goals, current_states, best_goal_indices, goal_indices
+        # Create visualization using shared utility
+        def title_fn(state_idx, max_val, selected_val):
+            return f'State {state_idx}: Max Score = {max_val:.4f}, Selected = {selected_val:.4f}'
+        
+        pil_image = create_2x2_scatter_plot(
+            candidate_goals, current_states, goal_indices, all_scores,
+            selected_indices=best_goal_indices, title_fn=title_fn,
+            cmap='viridis', color_label='DISCOVER Score'
         )
         metrics['discover/goal_selection_visualization'] = wandb.Image(pil_image)
         
         wandb.log(metrics, step=int(env_steps))
-    
-    @staticmethod
-    def _create_discover_visualization(
-        all_scores, candidate_goals, current_states, best_goal_indices, goal_indices
-    ):
-        """Create 2x2 grid visualization showing candidate goals colored by DISCOVER scores."""
-        batch_size = all_scores.shape[0]
-        num_plots = min(4, batch_size)
-        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
-        
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        axes = axes.flatten()
-        
-        # Extract goal portion from current states
-        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
-        
-        for plot_idx, state_idx in enumerate(random_state_indices):
-            ax = axes[plot_idx]
-            
-            scores = all_scores[state_idx]  # (num_candidates,)
-            current_goal = current_goals[state_idx]  # (goal_dim,)
-            selected_goal_idx = best_goal_indices[state_idx]
-            selected_goal = candidate_goals[selected_goal_idx]
-            
-            # Color candidate goals by their DISCOVER scores
-            scatter = ax.scatter(
-                candidate_goals[:, 0], candidate_goals[:, 1],
-                c=scores, cmap='viridis', s=150, alpha=0.8,
-                edgecolors='black', linewidths=0.5, label='Candidate Goals'
-            )
-            
-            # Plot current state as a star
-            ax.scatter(
-                current_goal[0], current_goal[1],
-                c='cyan', s=400, marker='*',
-                edgecolors='black', linewidths=2, zorder=5, label='Current State'
-            )
-            
-            # Plot selected goal
-            ax.scatter(
-                selected_goal[0], selected_goal[1],
-                c='red', s=200, marker='o',
-                edgecolors='black', linewidths=2, zorder=4, label='Selected Goal'
-            )
-            
-            plt.colorbar(scatter, ax=ax, label='DISCOVER Score')
-            
-            max_score = float(jnp.max(scores))
-            selected_score = float(scores[selected_goal_idx])
-            
-            ax.set_title(
-                f'State {state_idx}: Max Score = {max_score:.4f}, Selected = {selected_score:.4f}',
-                fontsize=11, fontweight='bold'
-            )
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc='upper right', fontsize=9)
-            if candidate_goals.shape[1] >= 2:
-                ax.set_aspect('equal', adjustable='box')
-        
-        # Hide unused subplots
-        for i in range(num_plots, len(axes)):
-            axes[i].axis('off')
-        
-        plt.tight_layout()
-        
-        # Save to buffer and convert to PIL Image
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return Image.open(buf)
 
 @dataclass
 class UCGRGoalProposal:
@@ -874,17 +802,11 @@ class FisherTraceGoalProposal(GoalProposer):
         
         return proposed_goals, buffer_state
     
-    # Class variable to track last log step
-    _last_logged_at = -500000
-    
     @staticmethod
     def _log_fisher_trace_statistics(all_fisher_traces, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
         # Only log if enough steps have passed since last log
-        current_step = int(env_steps)
-        if current_step - FisherTraceGoalProposal._last_logged_at < log_interval_steps:
+        if not should_log_at_interval(env_steps, log_interval_steps, 'fisher_trace'):
             return
-        
-        FisherTraceGoalProposal._last_logged_at = current_step
             
         # all_fisher_traces: (batch_size, num_candidates)
         max_traces_per_state = jnp.max(all_fisher_traces, axis=1)  # (batch_size,)
@@ -896,66 +818,18 @@ class FisherTraceGoalProposal(GoalProposer):
             'fisher_trace/max_trace_min': float(jnp.min(max_traces_per_state)),
         }
         
-        # Create visualization of Fisher trace maps
-        pil_image = FisherTraceGoalProposal._create_fisher_trace_heatmaps(all_fisher_traces, candidate_goals, current_states, goal_indices)
+        # Create visualization using shared utility
+        def title_fn(state_idx, max_val, selected_val):
+            max_trace_idx = int(np.argmax(all_fisher_traces[state_idx]))
+            return f'State {state_idx}: Max Fisher Trace = {max_val:.4f} (Goal {max_trace_idx})'
+        
+        pil_image = create_2x2_scatter_plot(
+            candidate_goals, current_states, goal_indices, all_fisher_traces,
+            title_fn=title_fn, cmap='hot', color_label='Fisher Trace'
+        )
         metrics['fisher_trace/trace_heatmaps'] = wandb.Image(pil_image)
         
         wandb.log(metrics, step=int(env_steps))
-    
-    @staticmethod
-    def _create_fisher_trace_heatmaps(all_fisher_traces, candidate_goals, current_states, goal_indices):
-        batch_size = all_fisher_traces.shape[0]
-        num_candidates = all_fisher_traces.shape[1]
-        
-        # Extract goal portion from current states
-        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
-        
-        # Select 4 random states
-        num_plots = min(4, batch_size)
-        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
-        
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        axes = axes.flatten()
-        
-        for plot_idx, state_idx in enumerate(random_state_indices):
-            ax = axes[plot_idx]
-            
-            fisher_traces = all_fisher_traces[state_idx]  # (num_candidates,)
-            current_goal = current_goals[state_idx]  # (goal_dim,)
-            
-            # Color by Fisher trace value
-            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                                c=fisher_traces, cmap='hot', s=150, alpha=0.8,
-                                edgecolors='black', linewidths=0.5, label='Candidate Goals')
-            # Plot the current state as a star
-            ax.scatter(current_goal[0], current_goal[1], c='cyan', s=400, marker='*',
-                        edgecolors='black', linewidths=2, zorder=5, label='Current State')
-        
-            plt.colorbar(scatter, ax=ax, label='Fisher Trace')
-            
-            max_trace_idx = int(np.argmax(fisher_traces))
-            max_trace_val = float(np.max(fisher_traces))
-            
-            ax.set_title(f'State {state_idx}: Max Fisher Trace = {max_trace_val:.4f} (Goal {max_trace_idx})',
-                        fontsize=11, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc='upper right', fontsize=9)
-            if candidate_goals.shape[1] >= 2:
-                ax.set_aspect('equal', adjustable='box')
-        
-        # Hide unused subplots
-        for i in range(num_plots, len(axes)):
-            axes[i].axis('off')
-        
-        plt.tight_layout()
-        
-        # Save to buffer and convert to PIL Image
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return Image.open(buf)
 
 
 @dataclass
@@ -1059,45 +933,8 @@ class MediumEnergyGoalProposal(GoalProposer):
 
     @staticmethod    
     def _log_energy_statistics(all_energies, selected_energies, env_steps):
-        num_plots = min(4, all_energies.shape[0])
-        rows = 2
-        cols = 2
-        fig, axes = plt.subplots(rows, cols, figsize=(12, 8))
-        axes = axes.flatten()
-        
-        batch_size = all_energies.shape[1]
-        num_bins = max(10, int(jnp.sqrt(batch_size)))
-        
-        for i in range(num_plots):
-            ax = axes[i]
-            energies_for_state = all_energies[i]
-            selected_energy = selected_energies[i].item()
-
-            # Plot histogram
-            ax.hist(energies_for_state, bins=num_bins, alpha=0.7, edgecolor='black')
-            
-            # Mark the selected energy with a vertical line
-            ax.axvline(selected_energy, color='red', linestyle='--', linewidth=2, label='Selected')
-            
-            ax.set_xlabel('Energy')
-            ax.set_ylabel('Count')
-            ax.set_title(f'State {i}')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-        
-        # Hide unused subplots if fewer than 4 states
-        for i in range(num_plots, len(axes)):
-            axes[i].axis('off')
-        
-        plt.tight_layout()
-        
-        # Save to buffer and log to WandB
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        pil_image = Image.open(buf)
+        # Create visualization using shared utility
+        pil_image = create_energy_histogram_plot(all_energies, selected_energies)
         
         # Aggregate statistics for scalar tracking
         energy_stats = {
@@ -1227,18 +1064,12 @@ class QEpistemicGoalProposal(GoalProposer):
         
         return proposed_goals, buffer_state
     
-    # Class variable to track last log step
-    _last_logged_at = -500000
-    
     @staticmethod
     def _log_q_epistemic_statistics(all_q_stds, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
         """Log Q-epistemic uncertainty statistics."""
         # Only log if enough steps have passed since last log
-        current_step = int(env_steps)
-        if current_step - QEpistemicGoalProposal._last_logged_at < log_interval_steps:
+        if not should_log_at_interval(env_steps, log_interval_steps, 'q_epistemic'):
             return
-        
-        QEpistemicGoalProposal._last_logged_at = current_step
         
         # all_q_stds: (batch_size, num_candidates)
         max_stds_per_state = jnp.max(all_q_stds, axis=1)  # (batch_size,)
@@ -1251,68 +1082,18 @@ class QEpistemicGoalProposal(GoalProposer):
             'q_epistemic/mean_std_across_candidates': float(jnp.mean(all_q_stds)),
         }
         
-        # Create visualization of Q-epistemic uncertainty maps
-        pil_image = QEpistemicGoalProposal._create_q_epistemic_heatmaps(
-            all_q_stds, candidate_goals, current_states, goal_indices
+        # Create visualization using shared utility
+        def title_fn(state_idx, max_val, selected_val):
+            max_std_idx = int(np.argmax(all_q_stds[state_idx]))
+            return f'State {state_idx}: Max Q-Std = {max_val:.4f} (Goal {max_std_idx})'
+        
+        pil_image = create_2x2_scatter_plot(
+            candidate_goals, current_states, goal_indices, all_q_stds,
+            title_fn=title_fn, cmap='hot', color_label='Q-value Std (Epistemic Uncertainty)'
         )
         metrics['q_epistemic/uncertainty_heatmaps'] = wandb.Image(pil_image)
         
         wandb.log(metrics, step=int(env_steps))
-    
-    @staticmethod
-    def _create_q_epistemic_heatmaps(all_q_stds, candidate_goals, current_states, goal_indices):
-        """Create heatmap visualizations of Q-epistemic uncertainty."""
-        batch_size = all_q_stds.shape[0]
-        
-        # Extract goal portion from current states
-        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
-        
-        # Select 4 random states
-        num_plots = min(4, batch_size)
-        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
-        
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        axes = axes.flatten()
-        
-        for plot_idx, state_idx in enumerate(random_state_indices):
-            ax = axes[plot_idx]
-            
-            q_stds = all_q_stds[state_idx]  # (num_candidates,)
-            current_goal = current_goals[state_idx]  # (goal_dim,)
-            
-            # Color by Q-value standard deviation
-            scatter = ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                                c=q_stds, cmap='hot', s=150, alpha=0.8,
-                                edgecolors='black', linewidths=0.5, label='Candidate Goals')
-            # Plot the current state as a star
-            ax.scatter(current_goal[0], current_goal[1], c='cyan', s=400, marker='*',
-                        edgecolors='black', linewidths=2, zorder=5, label='Current State')
-        
-            plt.colorbar(scatter, ax=ax, label='Q-value Std (Epistemic Uncertainty)')
-            
-            max_std_idx = int(np.argmax(q_stds))
-            max_std_val = float(np.max(q_stds))
-            
-            ax.set_title(f'State {state_idx}: Max Q-Std = {max_std_val:.4f} (Goal {max_std_idx})',
-                        fontsize=11, fontweight='bold')
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc='upper right', fontsize=9)
-            if candidate_goals.shape[1] >= 2:
-                ax.set_aspect('equal', adjustable='box')
-        
-        # Hide unused subplots
-        for i in range(num_plots, len(axes)):
-            axes[i].axis('off')
-        
-        plt.tight_layout()
-        
-        # Save to buffer and convert to PIL Image
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return Image.open(buf)
 
 
 @dataclass
@@ -1580,8 +1361,6 @@ class MetricPreservationGoalProposal(GoalProposer):
         return proposed_goals, buffer_state
     
     # Class variable to track last log step
-    _last_logged_at = -500000
-    
     @staticmethod
     def _log_goal_selection_viz(current_states, candidate_goals, env_goals, 
                               best_g_indices, best_h_indices, energy_mats, 
@@ -1590,11 +1369,8 @@ class MetricPreservationGoalProposal(GoalProposer):
         """Visualize goal selection showing trajectory from current -> candidate -> env goals."""
         
         # Only log if enough steps have passed since last log
-        current_step = int(env_steps)
-        if current_step - MetricPreservationGoalProposal._last_logged_at < log_interval_steps:
+        if not should_log_at_interval(env_steps, log_interval_steps, 'metric_preservation'):
             return
-        
-        MetricPreservationGoalProposal._last_logged_at = current_step
         
         # Use viz_state_idx for env_goal_ranking plot, random for goal_selection plot
         num_states = current_states.shape[0]
@@ -1602,12 +1378,12 @@ class MetricPreservationGoalProposal(GoalProposer):
         # Make sure viz_state_idx is in random_state_indices for consistency
         random_state_indices[0] = int(viz_state_idx)
         
-        # Generate both visualizations with the same states
-        pil_image1 = MetricPreservationGoalProposal._create_goal_selection_plot(
+        # Generate both visualizations using shared utilities
+        pil_image1 = create_goal_selection_plot(
             current_states, candidate_goals, env_goals, best_g_indices, best_h_indices, energy_mats, 
             goal_indices, random_state_indices, x_bounds, y_bounds
         )
-        pil_image2 = MetricPreservationGoalProposal._create_env_goal_ranking_plot(
+        pil_image2 = create_env_goal_ranking_plot(
             current_states, candidate_goals, env_goals, energy_mats, 
             term1_single, term2_single, term3_single, kde_single, viz_state_idx,
             goal_indices, x_bounds, y_bounds
@@ -1619,236 +1395,3 @@ class MetricPreservationGoalProposal(GoalProposer):
         }
         
         wandb.log(metrics, step=int(env_steps))
-
-    @staticmethod
-    def _create_goal_selection_plot(current_states, candidate_goals, env_goals, 
-                                    best_g_indices, best_h_indices, energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds):
-        """Create the main goal selection visualization (2x2 grid)."""
-        num_states_to_plot = len(random_state_indices)
-    
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        axes = axes.flatten()
-        
-        for plot_idx in range(num_states_to_plot):
-            ax = axes[plot_idx]
-            
-            state_idx = random_state_indices[plot_idx]
-            
-            current_state = current_states[state_idx][goal_indices]
-
-            selected_candidate_idx = best_g_indices[state_idx].item()
-            selected_candidate = candidate_goals[selected_candidate_idx]
-            
-            M = energy_mats[state_idx]
-            selected_env_idx = best_h_indices[state_idx].item()
-            selected_env_goal = env_goals[selected_env_idx]
-            
-            ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1], 
-                    c='gray', alpha=0.3, s=50, label='Candidate Goals (Buffer)', marker='o')
-            
-            ax.scatter(env_goals[:, 0], env_goals[:, 1], 
-                    c='blue', alpha=0.5, s=100, label='Environment Goals', marker='s')
-            
-            ax.scatter(current_state[0], current_state[1], 
-                    c='green', s=300, label='Current State', marker='*', 
-                    edgecolors='black', linewidths=2, zorder=5)
-            
-            ax.scatter(selected_candidate[0], selected_candidate[1], 
-                    c='red', s=200, label='Selected Candidate', marker='o',
-                    edgecolors='black', linewidths=2, zorder=4)
-            
-            ax.scatter(selected_env_goal[0], selected_env_goal[1], 
-                    c='purple', s=250, label='Paired Env Goal', marker='s',
-                    edgecolors='black', linewidths=2, zorder=4)
-            
-            ax.annotate('', xy=(selected_candidate[0], selected_candidate[1]),
-                    xytext=(current_state[0], current_state[1]),
-                    arrowprops=dict(arrowstyle='->', lw=2.5, color='orange', alpha=0.7))
-            
-            ax.annotate('', xy=(selected_env_goal[0], selected_env_goal[1]),
-                    xytext=(selected_candidate[0], selected_candidate[1]),
-                    arrowprops=dict(arrowstyle='->', lw=2.5, color='purple', alpha=0.7))
-            
-            max_energy = M[selected_candidate_idx, selected_env_idx].item()
-            ax.text(0.02, 0.98, f'Max Energy: {max_energy:.3f}', 
-                transform=ax.transAxes, fontsize=10, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-            
-            ax.set_title(f'State {state_idx}: Goal Selection (Current → Candidate → Target)', 
-                        fontsize=12, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=9)
-            ax.grid(True, alpha=0.3)
-            ax.set_aspect('equal', adjustable='box')
-            ax.set_xlim(x_bounds)
-            ax.set_ylim(y_bounds)
-
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return Image.open(buf)
-
-    @staticmethod
-    def _create_env_goal_ranking_plot(current_states, candidate_goals, env_goals,
-                                        energy_mats, term1_single, term2_single, term3_single, kde_single, viz_state_idx,
-                                        goal_indices, x_bounds, y_bounds):
-        """Create env goal ranking visualization showing M matrix and its 4 component terms (3x2 grid with 6 plots).
-        
-        The M matrix is composed of:
-        M[g,h] = f(s,a1,g) + f(g,a2,h) - f(s,a3,h) + KDE_correction
-        
-        Plot 1: Full M matrix
-        Plot 2: Term 1 - f(s,a1,g)
-        Plot 3: Term 2 - f(g,a2,h)  
-        Plot 4: Term 3 - f(s,a3,h)
-        Plot 5: KDE correction - log_density(g)
-        Plot 6: Environment goals ranked by max M value, with waypoints colored by f(w, g)
-        """
-        fig, axes = plt.subplots(3, 2, figsize=(16, 16))
-        axes = axes.flatten()
-        
-        num_env_goals = env_goals.shape[0]
-        
-        # Use the viz_state_idx that we computed terms for
-        state_idx = int(viz_state_idx)
-        env_idx = np.random.choice(num_env_goals)
-        
-        current_state = current_states[state_idx][goal_indices]
-        env_goal = env_goals[env_idx]
-        
-        # Get M matrix for this state, use single-state term matrices
-        M = energy_mats[state_idx]  # (num_candidates, num_env_goals)
-        term1 = term1_single  # (num_candidates, 1)
-        term2 = term2_single  # (num_candidates, num_env_goals)
-        term3 = term3_single  # (1, num_env_goals)
-        kde = kde_single  # (num_candidates, 1)
-        
-        # Extract values for this env_goal
-        energies_full = M[:, env_idx]
-        energies_term1 = term1[:, 0]  # Remove the singleton dimension
-        energies_term2 = term2[:, env_idx]
-        energies_term3 = jnp.repeat(term3[0, env_idx], M.shape[0], axis=0)  # Duplicate for all candidates
-        energies_kde = kde[:, 0]  # Remove the singleton dimension
-        
-        # Plot 1: Full M matrix
-        scatter1 = axes[0].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_full, cmap='viridis', s=80, alpha=0.7,
-                            edgecolors='black', linewidths=0.5)
-        axes[0].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
-                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
-        axes[0].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter1, ax=axes[0], label='M[g, h]')
-        axes[0].set_title(f'M Matrix: Full Combined Energy', fontsize=12, fontweight='bold')
-        axes[0].legend(loc='upper right', fontsize=9)
-        axes[0].grid(True, alpha=0.3)
-        axes[0].set_aspect('equal', adjustable='box')
-        axes[0].set_xlim(x_bounds)
-        axes[0].set_ylim(y_bounds)
-        
-        # Plot 2: Term 1 - f(s,a1,g)
-        scatter2 = axes[1].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_term1, cmap='plasma', s=80, alpha=0.7,
-                            edgecolors='black', linewidths=0.5)
-        axes[1].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter2, ax=axes[1], label='f(s, w)')
-        axes[1].set_title(f'Term 1: f(s, w)', fontsize=12, fontweight='bold')
-        axes[1].legend(loc='upper right', fontsize=9)
-        axes[1].grid(True, alpha=0.3)
-        axes[1].set_aspect('equal', adjustable='box')
-        axes[1].set_xlim(x_bounds)
-        axes[1].set_ylim(y_bounds)
-        
-        # Plot 3: Term 2 - f(g,a2,h)
-        scatter3 = axes[2].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_term2, cmap='cool', s=80, alpha=0.7,
-                            edgecolors='black', linewidths=0.5)
-        axes[2].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
-                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
-        plt.colorbar(scatter3, ax=axes[2], label='f(w, g)')
-        axes[2].set_title(f'Term 2: f(w, g)', fontsize=12, fontweight='bold')
-        axes[2].legend(loc='upper right', fontsize=9)
-        axes[2].grid(True, alpha=0.3)
-        axes[2].set_aspect('equal', adjustable='box')
-        axes[2].set_xlim(x_bounds)
-        axes[2].set_ylim(y_bounds)
-        
-        # Plot 4: Term 3 - -f(s,a3,h)
-        scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
-                            edgecolors='black', linewidths=0.5)
-        axes[3].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
-                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
-        axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
-        axes[3].set_title(f'Term 3: f(s, g)', fontsize=12, fontweight='bold')
-        axes[3].legend(loc='upper right', fontsize=9)
-        axes[3].grid(True, alpha=0.3)
-        axes[3].set_aspect('equal', adjustable='box')
-        axes[3].set_xlim(x_bounds)
-        axes[3].set_ylim(y_bounds)
-
-        # Plot 5: KDE correction - log_density(g)
-        scatter5 = axes[4].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
-                            c=energies_kde, cmap='Spectral', s=80, alpha=0.7,
-                            edgecolors='black', linewidths=0.5)
-        axes[4].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
-                edgecolors='black', linewidths=2, zorder=9, label='Current State')
-        plt.colorbar(scatter5, ax=axes[4], label='log_density(g)')
-        axes[4].set_title(f'Term 4: KDE Correction - log_density(g)', fontsize=12, fontweight='bold')
-        axes[4].legend(loc='upper right', fontsize=9)
-        axes[4].grid(True, alpha=0.3)
-        axes[4].set_aspect('equal', adjustable='box')
-        axes[4].set_xlim(x_bounds)
-        axes[4].set_ylim(y_bounds)
-        
-        # Plot 6: Environment goals ranked by max M value, waypoints colored by f(w, g)
-        # For each env goal, find the waypoint that maximizes M
-        max_m_per_env = jnp.max(M, axis=0)  # (num_env_goals,)
-        best_waypoint_per_env = jnp.argmax(M, axis=0)  # (num_env_goals,)
-        
-        # Get f(w, g) values for the best waypoint of each env goal
-        best_waypoint_energies = term2[best_waypoint_per_env, jnp.arange(num_env_goals)]
-        
-        scatter6 = axes[5].scatter(env_goals[:, 0], env_goals[:, 1],
-                            c=max_m_per_env, cmap='plasma', s=200, alpha=0.8,
-                            edgecolors='black', linewidths=1.5, label='Env Goals', marker='s')
-        
-        # For each env goal, draw a line to its best waypoint colored by f(w, g)
-        for h_idx in range(num_env_goals):
-            g_idx = best_waypoint_per_env[h_idx]
-            waypoint = candidate_goals[g_idx]
-            env_g = env_goals[h_idx]
-            # Line color represents f(w, g) value
-            f_wg_val = best_waypoint_energies[h_idx]
-            axes[5].plot([waypoint[0], env_g[0]], [waypoint[1], env_g[1]], 
-                        color=plt.cm.cool(float((f_wg_val - jnp.min(best_waypoint_energies)) / 
-                                              (jnp.max(best_waypoint_energies) - jnp.min(best_waypoint_energies) + 1e-6))),
-                        linewidth=1.5, alpha=0.6, zorder=2)
-        
-        # Also scatter the best waypoints for each env goal
-        best_waypoints = candidate_goals[best_waypoint_per_env]
-        scatter6b = axes[5].scatter(best_waypoints[:, 0], best_waypoints[:, 1],
-                            c=best_waypoint_energies, cmap='cool', s=100, alpha=0.8,
-                            edgecolors='red', linewidths=2, marker='o', label='Best Waypoints', zorder=4)
-        
-        plt.colorbar(scatter6, ax=axes[5], label='Max M[g, h]')
-        axes[5].set_title(f'Env Goal Rankings: Max M value (size), Waypoint connections colored by f(w, g)', 
-                         fontsize=12, fontweight='bold')
-        axes[5].legend(loc='upper right', fontsize=9)
-        axes[5].grid(True, alpha=0.3)
-        axes[5].set_aspect('equal', adjustable='box')
-        axes[5].set_xlim(x_bounds)
-        axes[5].set_ylim(y_bounds)
-
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return Image.open(buf)

@@ -313,23 +313,29 @@ def compute_energy_for_state_goal_pairs(
 # Visualization Utilities
 # ============================================================================
 
-def create_goal_scatter_plot(
-    candidate_goals, current_states, selected_indices, goal_indices,
-    title_prefix="Goal Selection", x_bounds=None, y_bounds=None,
-    color_by_values=None, color_label="Value"
+# Module-level dictionary to track last logged steps for interval-based logging
+_last_logged_steps = {}
+
+
+def create_2x2_scatter_plot(
+    candidate_goals, current_states, goal_indices, values_per_state,
+    selected_indices=None, title_fn=None, cmap='hot', color_label="Value",
+    x_bounds=None, y_bounds=None, figsize=(14, 10)
 ):
-    """Create a scatter plot visualization of goal selection.
+    """Create a 2x2 grid scatter plot visualization.
     
     Args:
         candidate_goals: (num_candidates, goal_dim) candidate goals
         current_states: (batch_size, state_dim) current states
-        selected_indices: (batch_size,) indices of selected goals
         goal_indices: indices to extract goal dimensions
-        title_prefix: Prefix for plot title
+        values_per_state: (batch_size, num_candidates) values to color by for each state
+        selected_indices: Optional (batch_size,) indices of selected goals
+        title_fn: Optional function(state_idx, max_val, selected_val) -> title string
+        cmap: Colormap name
+        color_label: Label for colorbar
         x_bounds: Optional x-axis bounds
         y_bounds: Optional y-axis bounds
-        color_by_values: Optional (num_candidates,) values to color by
-        color_label: Label for colorbar
+        figsize: Figure size
         
     Returns:
         pil_image: PIL Image of the plot
@@ -338,47 +344,57 @@ def create_goal_scatter_plot(
     num_plots = min(4, batch_size)
     random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
     
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
     axes = axes.flatten()
     
+    # Extract goal portion from current states
     current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
     
     for plot_idx, state_idx in enumerate(random_state_indices):
         ax = axes[plot_idx]
         
-        selected_goal_idx = selected_indices[state_idx]
-        current_goal = current_goals[state_idx]
-        selected_goal = candidate_goals[selected_goal_idx]
+        values = values_per_state[state_idx]  # (num_candidates,)
+        current_goal = current_goals[state_idx]  # (goal_dim,)
         
-        # Color by values if provided
-        if color_by_values is not None:
-            scatter = ax.scatter(
-                candidate_goals[:, 0], candidate_goals[:, 1],
-                c=color_by_values, cmap='hot', s=150, alpha=0.8,
-                edgecolors='black', linewidths=0.5, label='Candidate Goals'
-            )
-            plt.colorbar(scatter, ax=ax, label=color_label)
-        else:
-            ax.scatter(
-                candidate_goals[:, 0], candidate_goals[:, 1],
-                c='gray', alpha=0.3, s=50, label='Candidate Goals'
-            )
+        # Color candidate goals by values
+        scatter = ax.scatter(
+            candidate_goals[:, 0], candidate_goals[:, 1],
+            c=values, cmap=cmap, s=150, alpha=0.8,
+            edgecolors='black', linewidths=0.5, label='Candidate Goals'
+        )
+        plt.colorbar(scatter, ax=ax, label=color_label)
         
-        # Plot current state
+        # Plot current state as a star
         ax.scatter(
             current_goal[0], current_goal[1],
             c='cyan', s=400, marker='*',
             edgecolors='black', linewidths=2, zorder=5, label='Current State'
         )
         
-        # Plot selected goal
-        ax.scatter(
-            selected_goal[0], selected_goal[1],
-            c='red', s=200, marker='o',
-            edgecolors='black', linewidths=2, zorder=4, label='Selected Goal'
-        )
+        # Plot selected goal if provided
+        if selected_indices is not None:
+            selected_goal_idx = selected_indices[state_idx]
+            selected_goal = candidate_goals[selected_goal_idx]
+            selected_val = float(values[selected_goal_idx])
+            ax.scatter(
+                selected_goal[0], selected_goal[1],
+                c='red', s=200, marker='o',
+                edgecolors='black', linewidths=2, zorder=4, label='Selected Goal'
+            )
+        else:
+            selected_val = None
         
-        ax.set_title(f'{title_prefix} - State {state_idx}', fontsize=11, fontweight='bold')
+        max_val = float(jnp.max(values))
+        
+        # Set title
+        if title_fn is not None:
+            title = title_fn(state_idx, max_val, selected_val)
+        else:
+            title = f'State {state_idx}: Max = {max_val:.4f}'
+            if selected_val is not None:
+                title += f', Selected = {selected_val:.4f}'
+        
+        ax.set_title(title, fontsize=11, fontweight='bold')
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper right', fontsize=9)
         if candidate_goals.shape[1] >= 2:
@@ -403,25 +419,341 @@ def create_goal_scatter_plot(
     return Image.open(buf)
 
 
-def log_visualization_with_interval(
-    log_fn, *args, log_interval_steps, env_steps, last_logged_at_dict, key
-):
-    """Log visualization only at specified intervals.
+def create_energy_histogram_plot(all_energies, selected_energies, num_plots=4, figsize=(12, 8)):
+    """Create histogram plots showing energy distributions.
     
     Args:
-        log_fn: Function to call for logging
-        *args: Arguments to pass to log_fn
-        log_interval_steps: Steps between logs
+        all_energies: (batch_size, num_candidates) energy values
+        selected_energies: (batch_size,) selected energy values
+        num_plots: Number of states to plot
+        figsize: Figure size
+        
+    Returns:
+        pil_image: PIL Image of the plot
+    """
+    num_plots = min(num_plots, all_energies.shape[0])
+    rows = 2
+    cols = 2
+    fig, axes = plt.subplots(rows, cols, figsize=figsize)
+    axes = axes.flatten()
+    
+    batch_size = all_energies.shape[1]
+    num_bins = max(10, int(np.sqrt(batch_size)))
+    
+    for i in range(num_plots):
+        ax = axes[i]
+        energies_for_state = all_energies[i]
+        selected_energy = float(selected_energies[i])
+        
+        # Plot histogram
+        ax.hist(energies_for_state, bins=num_bins, alpha=0.7, edgecolor='black')
+        
+        # Mark the selected energy with a vertical line
+        ax.axvline(selected_energy, color='red', linestyle='--', linewidth=2, label='Selected')
+        
+        ax.set_xlabel('Energy')
+        ax.set_ylabel('Count')
+        ax.set_title(f'State {i}')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    # Hide unused subplots if fewer than 4 states
+    for i in range(num_plots, len(axes)):
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    
+    # Save to buffer and log to WandB
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+    
+    return Image.open(buf)
+
+
+def should_log_at_interval(env_steps, log_interval_steps, key):
+    """Check if we should log at this interval.
+    
+    Args:
         env_steps: Current environment steps
-        last_logged_at_dict: Dictionary to track last log time (keyed by 'key')
-        key: Key for tracking in dictionary
+        log_interval_steps: Steps between logs
+        key: Unique key for this logger
+        
+    Returns:
+        should_log: Boolean indicating if we should log
     """
     current_step = int(env_steps)
-    last_logged = last_logged_at_dict.get(key, -500000)
+    last_logged = _last_logged_steps.get(key, -500000)
     
     if current_step - last_logged >= log_interval_steps:
-        log_fn(*args)
-        last_logged_at_dict[key] = current_step
+        _last_logged_steps[key] = current_step
+        return True
+    return False
+
+
+def create_goal_selection_plot(
+    current_states, candidate_goals, env_goals, best_g_indices, best_h_indices,
+    energy_mats, goal_indices, random_state_indices, x_bounds, y_bounds, figsize=(16, 12)
+):
+    """Create goal selection visualization showing trajectory from current -> candidate -> env goals.
+    
+    Args:
+        current_states: (batch_size, state_dim) current states
+        candidate_goals: (num_candidates, goal_dim) candidate goals
+        env_goals: (num_env_goals, goal_dim) environment goals
+        best_g_indices: (batch_size,) indices of selected candidate goals
+        best_h_indices: (batch_size,) indices of selected env goals
+        energy_mats: (batch_size, num_candidates, num_env_goals) energy matrices
+        goal_indices: indices to extract goal dimensions
+        random_state_indices: (num_plots,) state indices to plot
+        x_bounds: x-axis bounds
+        y_bounds: y-axis bounds
+        figsize: Figure size
+        
+    Returns:
+        pil_image: PIL Image of the plot
+    """
+    num_states_to_plot = len(random_state_indices)
+    
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    axes = axes.flatten()
+    
+    for plot_idx in range(num_states_to_plot):
+        ax = axes[plot_idx]
+        
+        state_idx = random_state_indices[plot_idx]
+        
+        current_state = current_states[state_idx][goal_indices]
+        
+        selected_candidate_idx = int(best_g_indices[state_idx])
+        selected_candidate = candidate_goals[selected_candidate_idx]
+        
+        M = energy_mats[state_idx]
+        selected_env_idx = int(best_h_indices[state_idx])
+        selected_env_goal = env_goals[selected_env_idx]
+        
+        ax.scatter(candidate_goals[:, 0], candidate_goals[:, 1], 
+                c='gray', alpha=0.3, s=50, label='Candidate Goals (Buffer)', marker='o')
+        
+        ax.scatter(env_goals[:, 0], env_goals[:, 1], 
+                c='blue', alpha=0.5, s=100, label='Environment Goals', marker='s')
+        
+        ax.scatter(current_state[0], current_state[1], 
+                c='green', s=300, label='Current State', marker='*', 
+                edgecolors='black', linewidths=2, zorder=5)
+        
+        ax.scatter(selected_candidate[0], selected_candidate[1], 
+                c='red', s=200, label='Selected Candidate', marker='o',
+                edgecolors='black', linewidths=2, zorder=4)
+        
+        ax.scatter(selected_env_goal[0], selected_env_goal[1], 
+                c='purple', s=250, label='Paired Env Goal', marker='s',
+                edgecolors='black', linewidths=2, zorder=4)
+        
+        ax.annotate('', xy=(selected_candidate[0], selected_candidate[1]),
+                xytext=(current_state[0], current_state[1]),
+                arrowprops=dict(arrowstyle='->', lw=2.5, color='orange', alpha=0.7))
+        
+        ax.annotate('', xy=(selected_env_goal[0], selected_env_goal[1]),
+                xytext=(selected_candidate[0], selected_candidate[1]),
+                arrowprops=dict(arrowstyle='->', lw=2.5, color='purple', alpha=0.7))
+        
+        max_energy = float(energy_mats[state_idx][selected_candidate_idx, selected_env_idx])
+        ax.text(0.02, 0.98, f'Max Energy: {max_energy:.3f}', 
+            transform=ax.transAxes, fontsize=10, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        
+        ax.set_title(f'State {state_idx}: Goal Selection (Current → Candidate → Target)', 
+                    fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', adjustable='box')
+        ax.set_xlim(x_bounds)
+        ax.set_ylim(y_bounds)
+    
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+    
+    return Image.open(buf)
+
+
+def create_env_goal_ranking_plot(
+    current_states, candidate_goals, env_goals, energy_mats,
+    term1_single, term2_single, term3_single, kde_single, viz_state_idx,
+    goal_indices, x_bounds, y_bounds, figsize=(16, 16)
+):
+    """Create env goal ranking visualization showing M matrix and its component terms.
+    
+    Args:
+        current_states: (batch_size, state_dim) current states
+        candidate_goals: (num_candidates, goal_dim) candidate goals
+        env_goals: (num_env_goals, goal_dim) environment goals
+        energy_mats: (batch_size, num_candidates, num_env_goals) energy matrices
+        term1_single: (num_candidates, 1) term 1 values
+        term2_single: (num_candidates, num_env_goals) term 2 values
+        term3_single: (1, num_env_goals) term 3 values
+        kde_single: (num_candidates, 1) KDE values
+        viz_state_idx: State index to visualize
+        goal_indices: indices to extract goal dimensions
+        x_bounds: x-axis bounds
+        y_bounds: y-axis bounds
+        figsize: Figure size
+        
+    Returns:
+        pil_image: PIL Image of the plot
+    """
+    fig, axes = plt.subplots(3, 2, figsize=figsize)
+    axes = axes.flatten()
+    
+    num_env_goals = env_goals.shape[0]
+    
+    # Use the viz_state_idx that we computed terms for
+    state_idx = int(viz_state_idx)
+    env_idx = np.random.choice(num_env_goals)
+    
+    current_state = current_states[state_idx][goal_indices]
+    env_goal = env_goals[env_idx]
+    
+    # Get M matrix for this state, use single-state term matrices
+    M = energy_mats[state_idx]  # (num_candidates, num_env_goals)
+    term1 = term1_single  # (num_candidates, 1)
+    term2 = term2_single  # (num_candidates, num_env_goals)
+    term3 = term3_single  # (1, num_env_goals)
+    kde = kde_single  # (num_candidates, 1)
+    
+    # Extract values for this env_goal
+    energies_full = M[:, env_idx]
+    energies_term1 = term1[:, 0]  # Remove the singleton dimension
+    energies_term2 = term2[:, env_idx]
+    energies_term3 = jnp.repeat(term3[0, env_idx], M.shape[0], axis=0)  # Duplicate for all candidates
+    energies_kde = kde[:, 0]  # Remove the singleton dimension
+    
+    # Plot 1: Full M matrix
+    scatter1 = axes[0].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                        c=energies_full, cmap='viridis', s=80, alpha=0.7,
+                        edgecolors='black', linewidths=0.5)
+    axes[0].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+            edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+    axes[0].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+            edgecolors='black', linewidths=2, zorder=9, label='Current State')
+    plt.colorbar(scatter1, ax=axes[0], label='M[g, h]')
+    axes[0].set_title(f'M Matrix: Full Combined Energy', fontsize=12, fontweight='bold')
+    axes[0].legend(loc='upper right', fontsize=9)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].set_aspect('equal', adjustable='box')
+    axes[0].set_xlim(x_bounds)
+    axes[0].set_ylim(y_bounds)
+    
+    # Plot 2: Term 1 - f(s,a1,g)
+    scatter2 = axes[1].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                        c=energies_term1, cmap='plasma', s=80, alpha=0.7,
+                        edgecolors='black', linewidths=0.5)
+    axes[1].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+            edgecolors='black', linewidths=2, zorder=9, label='Current State')
+    plt.colorbar(scatter2, ax=axes[1], label='f(s, w)')
+    axes[1].set_title(f'Term 1: f(s, w)', fontsize=12, fontweight='bold')
+    axes[1].legend(loc='upper right', fontsize=9)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_aspect('equal', adjustable='box')
+    axes[1].set_xlim(x_bounds)
+    axes[1].set_ylim(y_bounds)
+    
+    # Plot 3: Term 2 - f(g,a2,h)
+    scatter3 = axes[2].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                        c=energies_term2, cmap='cool', s=80, alpha=0.7,
+                        edgecolors='black', linewidths=0.5)
+    axes[2].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+            edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+    plt.colorbar(scatter3, ax=axes[2], label='f(w, g)')
+    axes[2].set_title(f'Term 2: f(w, g)', fontsize=12, fontweight='bold')
+    axes[2].legend(loc='upper right', fontsize=9)
+    axes[2].grid(True, alpha=0.3)
+    axes[2].set_aspect('equal', adjustable='box')
+    axes[2].set_xlim(x_bounds)
+    axes[2].set_ylim(y_bounds)
+    
+    # Plot 4: Term 3 - -f(s,a3,h)
+        scatter4 = axes[3].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                        c=energies_term3, cmap='RdBu', s=80, alpha=0.7,
+                        edgecolors='black', linewidths=0.5)
+        axes[3].scatter(env_goal[0], env_goal[1], c='red', s=400, marker='s', 
+                edgecolors='black', linewidths=3, zorder=10, label=f'Env Goal {env_idx}')
+        axes[3].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter4, ax=axes[3], label='f(s, g)')
+        axes[3].set_title(f'Term 3: f(s, g)', fontsize=12, fontweight='bold')
+    axes[3].legend(loc='upper right', fontsize=9)
+    axes[3].grid(True, alpha=0.3)
+    axes[3].set_aspect('equal', adjustable='box')
+    axes[3].set_xlim(x_bounds)
+    axes[3].set_ylim(y_bounds)
+    
+    # Plot 5: KDE correction
+        scatter5 = axes[4].scatter(candidate_goals[:, 0], candidate_goals[:, 1],
+                        c=energies_kde, cmap='Spectral', s=80, alpha=0.7,
+                        edgecolors='black', linewidths=0.5)
+        axes[4].scatter(current_state[0], current_state[1], c='green', s=300, marker='*',
+                edgecolors='black', linewidths=2, zorder=9, label='Current State')
+        plt.colorbar(scatter5, ax=axes[4], label='log_density(g)')
+        axes[4].set_title(f'Term 4: KDE Correction - log_density(g)', fontsize=12, fontweight='bold')
+        axes[4].legend(loc='upper right', fontsize=9)
+    axes[4].grid(True, alpha=0.3)
+    axes[4].set_aspect('equal', adjustable='box')
+    axes[4].set_xlim(x_bounds)
+    axes[4].set_ylim(y_bounds)
+    
+    # Plot 6: Environment goals ranked by max M value, waypoints colored by f(w, g)
+    # For each env goal, find the waypoint that maximizes M
+    max_m_per_env = jnp.max(M, axis=0)  # (num_env_goals,)
+    best_waypoint_per_env = jnp.argmax(M, axis=0)  # (num_env_goals,)
+    
+    # Get f(w, g) values for the best waypoint of each env goal
+    best_waypoint_energies = term2[best_waypoint_per_env, jnp.arange(num_env_goals)]
+    
+    scatter6 = axes[5].scatter(env_goals[:, 0], env_goals[:, 1],
+                        c=max_m_per_env, cmap='plasma', s=200, alpha=0.8,
+                        edgecolors='black', linewidths=1.5, label='Env Goals', marker='s')
+    
+    # For each env goal, draw a line to its best waypoint colored by f(w, g)
+    for h_idx in range(num_env_goals):
+        g_idx = int(best_waypoint_per_env[h_idx])
+        waypoint = candidate_goals[g_idx]
+        env_g = env_goals[h_idx]
+        # Line color represents f(w, g) value
+        f_wg_val = float(best_waypoint_energies[h_idx])
+        min_f = float(jnp.min(best_waypoint_energies))
+        max_f = float(jnp.max(best_waypoint_energies))
+        normalized_f = (f_wg_val - min_f) / (max_f - min_f + 1e-6)
+        axes[5].plot([waypoint[0], env_g[0]], [waypoint[1], env_g[1]], 
+                    color=plt.cm.cool(normalized_f),
+                    linewidth=1.5, alpha=0.6, zorder=2)
+    
+    # Also scatter the best waypoints for each env goal
+    best_waypoints = candidate_goals[best_waypoint_per_env]
+    scatter6b = axes[5].scatter(best_waypoints[:, 0], best_waypoints[:, 1],
+                        c=best_waypoint_energies, cmap='cool', s=100, alpha=0.8,
+                        edgecolors='red', linewidths=2, marker='o', label='Best Waypoints', zorder=4)
+    
+    plt.colorbar(scatter6, ax=axes[5], label='Max M[g, h]')
+    axes[5].set_title(f'Env Goal Rankings: Max M value (size), Waypoint connections colored by f(w, g)', 
+                     fontsize=12, fontweight='bold')
+    axes[5].legend(loc='upper right', fontsize=9)
+    axes[5].grid(True, alpha=0.3)
+    axes[5].set_aspect('equal', adjustable='box')
+    axes[5].set_xlim(x_bounds)
+    axes[5].set_ylim(y_bounds)
+    
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    plt.close()
+    
+    return Image.open(buf)
 
 
 # ============================================================================
