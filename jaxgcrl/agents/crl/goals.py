@@ -14,6 +14,22 @@ from flax.struct import dataclass
 from PIL import Image
 
 from jaxgcrl.agents.crl.losses import energy_fn
+from jaxgcrl.agents.crl.goals_utils import (
+    get_last_state_from_trajectory,
+    get_final_states_from_batch,
+    sample_random_states_from_batch,
+    expand_goal_to_state,
+    zero_out_non_goal_indices,
+    compute_q_value_single_critic,
+    stack_ensemble_params,
+    compute_q_values_ensemble,
+    compute_v_and_sigma_ensemble,
+    compute_energy_for_state_goal_pairs,
+    create_goal_scatter_plot,
+    gaussian_kernel_density,
+    estimate_log_density_knn,
+    compute_kl_divergence_empirical,
+)
 # Import base classes and utilities from shared module
 from jaxgcrl.utils.goals import (
     GoalProposer,
@@ -23,64 +39,10 @@ from jaxgcrl.utils.goals import (
 
 # Re-export for convenience
 __all__ = ['GoalProposer', 'ReplayBufferGoalProposal', 'FisherTraceGoalProposal', 
-           'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'QEpistemicGoalProposal', 'mix_goals']
+           'MediumEnergyGoalProposal', 'MetricPreservationGoalProposal', 'QEpistemicGoalProposal', 
+           'DISCOVERGoalProposal', 'mix_goals']
 
 
-def gaussian_kernel_density(x, data, bandwidth):
-    """Compute Gaussian kernel density estimate.
-    
-    Args:
-        x: (n, d) points to evaluate density at
-        data: (m, d) data points
-        bandwidth: kernel bandwidth
-        
-    Returns:
-        densities: (n,) density estimates
-    """
-    # Compute pairwise squared distances: ||x_i - data_j||^2
-    # x: (n, d), data: (m, d) -> dists: (n, m)
-    diffs = x[:, None, :] - data[None, :, :]  # (n, m, d)
-    sq_dists = jnp.sum(diffs ** 2, axis=-1)  # (n, m)
-    
-    # Gaussian kernel: exp(-||x - data||^2 / (2 * bandwidth^2))
-    kernel_vals = jnp.exp(-sq_dists / (2 * bandwidth ** 2))
-    
-    # Normalize by number of data points and bandwidth
-    d = x.shape[-1]
-    norm_const = (2 * jnp.pi * bandwidth ** 2) ** (d / 2)
-    densities = jnp.mean(kernel_vals, axis=1) / norm_const
-    
-    return densities
-
-
-def compute_kl_divergence_empirical(desired_goals, achieved_goals, bandwidth=0.1):
-    """Compute empirical KL divergence D_KL(p_dg || p_ag) using KDE.
-    
-    Returns a large value if supports don't overlap (achieved doesn't cover desired).
-    """
-    # Normalize goals
-    all_goals = jnp.concatenate([desired_goals, achieved_goals], axis=0)
-    mean = jnp.mean(all_goals, axis=0)
-    std = jnp.std(all_goals, axis=0) + 1e-6
-    
-    desired_normalized = (desired_goals - mean) / std
-    achieved_normalized = (achieved_goals - mean) / std
-    
-    # Compute densities at desired goal samples
-    p_desired = gaussian_kernel_density(desired_normalized, desired_normalized, bandwidth)
-    p_achieved = gaussian_kernel_density(desired_normalized, achieved_normalized, bandwidth)
-    
-    # Add small epsilon to avoid log(0)
-    p_desired = jnp.maximum(p_desired, 1e-10)
-    p_achieved = jnp.maximum(p_achieved, 1e-10)
-    
-    # KL divergence: E[log(p_desired / p_achieved)]
-    kl_div = jnp.mean(jnp.log(p_desired) - jnp.log(p_achieved))
-    
-    # Return large value if supports don't overlap
-    kl_div = jnp.where(jnp.any(p_achieved < 1e-8), 1000.0, kl_div)
-    
-    return kl_div
 
 """
 UCGR (Unsupervised Contrastive Goal-Reaching) Goal Proposer
@@ -101,32 +63,6 @@ from flax.struct import dataclass
 from typing import Any
 
 
-def get_final_states_from_batch(observations, traj_ids, goal_indices):
-    """Extract final states from each trajectory in a batch, respecting traj_id boundaries.
-    
-    Args:
-        observations: (N, K, obs_dim) sampled observations where N = num trajectory samples, K = episode_length
-        traj_ids: (N, K) trajectory IDs for each timestep
-        goal_indices: indices to extract goal dimensions from observation
-        
-    Returns:
-        final_goals: (N, goal_dim) final state goals from each sampled trajectory
-    """
-    def get_last_state(obs_seq, traj_id_seq):
-        """Get the last state for the first trajectory in sequence."""
-        seq_len = obs_seq.shape[0]
-        # Find indices that match the first timestep's traj_id
-        mask = traj_id_seq == traj_id_seq[0]
-        # Get the last index in the trajectory
-        last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-        return obs_seq[last_idx]
-    
-    # Apply to each sampled trajectory
-    last_states = jax.vmap(get_last_state)(observations, traj_ids)  # (N, obs_dim)
-    final_goals = last_states[:, goal_indices]  # (N, goal_dim)
-    return final_goals
-
-
 def flatten_trajectory_data(observations, actions, traj_ids, state_size):
     """Flatten 3D trajectory data to 2D for batch processing.
     
@@ -145,6 +81,337 @@ def flatten_trajectory_data(observations, actions, traj_ids, state_size):
     actions_flat = actions.reshape(-1, actions.shape[-1])
     return states, actions_flat
 
+@dataclass
+class DISCOVERGoalProposal(GoalProposer):
+    """DISCOVER goal proposal algorithm.
+    
+    For each starting state, selects the candidate goal g that maximizes:
+    alpha_t(V(s0, g) + sigma(s0, g)) + (1 - alpha_t)(V(g, g*) + sigma(g, g*))
+    
+    Where:
+    - V(s, g) is the mean value estimate across the ensemble
+    - sigma(s, g) is the standard deviation of value estimates across the ensemble
+    - s0 is the start state
+    - g is a candidate goal
+    - g* is an environment goal (averaged over all env goals)
+    - alpha_t is updated based on goal achievement proportion p
+    """
+    energy_fn_name: str
+    num_ensemble: int = 5  # Number of critics in the ensemble
+    alpha_0: float = 0.5  # Initial alpha value
+    LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
+
+    def propose_goals(
+        self, 
+        replay_buffer, 
+        buffer_state, 
+        training_state, 
+        train_env, 
+        env_state, 
+        key,
+        actor, 
+        actor_params, 
+        critic_params, 
+        sa_encoder, 
+        g_encoder
+    ):
+        """Propose goals using DISCOVER algorithm.
+        
+        Args:
+            replay_buffer: Replay buffer to sample from
+            buffer_state: Current buffer state
+            training_state: Current training state
+            train_env: Training environment
+            env_state: Current environment state
+            key: JAX random key
+            actor: Actor network
+            actor_params: Actor parameters
+            critic_params: Critic parameters (contains ensemble of sa_encoder and g_encoder params)
+            sa_encoder: State-action encoder network
+            g_encoder: Goal encoder network
+            
+        Returns:
+            proposed_goals: (batch_size, goal_size) array of proposed goals
+            buffer_state: Updated buffer state
+        """
+        assert hasattr(train_env, 'possible_goals'), \
+            "Environment must store property `possible_goals` for DISCOVERGoalProposal."
+        
+        # Get current states from env_state
+        state_size = train_env.state_dim
+        current_states = env_state.obs[:, :state_size]  # (batch_size, state_dim)
+        batch_size = current_states.shape[0]
+        goal_indices = train_env.goal_indices
+        
+        # Get environment goals
+        env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
+        num_env_goals = env_goals.shape[0]
+        
+        # Sample candidate goals from replay buffer - one random state per trajectory
+        buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
+        traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
+        candidate_obs = candidate_transitions.observation
+        
+        # Sample one random state from each trajectory
+        key, sample_key = jax.random.split(key)
+        # Get full states (not just goal portions) for computing V(g, g*)
+        def sample_random_full_state_from_trajectory(obs_seq, traj_id_seq, rng_key):
+            """Sample a random full state from a trajectory."""
+            seq_len = obs_seq.shape[0]
+            mask = traj_id_seq == traj_id_seq[0]
+            num_valid = jnp.sum(mask.astype(jnp.int32))
+            random_idx = jax.random.randint(rng_key, (), 0, num_valid)
+            sorted_indices = jnp.argsort(-mask.astype(jnp.int32))
+            sampled_idx = sorted_indices[random_idx]
+            return obs_seq[sampled_idx]
+        
+        num_trajs = candidate_obs.shape[0]
+        sample_keys = jax.random.split(sample_key, num_trajs)
+        candidate_states_full = jax.vmap(sample_random_full_state_from_trajectory)(
+            candidate_obs, traj_ids, sample_keys
+        )  # (num_candidates, obs_dim)
+        
+        # Extract goal portions for candidate selection
+        candidate_goals = candidate_states_full[:, goal_indices]  # (num_candidates, goal_dim)
+        # Extract full state portions (state_dim, not obs_dim which includes goal)
+        candidate_states = candidate_states_full[:, :state_size]  # (num_candidates, state_dim)
+        num_candidates = candidate_goals.shape[0]
+        
+        # Check if we have an ensemble
+        is_ensemble = isinstance(critic_params["sa_encoder"], list)
+        if not is_ensemble:
+            raise ValueError("DISCOVERGoalProposal requires an ensemble of critics. Set use_critic_ensemble=True.")
+        
+        # Stack ensemble parameters into arrays for JAX-compatible indexing
+        stacked_sa_params, stacked_g_params = stack_ensemble_params(critic_params)
+        
+        # Compute scores for all (state, candidate_goal) pairs
+        # First compute the components separately, then combine with alpha_t
+        def compute_score_components_for_state(state):
+            """Compute score components for all candidate goals given a starting state."""
+            def compute_components_for_candidate(candidate_state, candidate_goal):
+                # Compute V(s0, g) and sigma(s0, g) using full state and goal
+                v_s0g, sigma_s0g = compute_v_and_sigma_ensemble(
+                    state, candidate_goal, actor, actor_params,
+                    stacked_sa_params, stacked_g_params, sa_encoder, g_encoder,
+                    self.energy_fn_name, is_goal_as_state=False
+                )
+                
+                # For each environment goal g*, compute V(g, g*) and sigma(g, g*)
+                # Use the full candidate_state (not expanded from goal)
+                def compute_for_env_goal(env_goal):
+                    v_ggstar, sigma_ggstar = compute_v_and_sigma_ensemble(
+                        candidate_state, env_goal, actor, actor_params,
+                        stacked_sa_params, stacked_g_params, sa_encoder, g_encoder,
+                        self.energy_fn_name, is_goal_as_state=False
+                    )
+                    return v_ggstar, sigma_ggstar
+                
+                # Vectorize over environment goals
+                v_ggstar_all, sigma_ggstar_all = jax.vmap(compute_for_env_goal)(env_goals)
+                
+                # Average over environment goals
+                v_ggstar_mean = jnp.mean(v_ggstar_all)
+                sigma_ggstar_mean = jnp.mean(sigma_ggstar_all)
+                
+                return v_s0g, sigma_s0g, v_ggstar_mean, sigma_ggstar_mean
+            
+            # Vectorize over candidate states and goals
+            components = jax.vmap(compute_components_for_candidate)(candidate_states, candidate_goals)
+            # Returns: (v_s0g, sigma_s0g, v_ggstar_mean, sigma_ggstar_mean) each of shape (num_candidates,)
+            return components
+        
+        # Compute components for all states
+        all_components = jax.vmap(compute_score_components_for_state)(current_states)
+        # Shape: (batch_size, num_candidates, 4) - last dim is [v_s0g, sigma_s0g, v_ggstar_mean, sigma_ggstar_mean]
+        
+        # Compute p and update alpha_t
+        # For now, we'll compute p from the replay buffer by checking if final states
+        # achieved their goals. This is a placeholder and may need adjustment.
+        # TODO: Get p from actual rollout statistics if available
+        def compute_goal_achievement_proportion():
+            """Compute proportion of trajectories that achieved their goal.
+            
+            This is a placeholder implementation that estimates p from the replay buffer.
+            In practice, p should come from the actual rollout statistics.
+            """
+            # Get final states from trajectories for computing goal achievement
+            final_states = jax.vmap(get_last_state_from_trajectory)(candidate_obs, traj_ids)
+            
+            # Get goals from observations (they're concatenated at the end)
+            goal_size = len(goal_indices)
+            trajectory_goals = candidate_obs[:, -1, -goal_size:]  # (num_trajs, goal_dim)
+            final_state_goals = final_states[:, goal_indices]  # (num_trajs, goal_dim)
+            
+            # Check if final states are close to their goals (within some threshold)
+            # This threshold should match the environment's goal_reach_thresh
+            # For now, use a reasonable defaultc
+            goal_reach_thresh = getattr(train_env, 'goal_reach_thresh', 0.5)
+            distances = jnp.linalg.norm(final_state_goals - trajectory_goals, axis=1)
+            achieved = distances < goal_reach_thresh
+            p = jnp.mean(achieved.astype(jnp.float32))
+            
+            return p
+        
+        # Compute p and update alpha_t
+        p = compute_goal_achievement_proportion()
+        
+        # Get current alpha_t (initialize from instance or use default)
+        current_alpha = getattr(self, '_alpha_t', self.alpha_0)
+        alpha_t_new = jnp.clip(current_alpha + 0.01 * (p - 0.5), 0.0, 1.0)
+        
+        # Update instance variable (using a callback since we can't mutate in JAX)
+        def update_alpha_callback(new_alpha, instance_id):
+            """Update alpha_t instance variable."""
+            # Store in a module-level dictionary keyed by instance
+            if not hasattr(DISCOVERGoalProposal, '_alpha_dict'):
+                DISCOVERGoalProposal._alpha_dict = {}
+            DISCOVERGoalProposal._alpha_dict[instance_id] = float(new_alpha)
+        
+        # Use id(self) as instance identifier (approximate, works for tracking)
+        instance_id = id(self) if hasattr(self, '__dict__') else 0
+        jax.experimental.io_callback(
+            update_alpha_callback,
+            None,
+            alpha_t_new,
+            instance_id
+        )
+        
+        # Combine components with alpha_t to get final scores
+        v_s0g_all = all_components[:, :, 0]  # (batch_size, num_candidates)
+        sigma_s0g_all = all_components[:, :, 1]  # (batch_size, num_candidates)
+        v_ggstar_mean_all = all_components[:, :, 2]  # (batch_size, num_candidates)
+        sigma_ggstar_mean_all = all_components[:, :, 3]  # (batch_size, num_candidates)
+        
+        # Compute final scores with alpha_t
+        all_scores = (alpha_t_new * (v_s0g_all + sigma_s0g_all) + 
+                     (1 - alpha_t_new) * (v_ggstar_mean_all + sigma_ggstar_mean_all))
+        # (batch_size, num_candidates)
+        
+        # Select the candidate goal with maximum score for each state
+        best_goal_indices = jnp.argmax(all_scores, axis=1)  # (batch_size,)
+        proposed_goals = candidate_goals[best_goal_indices]  # (batch_size, goal_dim)
+        
+        # Log alpha_t, p, and visualization
+        jax.experimental.io_callback(
+            DISCOVERGoalProposal._log_discover_statistics,
+            None,
+            all_scores,
+            candidate_goals,
+            current_states,
+            best_goal_indices,
+            goal_indices,
+            alpha_t_new,
+            p,
+            training_state.env_steps,
+            self.LOG_INTERVAL_STEPS
+        )
+
+        return proposed_goals, buffer_state
+    
+    # Class variable to track last log step
+    _last_logged_at = -500000
+    
+    @staticmethod
+    def _log_discover_statistics(
+        all_scores, candidate_goals, current_states, best_goal_indices,
+        goal_indices, alpha_t, p, env_steps, log_interval_steps
+    ):
+        """Log DISCOVER statistics and create visualization."""
+        # Only log if enough steps have passed since last log
+        current_step = int(env_steps)
+        if current_step - DISCOVERGoalProposal._last_logged_at < log_interval_steps:
+            return
+        
+        DISCOVERGoalProposal._last_logged_at = current_step
+        
+        # Compute statistics
+        max_scores_per_state = jnp.max(all_scores, axis=1)  # (batch_size,)
+        
+        metrics = {
+            'discover/alpha_t': float(alpha_t),
+            'discover/goal_achievement_proportion': float(p)
+        }
+        
+        # Create visualization
+        pil_image = DISCOVERGoalProposal._create_discover_visualization(
+            all_scores, candidate_goals, current_states, best_goal_indices, goal_indices
+        )
+        metrics['discover/goal_selection_visualization'] = wandb.Image(pil_image)
+        
+        wandb.log(metrics, step=int(env_steps))
+    
+    @staticmethod
+    def _create_discover_visualization(
+        all_scores, candidate_goals, current_states, best_goal_indices, goal_indices
+    ):
+        """Create 2x2 grid visualization showing candidate goals colored by DISCOVER scores."""
+        batch_size = all_scores.shape[0]
+        num_plots = min(4, batch_size)
+        random_state_indices = np.random.choice(batch_size, size=num_plots, replace=False)
+        
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        axes = axes.flatten()
+        
+        # Extract goal portion from current states
+        current_goals = current_states[:, goal_indices]  # (batch_size, goal_dim)
+        
+        for plot_idx, state_idx in enumerate(random_state_indices):
+            ax = axes[plot_idx]
+            
+            scores = all_scores[state_idx]  # (num_candidates,)
+            current_goal = current_goals[state_idx]  # (goal_dim,)
+            selected_goal_idx = best_goal_indices[state_idx]
+            selected_goal = candidate_goals[selected_goal_idx]
+            
+            # Color candidate goals by their DISCOVER scores
+            scatter = ax.scatter(
+                candidate_goals[:, 0], candidate_goals[:, 1],
+                c=scores, cmap='viridis', s=150, alpha=0.8,
+                edgecolors='black', linewidths=0.5, label='Candidate Goals'
+            )
+            
+            # Plot current state as a star
+            ax.scatter(
+                current_goal[0], current_goal[1],
+                c='cyan', s=400, marker='*',
+                edgecolors='black', linewidths=2, zorder=5, label='Current State'
+            )
+            
+            # Plot selected goal
+            ax.scatter(
+                selected_goal[0], selected_goal[1],
+                c='red', s=200, marker='o',
+                edgecolors='black', linewidths=2, zorder=4, label='Selected Goal'
+            )
+            
+            plt.colorbar(scatter, ax=ax, label='DISCOVER Score')
+            
+            max_score = float(jnp.max(scores))
+            selected_score = float(scores[selected_goal_idx])
+            
+            ax.set_title(
+                f'State {state_idx}: Max Score = {max_score:.4f}, Selected = {selected_score:.4f}',
+                fontsize=11, fontweight='bold'
+            )
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='upper right', fontsize=9)
+            if candidate_goals.shape[1] >= 2:
+                ax.set_aspect('equal', adjustable='box')
+        
+        # Hide unused subplots
+        for i in range(num_plots, len(axes)):
+            axes[i].axis('off')
+        
+        plt.tight_layout()
+        
+        # Save to buffer and convert to PIL Image
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return Image.open(buf)
 
 @dataclass
 class UCGRGoalProposal:
@@ -364,22 +631,12 @@ class MEGAGoalProposal:
             
             # Optional: Filter unachievable goals using Q-values
             if self.use_q_cutoff:
-                # Vectorized computation
-                # Create batch of observations [current_state, goal] for all candidate goals
+                # Vectorized computation using utility function
                 s_rep = jnp.repeat(current_state[None, :], len(candidate_goals), axis=0)
-                obs_sg = jnp.concatenate([s_rep, candidate_goals], axis=1)
-                
-                # Compute actions
-                means, _ = actor.apply(actor_params, obs_sg)
-                actions = jnp.tanh(means)
-                
-                # Compute encodings
-                sa_pair = jnp.concatenate([s_rep, actions], axis=1)
-                phi_sg = sa_encoder.apply(critic_params["sa_encoder"], sa_pair)
-                psi_g = g_encoder.apply(critic_params["g_encoder"], candidate_goals)
-                
-                # Compute Q-values for all goals at once
-                q_values = energy_fn(self.energy_fn_name, phi_sg, psi_g)
+                q_values = compute_energy_for_state_goal_pairs(
+                    s_rep, candidate_goals, actor, actor_params,
+                    critic_params, sa_encoder, g_encoder, self.energy_fn_name
+                )
                 
                 # Compute adaptive cutoff (percentile of Q-values)
                 cutoff_value = jnp.percentile(q_values, self.cutoff_percentile * 100)
@@ -536,13 +793,7 @@ class FisherTraceGoalProposal(GoalProposer):
             buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
             traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
             candidate_obs = candidate_transitions.observation
-            def get_last_state(obs_seq, traj_id_seq):
-                """Get the last state for each trajectory"""
-                seq_len = obs_seq.shape[0]
-                mask = traj_id_seq == traj_id_seq[0]
-                last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-                return obs_seq[last_idx]
-            last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+            last_states = jax.vmap(get_last_state_from_trajectory)(candidate_obs, traj_ids)
             candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
         use_critic = self.use_critic_gradients
@@ -748,14 +999,7 @@ class MediumEnergyGoalProposal(GoalProposer):
         buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
         traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
         candidate_obs = candidate_transitions.observation
-        
-        def get_last_state(obs_seq, traj_id_seq):
-            seq_len = obs_seq.shape[0]
-            mask = traj_id_seq == traj_id_seq[0]
-            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-            return obs_seq[last_idx]
-        
-        last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+        last_states = jax.vmap(get_last_state_from_trajectory)(candidate_obs, traj_ids)
         candidate_goals = last_states[:, train_env.goal_indices]  # (batch_size, goal_size)
         
         # Compute energies for all (current_state, candidate_goal) pairs
@@ -770,24 +1014,12 @@ class MediumEnergyGoalProposal(GoalProposer):
             Returns:
                 energies: (batch_size,) array of energy values
             '''
-            # Create observations by concatenating state with each candidate goal
+            # Compute energies using utility function
             state_expanded = jnp.tile(state, (batch_size, 1))  # (batch_size, state_dim)
-            obs_batch = jnp.concatenate([state_expanded, candidate_goals], axis=1)
-            
-            # Sample actions from policy
-            means, _ = actor.apply(actor_params, obs_batch)
-            actions = jnp.tanh(means)  # (batch_size, action_dim)
-            
-            # Compute state-action representations
-            sa_pairs = jnp.concatenate([state_expanded, actions], axis=1)
-            phi_sa = sa_encoder.apply(critic_params['sa_encoder'], sa_pairs)
-            
-            # Compute goal representations
-            psi_g = g_encoder.apply(critic_params['g_encoder'], candidate_goals)
-            
-            # Compute energy values
-            energies = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (batch_size,)
-            
+            energies = compute_energy_for_state_goal_pairs(
+                state_expanded, candidate_goals, actor, actor_params,
+                critic_params, sa_encoder, g_encoder, self.energy_fn_name
+            )
             return energies
         
         # Compute energies for all states: (batch_size, batch_size)
@@ -933,37 +1165,13 @@ class QEpistemicGoalProposal(GoalProposer):
             buffer_state, candidate_transitions = replay_buffer.sample(buffer_state)
             traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
             candidate_obs = candidate_transitions.observation
-            
-            def get_last_state(obs_seq, traj_id_seq):
-                """Get the last state for each trajectory"""
-                seq_len = obs_seq.shape[0]
-                mask = traj_id_seq == traj_id_seq[0]
-                last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-                return obs_seq[last_idx]
-            
-            last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+            last_states = jax.vmap(get_last_state_from_trajectory)(candidate_obs, traj_ids)
             candidate_goals = last_states[:, train_env.goal_indices]  # (num_candidates, goal_size)
         
         num_candidates = candidate_goals.shape[0]
-        num_ensemble = self.num_ensemble
         
         # Stack ensemble parameters into arrays for JAX-compatible indexing
-        # This converts list of pytrees into a pytree of stacked arrays
-        stacked_sa_params = jax.tree_util.tree_map(
-            lambda *xs: jnp.stack(xs, axis=0), 
-            *critic_params['sa_encoder']
-        )
-        stacked_g_params = jax.tree_util.tree_map(
-            lambda *xs: jnp.stack(xs, axis=0), 
-            *critic_params['g_encoder']
-        )
-        
-        def compute_q_for_single_critic(sa_params, g_params, sa_pairs, goals):
-            """Compute Q-values for a single critic."""
-            phi_sa = sa_encoder.apply(sa_params, sa_pairs)  # (num_candidates, repr_dim)
-            psi_g = g_encoder.apply(g_params, goals)  # (num_candidates, repr_dim)
-            q_values = energy_fn(self.energy_fn_name, phi_sa, psi_g)  # (num_candidates,)
-            return q_values
+        stacked_sa_params, stacked_g_params = stack_ensemble_params(critic_params)
         
         def compute_q_values_for_state(state):
             """For a single state, compute Q-values across ensemble for all candidate goals.
@@ -974,22 +1182,15 @@ class QEpistemicGoalProposal(GoalProposer):
             Returns:
                 all_q_values: (num_ensemble, num_candidates) array of Q-values
             """
-            # Create observations by concatenating state with each candidate goal
+            # Expand state to match number of candidates
             state_expanded = jnp.tile(state, (num_candidates, 1))  # (num_candidates, state_dim)
-            obs_batch = jnp.concatenate([state_expanded, candidate_goals], axis=1)
             
-            # Sample actions from policy
-            means, log_stds = actor.apply(actor_params, obs_batch)
-            actions = jnp.tanh(means)  # (num_candidates, action_dim)
-            
-            # Compute state-action pairs
-            sa_pairs = jnp.concatenate([state_expanded, actions], axis=1)
-            
-            # Compute Q-values for all ensemble members using vmap over the stacked params
-            # vmap over the first axis (ensemble dimension) of the stacked params
-            all_q_values = jax.vmap(
-                lambda sa_p, g_p: compute_q_for_single_critic(sa_p, g_p, sa_pairs, candidate_goals)
-            )(stacked_sa_params, stacked_g_params)  # (num_ensemble, num_candidates)
+            # Compute Q-values using utility function
+            all_q_values = compute_q_values_ensemble(
+                state_expanded, candidate_goals, actor, actor_params,
+                stacked_sa_params, stacked_g_params, sa_encoder, g_encoder,
+                self.energy_fn_name, expand_goals=False
+            )  # (num_ensemble, num_candidates)
             
             return all_q_values
         
@@ -1142,24 +1343,14 @@ class MetricPreservationGoalProposal(GoalProposer):
         traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
         candidate_obs = candidate_transitions.observation
 
-        def get_last_state(obs_seq, traj_id_seq):
-            seq_len = obs_seq.shape[0]
-            mask = traj_id_seq == traj_id_seq[0]
-            last_idx = jnp.max(jnp.where(mask, jnp.arange(seq_len), 0))
-            return obs_seq[last_idx]
-        
-        # expand goals to full state_dim with zero elsewhere
-        def expand_goal(goal):
-            # goal: (goal_dim,)
-            full = jnp.zeros((state_size,), dtype=goal.dtype)
-            return full.at[train_env.goal_indices].set(goal)
-
-        last_states = jax.vmap(get_last_state)(candidate_obs, traj_ids)
+        last_states = jax.vmap(get_last_state_from_trajectory)(candidate_obs, traj_ids)
         candidate_goals = last_states[:, train_env.goal_indices]  # (num_candidate_goals, goal_dim)
         candidate_goals_full = last_states[:, :state_size] # Full vector for final states achieved
 
         if self.zero_out_cand_goals:
-            candidate_goals_full = jax.vmap(expand_goal)(candidate_goals)
+            candidate_goals_full = jax.vmap(
+                lambda g: expand_goal_to_state(g, state_size, train_env.goal_indices)
+            )(candidate_goals)
 
         env_goals = train_env.possible_goals  # (num_env_goals, goal_dim)
 
@@ -1167,25 +1358,10 @@ class MetricPreservationGoalProposal(GoalProposer):
             """Compute M[g,h] for a single state and return individual terms."""
             # Optionally zero out everything except goal indices
             if self.zero_out_state:
-                zeroed_state = jnp.zeros_like(state)
-                state = zeroed_state.at[train_env.goal_indices].set(state[train_env.goal_indices])
+                state = zero_out_non_goal_indices(state, train_env.goal_indices)
             
-            def estimate_log_density_knn(goals_batch):
-                """Estimate log p(s,g) using k-NN density estimation."""
-                # Use all candidate observations as reference samples
-                distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
-                
-                # Get k-th nearest neighbor distance for each point
-                k = int(np.sqrt(goals_batch.shape[0]))
-                sorted_distances = jnp.sort(distances, axis=1)
-                knn_distances = sorted_distances[:, k]  # k-th nearest neighbor distance
-                
-                # Density is inversely proportional to k-NN distance
-                # Using volume of hypersphere: log(k/n) - d*log(r_k); this is up to a constant, but we don't care about the factor for goal selection here
-                d = goals_batch.shape[1]
-                log_densities = jnp.log(k / goals_batch.shape[0]) - d * jnp.log(knn_distances + 1e-10)
-                
-                return log_densities
+            # Use utility function for KDE estimation
+            proposed_goal_densities = estimate_log_density_knn(candidate_goals)
             
             num_cand = candidate_goals.shape[0]
             num_env = env_goals.shape[0]
@@ -1219,13 +1395,11 @@ class MetricPreservationGoalProposal(GoalProposer):
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
 
-            proposed_goal_densites = estimate_log_density_knn(candidate_goals)
-            
             # Compute M matrix for goal selection
             term1 = f_sag[:, None]  # f(s, a1, g) - shape (num_cand, 1)
             term2 = f_gah  # f(g, a2, h) - shape (num_cand, num_env)
             term3 = f_sah[None, :]  # -f(s, a3, h) - shape (1, num_env)
-            kde_term = proposed_goal_densites[:, None]  # KDE correction - shape (num_cand, 1)
+            kde_term = proposed_goal_densities[:, None]  # KDE correction - shape (num_cand, 1)
             
             M = term2 - term3
             if self.use_waypoint_difficulty:
@@ -1238,17 +1412,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             """Compute M and all individual terms for visualization (only called for one state)."""
             # Optionally zero out everything except goal indices
             if self.zero_out_state:
-                zeroed_state = jnp.zeros_like(state)
-                state = zeroed_state.at[train_env.goal_indices].set(state[train_env.goal_indices])
-            
-            def estimate_log_density_knn(goals_batch):
-                distances = jnp.sqrt(jnp.sum((goals_batch[:, None, :] - goals_batch[None, :, :]) ** 2, axis=2))
-                k = int(np.sqrt(goals_batch.shape[0]))
-                sorted_distances = jnp.sort(distances, axis=1)
-                knn_distances = sorted_distances[:, k]
-                d = goals_batch.shape[1]
-                log_densities = jnp.log(k / goals_batch.shape[0]) - d * jnp.log(knn_distances + 1e-10)
-                return log_densities
+                state = zero_out_non_goal_indices(state, train_env.goal_indices)
             
             num_cand = candidate_goals.shape[0]
             num_env = env_goals.shape[0]
@@ -1279,12 +1443,12 @@ class MetricPreservationGoalProposal(GoalProposer):
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)
 
-            proposed_goal_densites = estimate_log_density_knn(candidate_goals)
+            proposed_goal_densities = estimate_log_density_knn(candidate_goals)
             
             term1 = f_sag[:, None]
             term2 = f_gah
             term3 = f_sah[None, :]
-            kde_term = proposed_goal_densites[:, None]
+            kde_term = proposed_goal_densities[:, None]
             
             M = term2 - term3
             if self.use_waypoint_difficulty:

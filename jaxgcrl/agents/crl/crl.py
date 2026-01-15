@@ -255,8 +255,9 @@ class CRL:
     zero_out_state: bool = False
     # Whether to propose environment goals instead of waypoint goals (for max_waypoint_ratio)
     propose_env_goals: bool = False
-    # Number of critics in the ensemble (for q_epistemic goal proposer)
-    q_epistemic_num_ensemble: int = 5
+    # Number of critics in the ensemble
+    use_critic_ensemble: bool = False
+    num_critic_ensemble: int = 1
     # Whether to use environment goals (True) or replay buffer final states (False) for q_epistemic
     q_epistemic_use_env_goals: bool = False
     # Whether to zero-center each critic's predictions before computing std (removes translational offset)
@@ -387,10 +388,10 @@ class CRL:
         )
         
         # Initialize critic params - use ensemble if q_epistemic, otherwise single critic
-        if self.goal_proposer_name == "q_epistemic":
+        if self.use_critic_ensemble:
             # Initialize ensemble of critics with different random keys
-            sa_keys = jax.random.split(sa_key, self.q_epistemic_num_ensemble)
-            g_keys = jax.random.split(g_key, self.q_epistemic_num_ensemble)
+            sa_keys = jax.random.split(sa_key, self.num_critic_ensemble)
+            g_keys = jax.random.split(g_key, self.num_critic_ensemble)
             sa_encoder_params = [sa_encoder.init(k, np.ones([1, state_size + action_size])) for k in sa_keys]
             g_encoder_params = [g_encoder.init(k, np.ones([1, goal_size])) for k in g_keys]
         else:
@@ -483,7 +484,7 @@ class CRL:
         elif self.goal_proposer_name == "q_epistemic":
             goal_proposer = QEpistemicGoalProposal(
                 energy_fn_name=self.energy_fn,
-                num_ensemble=self.q_epistemic_num_ensemble,
+                num_ensemble=self.num_critic_ensemble,
                 use_env_goals=self.q_epistemic_use_env_goals,
                 zero_center=self.q_zero_center
             )
@@ -497,6 +498,14 @@ class CRL:
             )
         elif self.goal_proposer_name == "ucgr":
             goal_proposer = UCGRGoalProposal(
+                energy_fn_name=self.energy_fn,
+                num_samples=self.goal_proposer_num_samples if hasattr(self, 'goal_proposer_num_samples') else 100
+            )
+        elif self.goal_proposer_name == "discover":
+            goal_proposer = DISCOVERGoalProposal(
+                energy_fn_name=self.energy_fn,
+                num_ensemble=self.num_critic_ensemble if hasattr(self, 'num_critic_ensemble') else 5,
+                alpha_0=0.5,
                 energy_fn_name=self.energy_fn,
             )
         else:
