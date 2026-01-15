@@ -148,13 +148,13 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         d_rb_grad_var = jnp.sum((rb_grads_centered**2 * proposed_mask).sum(axis=0)) / (num_rb + 1e-8)  # tr Var(d_rb)
 
         metrics.update({
-            "rb_grad_trvar": d_rb_grad_var,
-            "env_grad_trvar": d_env_grad_var,
-            "rb_grad_mean_norm": jnp.linalg.norm(d_rb_grad_mean),
-            "env_grad_mean_norm": jnp.linalg.norm(d_env_grad_mean),
-            "env_rb_bias_squared": jnp.sum((d_env_grad_mean - d_rb_grad_mean) ** 2),
-            "num_rb_samples": num_rb,
-            "num_env_samples": num_env,
+            "adaptive_mixing/rb_grad_trvar": d_rb_grad_var,
+            "adaptive_mixing/env_grad_trvar": d_env_grad_var,
+            "adaptive_mixing/rb_grad_mean_norm": jnp.linalg.norm(d_rb_grad_mean),
+            "adaptive_mixing/env_grad_mean_norm": jnp.linalg.norm(d_env_grad_mean),
+            "adaptive_mixing/env_rb_bias_squared": jnp.sum((d_env_grad_mean - d_rb_grad_mean) ** 2),
+            "adaptive_mixing/num_rb_samples": num_rb,
+            "adaptive_mixing/num_env_samples": num_env,
         })
 
     return training_state, metrics

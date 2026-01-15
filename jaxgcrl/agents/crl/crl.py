@@ -28,7 +28,7 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, mix_goals
+from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, UCGRGoalProposal, mix_goals
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -246,7 +246,7 @@ class CRL:
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
     # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic"] = "replay_buffer"
+    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic", "mega", "omega", "ucgr"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
@@ -335,6 +335,13 @@ class CRL:
         env_keys = jax.random.split(env_key, config.num_envs)
         env_state = jax.jit(train_env.reset)(env_keys)
         train_env.step = jax.jit(train_env.step)
+        
+        # Initialize proposed_goals tracking in env_state.info
+        # These will be updated only at episode boundaries
+        env_state.info["proposed_goals"] = env_state.obs[:, -len(train_env.goal_indices):]
+        env_state.info["was_proposed_goal_mask"] = jnp.zeros((config.num_envs,))
+        # Track traj_id to detect episode boundaries (set to -1 so first step triggers new episode)
+        env_state.info["last_traj_id"] = env_state.info["traj_id"] - 1
 
         # Dimensions definitions and sanity checks
         action_size = train_env.action_size
@@ -468,17 +475,29 @@ class CRL:
         elif self.goal_proposer_name == "max_waypoint_ratio":
             goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals, goal_sampling_temperature=self.goal_sampling_temperature)
         elif self.goal_proposer_name == "fisher_trace":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "fisher_trace_actor":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=False, use_actor_gradients=True)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=False, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "fisher_trace_combined":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=True)
+            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
         elif self.goal_proposer_name == "q_epistemic":
             goal_proposer = QEpistemicGoalProposal(
                 energy_fn_name=self.energy_fn,
                 num_ensemble=self.q_epistemic_num_ensemble,
                 use_env_goals=self.q_epistemic_use_env_goals,
                 zero_center=self.q_zero_center
+            )
+        elif self.goal_proposer_name == "mega":
+            goal_proposer = MEGAGoalProposal(
+                energy_fn_name=self.energy_fn,
+            )
+        elif self.goal_proposer_name == "omega":
+            goal_proposer = OMEGAGoalProposal(
+                energy_fn_name=self.energy_fn,
+            )
+        elif self.goal_proposer_name == "ucgr":
+            goal_proposer = UCGRGoalProposal(
+                energy_fn_name=self.energy_fn,
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
@@ -518,34 +537,26 @@ class CRL:
                 extras={"state_extras": state_extras},
             )
 
-        @jax.jit
-        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
-            @jax.jit
-            def f(carry, unused_t):
-                env_state, current_key, proposed_goals, was_proposed_goal_mask = carry
-                current_key, next_key = jax.random.split(current_key)
-                env_state, transition = actor_step(
-                    actor_state,
-                    train_env,
-                    env_state,
-                    proposed_goals,
-                    was_proposed_goal_mask,
-                    current_key,
-                    extra_fields=("truncation", "traj_id"),
-                )
-                return (env_state, next_key, proposed_goals, was_proposed_goal_mask), transition
-
-            key, proposal_key, mix_key = jax.random.split(key, 3)
+        def propose_goals_for_new_episodes(env_state, training_state, buffer_state, key):
+            """Propose new goals only for environments that just started a new episode."""
+            proposal_key, mix_key = jax.random.split(key)
             
+            # Compare current traj_id with stored traj_id to detect resets
+            current_traj_id = env_state.info["traj_id"]
+            stored_traj_id = env_state.info.get("last_traj_id", current_traj_id - 1)
+            is_new_episode = current_traj_id != stored_traj_id  # shape (num_envs,)
+            
+            # Propose new goals
             new_goals, buffer_state = goal_proposer.propose_goals(
                 replay_buffer, buffer_state,
                 training_state, train_env, env_state,
                 proposal_key,
-                actor, actor_state.params, critic_state.params,
+                actor, training_state.actor_state.params, training_state.critic_state.params,
                 sa_encoder, g_encoder
             )
             original_goals = env_state.obs[:, -len(train_env.goal_indices):]
 
+            # Compute mixing probability
             if self.use_adaptive_mixing:
                 curr_goal_proposal_prob = jax.lax.cond(
                     training_state.env_steps >= self.adaptive_mixing_warmup_steps,
@@ -558,23 +569,78 @@ class CRL:
             else:
                 curr_goal_proposal_prob = self.goal_proposal_prob
 
-            # Use shared mix_goals helper
+            # Mix goals for new episodes
             mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, curr_goal_proposal_prob, mix_key)
 
-            proposed_goals = jax.lax.cond(
-                training_state.env_steps >= self.goal_proposal_warmup_steps,
+            # Apply warmup: only use proposed goals after warmup period
+            should_use_proposed = training_state.env_steps >= self.goal_proposal_warmup_steps
+            new_proposed_goals = jax.lax.cond(
+                should_use_proposed,
                 lambda: mixed_goals,
                 lambda: original_goals,
             )
-
-            was_proposed_goal_mask = jax.lax.cond(
-                training_state.env_steps >= self.goal_proposal_warmup_steps,
+            new_was_proposed_mask = jax.lax.cond(
+                should_use_proposed,
                 lambda: use_proposed_mask.squeeze(-1),
                 lambda: jnp.zeros_like(use_proposed_mask.squeeze(-1)),
             )
 
+            # Only update goals for environments that are starting a new episode
+            # Keep existing goals for environments mid-episode
+            proposed_goals = jnp.where(
+                is_new_episode[:, None],
+                new_proposed_goals,
+                env_state.info["proposed_goals"]
+            )
+            was_proposed_goal_mask = jnp.where(
+                is_new_episode,
+                new_was_proposed_mask,
+                env_state.info["was_proposed_goal_mask"]
+            )
+
+            return proposed_goals, was_proposed_goal_mask, buffer_state
+
+        @jax.jit
+        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
+            @jax.jit
+            def f(carry, unused_t):
+                env_state, training_state, buffer_state, current_key = carry
+                current_key, next_key, proposal_key = jax.random.split(current_key, 3)
+                
+                # Check for new episodes and propose goals only for those environments
+                proposed_goals, was_proposed_goal_mask, buffer_state = propose_goals_for_new_episodes(
+                    env_state, training_state, buffer_state, proposal_key
+                )
+                
+                # Store the current traj_id before the step (to detect changes after step)
+                pre_step_traj_id = env_state.info["traj_id"]
+                
+                # Update env_state.info with the current goals
+                env_state.info["proposed_goals"] = proposed_goals
+                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
+                
+                env_state, transition = actor_step(
+                    actor_state,
+                    train_env,
+                    env_state,
+                    proposed_goals,
+                    was_proposed_goal_mask,
+                    current_key,
+                    extra_fields=("truncation", "traj_id"),
+                )
+                
+                # Preserve info in the new state returned by env.step()
+                # last_traj_id is set to pre-step value so we can detect if traj_id changed
+                env_state.info["proposed_goals"] = proposed_goals
+                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
+                env_state.info["last_traj_id"] = pre_step_traj_id
+                
+                return (env_state, training_state, buffer_state, next_key), transition
+
             # data.observation has shape (unroll_length, batch_size, obs_size)
-            (env_state, _, _, _), data = jax.lax.scan(f, (env_state, key, proposed_goals, was_proposed_goal_mask), (), length=self.unroll_length)
+            (env_state, _, buffer_state, _), data = jax.lax.scan(
+                f, (env_state, training_state, buffer_state, key), (), length=self.unroll_length
+            )
 
             buffer_state = replay_buffer.insert(buffer_state, data)
             return env_state, buffer_state
@@ -721,8 +787,8 @@ class CRL:
 
                 training_state = training_state.replace(optimal_goal_proposal_prob=smoothed_mixing)
 
-                metrics['adaptive_mixing_raw'] = mixing_star
-                metrics['adaptive_mixing_smoothed'] = smoothed_mixing
+                metrics['adaptive_mixing/mixing_raw'] = mixing_star
+                metrics['adaptive_mixing/mixing_smoothed'] = smoothed_mixing
 
             return (
                 training_state,
