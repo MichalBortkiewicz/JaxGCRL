@@ -45,6 +45,17 @@ BIG_MAZE = [
     [1, 1, 1, 1, 1, 1, 1, 1],
 ]
 
+BIG_MAZE_THREE_CORNER = [
+    [1, 1, 1, 1, 1, 1, 1, 1],
+    [1, R, S, 1, 1, S, G, 1],
+    [1, S, S, 1, S, S, S, 1],
+    [1, 1, S, S, S, 1, 1, 1],
+    [1, S, S, 1, S, S, S, 1],
+    [1, S, 1, G, S, 1, S, 1],
+    [1, S, S, S, 1, G, S, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1],
+]
+
 BIG_MAZE_TWO_CORNER = [
     [1, 1, 1, 1, 1, 1, 1, 1],
     [1, R, S, 1, 1, S, G, 1],
@@ -127,6 +138,8 @@ def make_maze(maze_layout_name, maze_size_scaling):
         maze_layout = BIG_MAZE_ONE_CORNER
     elif maze_layout_name == "big_maze_two_corner":
         maze_layout = BIG_MAZE_TWO_CORNER
+    elif maze_layout_name == "big_maze_three_corner":
+        maze_layout = BIG_MAZE_THREE_CORNER
     elif maze_layout_name == "big_maze_eval":
         maze_layout = BIG_MAZE_EVAL
     elif maze_layout_name == "hardest_maze":

@@ -1055,6 +1055,7 @@ class QEpistemicGoalProposal(GoalProposer):
             QEpistemicGoalProposal._log_q_epistemic_statistics,
             None,
             all_q_stds,
+            all_ensemble_q_values,  # Pass raw Q-values for deviation plotting
             candidate_goals,
             current_states,
             train_env.goal_indices,
@@ -1065,13 +1066,14 @@ class QEpistemicGoalProposal(GoalProposer):
         return proposed_goals, buffer_state
     
     @staticmethod
-    def _log_q_epistemic_statistics(all_q_stds, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
+    def _log_q_epistemic_statistics(all_q_stds, all_ensemble_q_values, candidate_goals, current_states, goal_indices, env_steps, log_interval_steps):
         """Log Q-epistemic uncertainty statistics."""
         # Only log if enough steps have passed since last log
         if not should_log_at_interval(env_steps, log_interval_steps, 'q_epistemic'):
             return
         
         # all_q_stds: (batch_size, num_candidates)
+        # all_ensemble_q_values: (batch_size, num_ensemble, num_candidates)
         max_stds_per_state = jnp.max(all_q_stds, axis=1)  # (batch_size,)
         
         metrics = {
@@ -1081,6 +1083,39 @@ class QEpistemicGoalProposal(GoalProposer):
             'q_epistemic/max_std_min': float(jnp.min(max_stds_per_state)),
             'q_epistemic/mean_std_across_candidates': float(jnp.mean(all_q_stds)),
         }
+        
+        # Compute mean across critics for each (state, candidate) pair
+        # all_ensemble_q_values: (batch_size, num_ensemble, num_candidates)
+        critic_mean = jnp.mean(all_ensemble_q_values, axis=1, keepdims=True)  # (batch_size, 1, num_candidates)
+        
+        # Compute deviations from mean for each critic
+        # deviations: (batch_size, num_ensemble, num_candidates)
+        deviations = all_ensemble_q_values - critic_mean
+        
+        # Average across states to get a single plot per critic
+        # avg_deviations: (num_ensemble, num_candidates)
+        avg_deviations = jnp.mean(deviations, axis=0)
+        
+        # Create wandb line plot data
+        num_ensemble = avg_deviations.shape[0]
+        num_candidates = avg_deviations.shape[1]
+        
+        # Create a table for wandb line plot with all critics on the same plot
+        data_for_plot = []
+        for cand_idx in range(num_candidates):
+            row = {'candidate_index': cand_idx}
+            for critic_idx in range(num_ensemble):
+                row[f'critic_{critic_idx}'] = float(avg_deviations[critic_idx, cand_idx])
+            data_for_plot.append(row)
+        
+        # Log as wandb line plot (all critics on same plot)
+        table = wandb.Table(data=data_for_plot)
+        metrics['q_epistemic/critic_deviations'] = wandb.plot.line(
+            table, 
+            'candidate_index',
+            [f'critic_{i}' for i in range(num_ensemble)],
+            title='Critic Deviations from Mean'
+        )
         
         # Create visualization using shared utility
         def title_fn(state_idx, max_val, selected_val):
@@ -1175,7 +1210,7 @@ class MetricPreservationGoalProposal(GoalProposer):
             a3 = jnp.tanh(means3)
             phi_sh = sa_encoder.apply(critic_params['sa_encoder'], jnp.concatenate([s3, a3], axis=1))
             f_sah = energy_fn(self.energy_fn_name, phi_sh, psi_h)  # (num_env,)
-
+            
             # Compute M matrix for goal selection
             term1 = f_sag[:, None]  # f(s, a1, g) - shape (num_cand, 1)
             term2 = f_gah  # f(g, a2, h) - shape (num_cand, num_env)
