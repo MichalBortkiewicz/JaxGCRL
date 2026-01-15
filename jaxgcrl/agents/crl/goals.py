@@ -1084,38 +1084,32 @@ class QEpistemicGoalProposal(GoalProposer):
             'q_epistemic/mean_std_across_candidates': float(jnp.mean(all_q_stds)),
         }
         
-        # Compute mean across critics for each (state, candidate) pair
+        # Compute overall mean across all critics, states, and candidates
         # all_ensemble_q_values: (batch_size, num_ensemble, num_candidates)
-        critic_mean = jnp.mean(all_ensemble_q_values, axis=1, keepdims=True)  # (batch_size, 1, num_candidates)
+        overall_mean = jnp.mean(all_ensemble_q_values)  # scalar
         
-        # Compute deviations from mean for each critic
-        # deviations: (batch_size, num_ensemble, num_candidates)
-        deviations = all_ensemble_q_values - critic_mean
+        # For each critic, compute:
+        # 1. Mean absolute deviation from overall mean (scalar)
+        # 2. Mean of that critic's predictions (scalar)
+        # 3. Ratio of deviation to critic mean
+        num_ensemble = all_ensemble_q_values.shape[1]
         
-        # Average across states to get a single plot per critic
-        # avg_deviations: (num_ensemble, num_candidates)
-        avg_deviations = jnp.mean(deviations, axis=0)
-        
-        # Create wandb line plot data
-        num_ensemble = avg_deviations.shape[0]
-        num_candidates = avg_deviations.shape[1]
-        
-        # Create a table for wandb line plot with all critics on the same plot
-        data_for_plot = []
-        for cand_idx in range(num_candidates):
-            row = {'candidate_index': cand_idx}
-            for critic_idx in range(num_ensemble):
-                row[f'critic_{critic_idx}'] = float(avg_deviations[critic_idx, cand_idx])
-            data_for_plot.append(row)
-        
-        # Log as wandb line plot (all critics on same plot)
-        table = wandb.Table(data=data_for_plot)
-        metrics['q_epistemic/critic_deviations'] = wandb.plot.line(
-            table, 
-            'candidate_index',
-            [f'critic_{i}' for i in range(num_ensemble)],
-            title='Critic Deviations from Mean'
-        )
+        for critic_idx in range(num_ensemble):
+            critic_values = all_ensemble_q_values[:, critic_idx, :]  # (batch_size, num_candidates)
+            
+            # Mean absolute deviation from overall mean
+            deviation = jnp.mean(jnp.abs(critic_values - overall_mean))
+            
+            # Mean of this critic's predictions
+            critic_mean = jnp.mean(critic_values)
+            
+            # Ratio of deviation to critic mean
+            ratio = deviation / (jnp.abs(critic_mean) + 1e-8)  # Add small epsilon to avoid division by zero
+            
+            # Log as scalar metrics
+            metrics[f'q_epistemic/critic_{critic_idx}_deviation'] = float(deviation)
+            metrics[f'q_epistemic/critic_{critic_idx}_mean'] = float(critic_mean)
+            metrics[f'q_epistemic/critic_{critic_idx}_deviation_ratio'] = float(ratio)
         
         # Create visualization using shared utility
         def title_fn(state_idx, max_val, selected_val):
