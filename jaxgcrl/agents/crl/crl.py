@@ -264,6 +264,8 @@ class CRL:
     q_zero_center: bool = False
     # Temperature for softmax goal sampling over M matrix (0 = greedy, >0 = softmax sampling)
     goal_sampling_temperature: float = 1.0
+    # Target rollout probability for DISCOVER
+    discover_target_prob: float = 0.5
 
     def check_config(self, config):
         """
@@ -499,13 +501,14 @@ class CRL:
         elif self.goal_proposer_name == "ucgr":
             goal_proposer = UCGRGoalProposal(
                 energy_fn_name=self.energy_fn,
-                num_samples=self.goal_proposer_num_samples if hasattr(self, 'goal_proposer_num_samples') else 100
+                num_samples=100
             )
         elif self.goal_proposer_name == "discover":
             goal_proposer = DISCOVERGoalProposal(
                 energy_fn_name=self.energy_fn,
-                num_ensemble=self.num_critic_ensemble if hasattr(self, 'num_critic_ensemble') else 5,
-                alpha_0=0.5
+                num_ensemble=self.num_critic_ensemble,
+                alpha_0=0.5,
+                target_prob=self.discover_target_prob,
             )
         else:
             raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")

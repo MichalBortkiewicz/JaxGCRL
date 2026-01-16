@@ -103,6 +103,7 @@ class DISCOVERGoalProposal(GoalProposer):
     energy_fn_name: str
     num_ensemble: int = 5  # Number of critics in the ensemble
     alpha_0: float = 0.5  # Initial alpha value
+    target_prob: float = 0.5  # Target goal achievement probability p
     LOG_INTERVAL_STEPS: int = 1000000  # Log visualizations every N environment steps
 
     def propose_goals(
@@ -274,7 +275,7 @@ class DISCOVERGoalProposal(GoalProposer):
             jnp.float32(self.alpha_0)  # Default alpha
         )
         
-        alpha_t_new = jnp.clip(current_alpha + 0.01 * (p - 0.5), 0.0, 1.0)
+        alpha_t_new = jnp.clip(current_alpha + 0.01 * (p - self.target_prob), 0.0, 1.0)
         
         # Update alpha_t (using a callback since we can't mutate in JAX)
         def update_alpha_callback(new_alpha):
