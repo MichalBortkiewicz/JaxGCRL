@@ -357,8 +357,8 @@ class DualCRLAlgorithm(Algorithm):
         main_replay_buffer: Any,
         networks: Dict[str, Any],
         context: Dict[str, Any],
-        goal_conditioned_replay_buffer: Any = None,
-        goal_conditioned_buffer_state: Any = None,
+        goal_conditioned_replay_buffer: Any,
+        goal_conditioned_buffer_state: Any,
         **kwargs
     ):
         """Propose goals from final states of goal-conditioned policy's replay buffer."""
@@ -496,9 +496,9 @@ class DualCRLAlgorithm(Algorithm):
         context: Dict[str, Any],
         actor_step_fn: Any,
         num_exploratory_steps: int,
+        goal_conditioned_replay_buffer: Any,
+        goal_conditioned_buffer_state: Any,
         goal_conditioned_data: Any = None,
-        goal_conditioned_replay_buffer: Any = None,
-        goal_conditioned_buffer_state: Any = None,
         **kwargs
     ):
         """Roll out exploratory policy with noise (also goal-conditioned)."""
