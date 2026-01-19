@@ -409,12 +409,12 @@ class CRL:
         from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
         
         if self.algorithm_name == "dual_crl":
-            self.algorithm = DualCRLAlgorithm(
+            algorithm = DualCRLAlgorithm(
                 num_deterministic_steps=self.num_deterministic_steps,
                 goal_proposal_prob=self.goal_proposal_prob,
             )
         else:
-            self.algorithm = DefaultCRLAlgorithm(
+            algorithm = DefaultCRLAlgorithm(
                 num_deterministic_steps=self.num_deterministic_steps,
                 goal_proposal_prob=self.goal_proposal_prob,
                 goal_proposal_warmup_steps=self.goal_proposal_warmup_steps,
@@ -422,6 +422,9 @@ class CRL:
                 adaptive_mixing_warmup_steps=self.adaptive_mixing_warmup_steps,
                 interpolate_to_env_goals=self.interpolate_to_env_goals,
             )
+        
+        # Set algorithm as instance attribute using object.__setattr__ to bypass frozen dataclass check
+        object.__setattr__(self, 'algorithm', algorithm)
 
         # Initialize additional states from algorithm if needed
         additional_states = self.algorithm.initialize_additional_states(
