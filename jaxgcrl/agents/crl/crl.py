@@ -273,7 +273,6 @@ class CRL:
     discover_target_prob: float = 0.5
     
     # Algorithm interface - plug in different algorithms by implementing the Algorithm interface
-    algorithm: Optional["Algorithm"] = None  # Will be set to DefaultCRLAlgorithm if None
     algorithm_name: str = "default"  # "default" or "dual_crl" - selects which algorithm to use
     
     # Go-Explore / Dual CRL algorithm parameters
@@ -428,25 +427,24 @@ class CRL:
             tx=optax.adam(learning_rate=self.alpha_lr),
         )
 
-        # Initialize algorithm if not provided
-        if self.algorithm is None:
-            # Lazy import to avoid circular dependency
-            from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
-            
-            if self.algorithm_name == "dual_crl":
-                self.algorithm = DualCRLAlgorithm(
-                    num_deterministic_steps=self.num_deterministic_steps,
-                    goal_proposal_prob=self.goal_proposal_prob,
-                )
-            else:
-                self.algorithm = DefaultCRLAlgorithm(
-                    num_deterministic_steps=self.num_deterministic_steps,
-                    goal_proposal_prob=self.goal_proposal_prob,
-                    goal_proposal_warmup_steps=self.goal_proposal_warmup_steps,
-                    use_adaptive_mixing=self.use_adaptive_mixing,
-                    adaptive_mixing_warmup_steps=self.adaptive_mixing_warmup_steps,
-                    interpolate_to_env_goals=self.interpolate_to_env_goals,
-                )
+        # Initialize algorithm based on algorithm_name (set as instance attribute, not dataclass field)
+        # Lazy import to avoid circular dependency
+        from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
+        
+        if self.algorithm_name == "dual_crl":
+            self.algorithm = DualCRLAlgorithm(
+                num_deterministic_steps=self.num_deterministic_steps,
+                goal_proposal_prob=self.goal_proposal_prob,
+            )
+        else:
+            self.algorithm = DefaultCRLAlgorithm(
+                num_deterministic_steps=self.num_deterministic_steps,
+                goal_proposal_prob=self.goal_proposal_prob,
+                goal_proposal_warmup_steps=self.goal_proposal_warmup_steps,
+                use_adaptive_mixing=self.use_adaptive_mixing,
+                adaptive_mixing_warmup_steps=self.adaptive_mixing_warmup_steps,
+                interpolate_to_env_goals=self.interpolate_to_env_goals,
+            )
 
         # Initialize additional states from algorithm if needed
         additional_states = self.algorithm.initialize_additional_states(

@@ -3,18 +3,14 @@
 This module defines the abstract base class that algorithms must implement
 to be used with CRL's unified training loop.
 """
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, Any, Tuple, Optional
 import jax
 import jax.numpy as jnp
 from flax.struct import dataclass
 from flax.training.train_state import TrainState
 
-if TYPE_CHECKING:
-    # Import types only for type-checking to avoid circular runtime imports.
-    from jaxgcrl.agents.crl.crl import TrainingState, Transition
+from jaxgcrl.agents.crl.crl import TrainingState, Transition
 
 
 @dataclass
