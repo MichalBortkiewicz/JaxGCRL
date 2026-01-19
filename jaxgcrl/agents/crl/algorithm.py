@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from flax.struct import dataclass
 from flax.training.train_state import TrainState
 
-from jaxgcrl.agents.crl.crl import TrainingState, Transition
+from .types import TrainingState, Transition
 
 
 @dataclass

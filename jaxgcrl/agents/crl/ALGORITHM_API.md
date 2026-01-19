@@ -101,7 +101,7 @@ Filter/process transitions for exploratory policy update.
 
 ```python
 from jaxgcrl.agents.crl.algorithm import Algorithm
-from jaxgcrl.agents.crl.crl import TrainingState, Transition
+from jaxgcrl.agents.crl.types import TrainingState, Transition
 from flax.struct import dataclass
 import jax
 import jax.numpy as jnp

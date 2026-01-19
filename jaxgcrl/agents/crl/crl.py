@@ -29,36 +29,13 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 from .algorithm import Algorithm
+from .types import TrainingState, Transition
 # Import algorithms lazily to avoid circular import
 # from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 State = Union[envs.State, envs_v1.State]
-
-
-@dataclass
-class TrainingState:
-    """Contains training state for the learner"""
-    optimal_goal_proposal_prob: jnp.ndarray
-    env_steps: jnp.ndarray
-    gradient_steps: jnp.ndarray
-    actor_state: TrainState
-    critic_state: TrainState
-    alpha_state: TrainState
-    # Additional networks for experimental methods (e.g., exploratory policy, value functions)
-    # Use a frozen dict or empty dict for JAX compatibility
-    additional_states: Any = None  # Dict[str, TrainState] for extensibility
-
-
-class Transition(NamedTuple):
-    """Container for a transition"""
-
-    observation: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    discount: jnp.ndarray
-    extras: jnp.ndarray = ()
 
 
 @functools.partial(jax.jit, static_argnames=("buffer_config"))
