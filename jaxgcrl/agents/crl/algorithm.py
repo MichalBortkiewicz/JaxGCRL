@@ -37,7 +37,8 @@ class Algorithm(ABC):
         env: Any,
         main_replay_buffer: Any,
         goal_conditioned_replay_buffer: Any,
-        propose_goals_fn: Any,
+        networks: Dict[str, Any],
+        context: Dict[str, Any],
         **kwargs
     ) -> Tuple[Any, Any, Any]:
         """Roll out goal-conditioned policy with no noise (deterministic).
@@ -71,7 +72,9 @@ class Algorithm(ABC):
         env: Any,
         main_replay_buffer: Any,
         exploratory_replay_buffer: Any,
-        propose_goals_fn: Any,
+        num_exploratory_steps: int,
+        networks: Dict[str, Any],
+        context: Dict[str, Any],
         **kwargs
     ) -> Tuple[Any, Any, Any]:
         """Roll out exploratory policy with noise.
@@ -85,7 +88,9 @@ class Algorithm(ABC):
             env: Environment
             main_replay_buffer: Main replay buffer
             exploratory_replay_buffer: Exploratory policy replay buffer
-            propose_goals_fn: Function to propose goals for new episodes
+            num_exploratory_steps: Number of exploratory steps to take
+            networks: Dictionary of networks (actor, sa_encoder, g_encoder, etc.)
+            context: Dictionary of context variables (config, sizes, etc.)
             **kwargs: Additional arguments
             
         Returns:
@@ -196,3 +201,72 @@ class Algorithm(ABC):
             Filtered/processed transitions for exploratory update
         """
         return transitions
+    
+    def sample_exploratory_transitions(
+        self,
+        exploratory_replay_buffer: Any,
+        exploratory_buffer_state: Any,
+        sampling_key: Any,
+        batch_size: int,
+        discounting: float,
+        state_size: int,
+        goal_indices: Any,
+        flatten_batch_fn: Any,
+        **kwargs
+    ) -> Tuple[Optional[Transition], Any]:
+        """Sample transitions from exploratory buffer for training.
+        
+        By default, returns (None, buffer_state), which means use main buffer transitions.
+        Algorithms can override to sample from exploratory buffer instead.
+        
+        Args:
+            exploratory_replay_buffer: Exploratory replay buffer
+            exploratory_buffer_state: Exploratory buffer state
+            sampling_key: Random key for sampling
+            batch_size: Batch size
+            discounting: Discount factor
+            state_size: State dimension
+            goal_indices: Goal indices
+            flatten_batch_fn: Function to flatten batch
+            **kwargs: Additional arguments
+            
+        Returns:
+            Tuple of (transitions, new_buffer_state)
+            - transitions: Transitions from exploratory buffer, or None to use main buffer
+            - new_buffer_state: Updated buffer state
+        """
+        return None, exploratory_buffer_state
+    
+    @abstractmethod
+    def propose_goals(
+        self,
+        env_state: Any,
+        training_state: TrainingState,
+        main_buffer_state: Any,
+        key: jax.random.PRNGKey,
+        env: Any,
+        main_replay_buffer: Any,
+        networks: Dict[str, Any],
+        context: Dict[str, Any],
+        **kwargs
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, Any]:
+        """Propose goals for new episodes.
+        
+        Args:
+            env_state: Current environment state
+            training_state: Current training state
+            main_buffer_state: Main replay buffer state
+            key: Random key
+            env: Environment
+            main_replay_buffer: Main replay buffer
+            networks: Dictionary of networks (actor, sa_encoder, g_encoder, etc.)
+            context: Dictionary of context variables (config, sizes, etc.)
+            **kwargs: Additional arguments
+            
+        Returns:
+            Tuple of (proposed_goals, was_proposed_goal_mask, new_main_buffer_state)
+            - proposed_goals: (batch_size, goal_dim) array of proposed goals
+            - was_proposed_goal_mask: (batch_size,) boolean mask indicating which envs have proposed goals
+            - new_main_buffer_state: Updated buffer state (may be same if no sampling occurred)
+        """
+        pass

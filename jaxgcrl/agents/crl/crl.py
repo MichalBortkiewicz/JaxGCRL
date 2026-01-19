@@ -28,9 +28,8 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
-from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, UCGRGoalProposal,DISCOVERGoalProposal, mix_goals
 from .algorithm import Algorithm
-from .algorithms import DefaultCRLAlgorithm
+from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm, DualCRLAlgorithm
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -274,6 +273,10 @@ class CRL:
     
     # Algorithm interface - plug in different algorithms by implementing the Algorithm interface
     algorithm: Optional["Algorithm"] = None  # Will be set to DefaultCRLAlgorithm if None
+    algorithm_name: str = "default"  # "default" or "dual_crl" - selects which algorithm to use
+    
+    # Go-Explore / Dual CRL algorithm parameters
+    num_deterministic_steps: int = 0  # Number of deterministic (no noise) steps in rollout (exploratory steps = unroll_length - num_deterministic_steps)
 
     def check_config(self, config):
         """
@@ -424,13 +427,30 @@ class CRL:
             tx=optax.adam(learning_rate=self.alpha_lr),
         )
 
+        # Initialize algorithm if not provided
+        if self.algorithm is None:
+            if self.algorithm_name == "dual_crl":
+                self.algorithm = DualCRLAlgorithm(
+                    num_deterministic_steps=self.num_deterministic_steps,
+                    goal_proposal_prob=self.goal_proposal_prob,
+                )
+            else:
+                self.algorithm = DefaultCRLAlgorithm(
+                    num_deterministic_steps=self.num_deterministic_steps,
+                    goal_proposal_prob=self.goal_proposal_prob,
+                    goal_proposal_warmup_steps=self.goal_proposal_warmup_steps,
+                    use_adaptive_mixing=self.use_adaptive_mixing,
+                    adaptive_mixing_warmup_steps=self.adaptive_mixing_warmup_steps,
+                    interpolate_to_env_goals=self.interpolate_to_env_goals,
+                )
+
         # Initialize additional states from algorithm if needed
         additional_states = self.algorithm.initialize_additional_states(
             key=key,
             networks=dict(actor=actor, sa_encoder=sa_encoder, g_encoder=g_encoder),
             config=config,
         )
-        
+
         # Trainstate
         training_state = TrainingState(
             optimal_goal_proposal_prob=jnp.array(self.goal_proposal_prob),
@@ -505,59 +525,6 @@ class CRL:
         replay_buffer = main_replay_buffer
         buffer_state = main_buffer_state
 
-        if self.goal_proposer_name == "quantile":
-            goal_proposer = MediumEnergyGoalProposal(
-                energy_fn_name=self.energy_fn,
-                selection_percentile=self.goal_selection_percentile
-            )
-        elif self.goal_proposer_name == "replay_buffer":
-            goal_proposer = ReplayBufferGoalProposal()
-        elif self.goal_proposer_name == "metric":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=True, use_one_env_goal=False, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
-        elif self.goal_proposer_name == "metric_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn,use_waypoint_difficulty=True, use_one_env_goal=True, use_kde_correction=self.use_kde_correction, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
-        elif self.goal_proposer_name == "waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
-        elif self.goal_proposer_name == "waypoint_ratio_one_env_goal":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, goal_sampling_temperature=self.goal_sampling_temperature)
-        elif self.goal_proposer_name == "max_waypoint_ratio":
-            goal_proposer = MetricPreservationGoalProposal(energy_fn_name=self.energy_fn, use_waypoint_difficulty=False, use_one_env_goal=False, use_max=True, use_kde_correction=False, zero_out_cand_goals=self.zero_out_cand_goals, zero_out_state=self.zero_out_state, propose_env_goals=self.propose_env_goals, goal_sampling_temperature=self.goal_sampling_temperature)
-        elif self.goal_proposer_name == "fisher_trace":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=False, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
-        elif self.goal_proposer_name == "fisher_trace_actor":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=False, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
-        elif self.goal_proposer_name == "fisher_trace_combined":
-            goal_proposer = FisherTraceGoalProposal(energy_fn_name=self.energy_fn, use_critic_gradients=True, use_actor_gradients=True, temperature=self.goal_sampling_temperature, propose_env_goals=self.propose_env_goals)
-        elif self.goal_proposer_name == "q_epistemic":
-            goal_proposer = QEpistemicGoalProposal(
-                energy_fn_name=self.energy_fn,
-                num_ensemble=self.num_critic_ensemble,
-                use_env_goals=self.q_epistemic_use_env_goals,
-                zero_center=self.q_zero_center
-            )
-        elif self.goal_proposer_name == "mega":
-            goal_proposer = MEGAGoalProposal(
-                energy_fn_name=self.energy_fn,
-            )
-        elif self.goal_proposer_name == "omega":
-            goal_proposer = OMEGAGoalProposal(
-                energy_fn_name=self.energy_fn,
-            )
-        elif self.goal_proposer_name == "ucgr":
-            goal_proposer = UCGRGoalProposal(
-                energy_fn_name=self.energy_fn,
-                num_samples=100
-            )
-        elif self.goal_proposer_name == "discover":
-            goal_proposer = DISCOVERGoalProposal(
-                energy_fn_name=self.energy_fn,
-                num_ensemble=self.num_critic_ensemble,
-                alpha_0=0.5,
-                target_prob=self.discover_target_prob,
-            )
-        else:
-            raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
-
         def deterministic_actor_step(training_state, env, env_state, extra_fields):
             means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
             actions = nn.tanh(means)
@@ -596,68 +563,23 @@ class CRL:
                 extras={"state_extras": state_extras},
             )
 
-        def propose_goals_for_new_episodes(env_state, training_state, buffer_state, key):
-            """Propose new goals only for environments that just started a new episode."""
-            proposal_key, mix_key = jax.random.split(key)
-            
-            # Compare current traj_id with stored traj_id to detect resets
-            current_traj_id = env_state.info["traj_id"]
-            stored_traj_id = env_state.info.get("last_traj_id", current_traj_id - 1)
-            is_new_episode = current_traj_id != stored_traj_id  # shape (num_envs,)
-            
-            # Propose new goals
-            new_goals, buffer_state = goal_proposer.propose_goals(
-                replay_buffer, buffer_state,
-                training_state, train_env, env_state,
-                proposal_key,
-                actor, training_state.actor_state.params, training_state.critic_state.params,
-                sa_encoder, g_encoder
-            )
-            original_goals = env_state.obs[:, -len(train_env.goal_indices):]
-
-            # Compute mixing probability
-            if self.use_adaptive_mixing:
-                curr_goal_proposal_prob = jax.lax.cond(
-                    training_state.env_steps >= self.adaptive_mixing_warmup_steps,
-                    lambda: training_state.optimal_goal_proposal_prob,
-                    lambda: 0.5,
-                )
-            elif self.interpolate_to_env_goals:
-                progress_frac = training_state.env_steps / config.total_env_steps
-                curr_goal_proposal_prob = self.goal_proposal_prob * (1 - progress_frac)
-            else:
-                curr_goal_proposal_prob = self.goal_proposal_prob
-
-            # Mix goals for new episodes
-            mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, curr_goal_proposal_prob, mix_key)
-
-            # Apply warmup: only use proposed goals after warmup period
-            should_use_proposed = training_state.env_steps >= self.goal_proposal_warmup_steps
-            new_proposed_goals = jax.lax.cond(
-                should_use_proposed,
-                lambda: mixed_goals,
-                lambda: original_goals,
-            )
-            new_was_proposed_mask = jax.lax.cond(
-                should_use_proposed,
-                lambda: use_proposed_mask.squeeze(-1),
-                lambda: jnp.zeros_like(use_proposed_mask.squeeze(-1)),
-            )
-
-            # Only update goals for environments that are starting a new episode
-            # Keep existing goals for environments mid-episode
-            proposed_goals = jnp.where(
-                is_new_episode[:, None],
-                new_proposed_goals,
-                env_state.info["proposed_goals"]
-            )
-            was_proposed_goal_mask = jnp.where(
-                is_new_episode,
-                new_was_proposed_mask,
-                env_state.info["was_proposed_goal_mask"]
-            )
-
-            return proposed_goals, was_proposed_goal_mask, buffer_state
+        # Define networks and context for algorithm use
+        networks = dict(
+            actor=actor,
+            sa_encoder=sa_encoder,
+            g_encoder=g_encoder,
+        )
+        
+        context = dict(
+            **vars(self),
+            **vars(config),
+            state_size=state_size,
+            action_size=action_size,
+            goal_size=goal_size,
+            obs_size=obs_size,
+            goal_indices=train_env.goal_indices,
+            target_entropy=target_entropy,
+        )
 
         @jax.jit
         def get_experience(actor_state, env_state, training_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key):
@@ -673,11 +595,15 @@ class CRL:
                 env=train_env,
                 main_replay_buffer=main_replay_buffer,
                 goal_conditioned_replay_buffer=goal_conditioned_replay_buffer,
-                propose_goals_fn=propose_goals_for_new_episodes,
+                networks=networks,
+                context=context,
                 actor_step_fn=actor_step,
             )
             
             # Step 2: Roll out exploratory policy with noise (passes goal_conditioned_data for combining)
+            # Calculate number of exploratory steps
+            num_exploratory_steps = self.unroll_length - self.algorithm.num_deterministic_steps
+            
             env_state, main_buffer_state, exploratory_buffer_state = self.algorithm.rollout_exploratory(
                 training_state=training_state,
                 env_state=env_state,
@@ -687,9 +613,10 @@ class CRL:
                 env=train_env,
                 main_replay_buffer=main_replay_buffer,
                 exploratory_replay_buffer=exploratory_replay_buffer,
-                propose_goals_fn=propose_goals_for_new_episodes,
+                num_exploratory_steps=num_exploratory_steps,
+                networks=networks,
+                context=context,
                 actor_step_fn=actor_step,
-                unroll_length=self.unroll_length,
                 goal_conditioned_data=goal_conditioned_data,
             )
             return env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state
@@ -741,7 +668,7 @@ class CRL:
                 g_encoder=g_encoder,
             )
 
-            # Use algorithm's update method
+            # Use algorithm's update method (standard CRL update on replay buffer samples)
             training_state, metrics = self.algorithm.update_goal_conditioned_policy(
                 training_state=training_state,
                 transitions=transitions,
@@ -750,6 +677,7 @@ class CRL:
                 key=key,
             )
             
+            # Increment gradient_steps once per batch (standard CRL behavior)
             training_state = training_state.replace(gradient_steps=training_state.gradient_steps + 1)
 
             return (training_state, key), metrics
@@ -786,7 +714,7 @@ class CRL:
             )
 
             return (training_state, key), metrics
-        
+
         @jax.jit
         def update_networks(carry, transitions):
             """Legacy function for backward compatibility."""
@@ -881,20 +809,28 @@ class CRL:
             # Shape of transitions.observation is (..., batch_size, obs_dim)
             
             last_batch = transitions
-            
+
             # Filter/process transitions for each update (algorithm can customize this)
-            # Both policies train on the same main buffer transitions
             goal_conditioned_transitions = self.algorithm.get_transitions_for_goal_conditioned_update(
                 transitions, training_state=training_state
             )
-            exploratory_transitions = self.algorithm.get_transitions_for_exploratory_update(
-                transitions, training_state=training_state
+            
+            # Check if algorithm wants to sample from exploratory buffer
+            exploratory_transitions, exploratory_buffer_state = self.algorithm.sample_exploratory_transitions(
+                exploratory_replay_buffer=exploratory_replay_buffer,
+                exploratory_buffer_state=exploratory_buffer_state,
+                sampling_key=sampling_key,
+                batch_size=self.batch_size,
+                discounting=self.discounting,
+                state_size=state_size,
+                goal_indices=train_env.goal_indices,
+                flatten_batch_fn=flatten_batch,
             )
             
             # Split training key
             goal_key, expl_key = jax.random.split(training_key)
 
-            # Step 3: Update goal-conditioned policy
+            # Step 3: Update goal-conditioned policy (standard CRL update on replay buffer samples)
             (
                 (training_state, _),
                 goal_conditioned_metrics,
