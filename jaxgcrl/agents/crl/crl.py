@@ -603,27 +603,29 @@ class CRL:
             )
             return env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state
 
-        def prefill_replay_buffer(training_state, env_state, buffer_state, key):
+        def prefill_replay_buffer(training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key):
             @jax.jit
             def f(carry, unused):
                 del unused
-                training_state, env_state, buffer_state, key = carry
+                training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key = carry
                 key, new_key = jax.random.split(key)
-                env_state, buffer_state = get_experience(
+                env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state = get_experience(
                     training_state.actor_state,
                     env_state,
                     training_state,
-                    buffer_state,
+                    main_buffer_state,
+                    goal_conditioned_buffer_state,
+                    exploratory_buffer_state,
                     key,
                 )
                 training_state = training_state.replace(
                     env_steps=training_state.env_steps + env_steps_per_actor_step,
                 )
-                return (training_state, env_state, buffer_state, new_key), ()
+                return (training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, new_key), ()
 
             return jax.lax.scan(
                 f,
-                (training_state, env_state, buffer_state, key),
+                (training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key),
                 (),
                 length=num_prefill_actor_steps,
             )[0]
