@@ -29,7 +29,8 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 from .algorithm import Algorithm
-from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm, DualCRLAlgorithm
+# Import algorithms lazily to avoid circular import
+# from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -429,6 +430,9 @@ class CRL:
 
         # Initialize algorithm if not provided
         if self.algorithm is None:
+            # Lazy import to avoid circular dependency
+            from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
+            
             if self.algorithm_name == "dual_crl":
                 self.algorithm = DualCRLAlgorithm(
                     num_deterministic_steps=self.num_deterministic_steps,

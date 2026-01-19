@@ -1,14 +1,23 @@
 """Default algorithm implementations for CRL."""
-from typing import Any, Dict, Optional, Tuple
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 from flax.struct import dataclass
 
 from jaxgcrl.agents.crl.algorithm import Algorithm
-from jaxgcrl.agents.crl.crl import TrainingState, Transition
 from jaxgcrl.agents.crl.losses import update_actor_and_alpha, update_critic
 from jaxgcrl.agents.crl.goals import ReplayBufferGoalProposal, mix_goals
 from jaxgcrl.agents.crl.goals_utils import get_final_states_from_batch
+
+if TYPE_CHECKING:
+    # Import types only for type-checking to avoid circular runtime imports.
+    from jaxgcrl.agents.crl.crl import TrainingState, Transition
+else:
+    # Runtime imports - use string annotations to avoid circular import
+    TrainingState = Any
+    Transition = Any
 
 
 @dataclass
