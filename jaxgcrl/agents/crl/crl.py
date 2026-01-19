@@ -530,8 +530,8 @@ class CRL:
             if deterministic:
                 actions = nn.tanh(means)
             else:
-            stds = jnp.exp(log_stds)
-            actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
+                stds = jnp.exp(log_stds)
+                actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
             state_extras["was_proposed_goal_mask"] = was_proposed_goal_mask
