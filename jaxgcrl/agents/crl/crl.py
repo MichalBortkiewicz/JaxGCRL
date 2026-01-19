@@ -29,6 +29,8 @@ from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, v
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
 from .goals import GoalProposer, ReplayBufferGoalProposal, MediumEnergyGoalProposal, MetricPreservationGoalProposal, FisherTraceGoalProposal, QEpistemicGoalProposal, MEGAGoalProposal, OMEGAGoalProposal, UCGRGoalProposal,DISCOVERGoalProposal, mix_goals
+from .algorithm import Algorithm
+from .algorithms import DefaultCRLAlgorithm
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -44,6 +46,9 @@ class TrainingState:
     actor_state: TrainState
     critic_state: TrainState
     alpha_state: TrainState
+    # Additional networks for experimental methods (e.g., exploratory policy, value functions)
+    # Use a frozen dict or empty dict for JAX compatibility
+    additional_states: Any = None  # Dict[str, TrainState] for extensibility
 
 
 class Transition(NamedTuple):
@@ -266,6 +271,9 @@ class CRL:
     goal_sampling_temperature: float = 1.0
     # Target rollout probability for DISCOVER
     discover_target_prob: float = 0.5
+    
+    # Algorithm interface - plug in different algorithms by implementing the Algorithm interface
+    algorithm: Optional["Algorithm"] = None  # Will be set to DefaultCRLAlgorithm if None
 
     def check_config(self, config):
         """
@@ -416,6 +424,13 @@ class CRL:
             tx=optax.adam(learning_rate=self.alpha_lr),
         )
 
+        # Initialize additional states from algorithm if needed
+        additional_states = self.algorithm.initialize_additional_states(
+            key=key,
+            networks=dict(actor=actor, sa_encoder=sa_encoder, g_encoder=g_encoder),
+            config=config,
+        )
+        
         # Trainstate
         training_state = TrainingState(
             optimal_goal_proposal_prob=jnp.array(self.goal_proposal_prob),
@@ -424,9 +439,10 @@ class CRL:
             actor_state=actor_state,
             critic_state=critic_state,
             alpha_state=alpha_state,
+            additional_states=additional_states,
         )
 
-        # Replay Buffer
+        # Replay Buffers: Main (combined), Goal-conditioned (deterministic), Exploratory
         dummy_obs = jnp.zeros((obs_size,))
         dummy_action = jnp.zeros((action_size,))
 
@@ -449,7 +465,8 @@ class CRL:
             buffer.sample_internal = jax.jit(buffer.sample_internal)
             return buffer
 
-        replay_buffer = jit_wrap(
+        # Main replay buffer (for combined trajectories)
+        main_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
@@ -458,7 +475,35 @@ class CRL:
                 episode_length=config.episode_length,
             )
         )
-        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+        main_buffer_state = jax.jit(main_replay_buffer.init)(buffer_key)
+        
+        # Goal-conditioned policy replay buffer (for deterministic part only)
+        goal_conditioned_replay_buffer = jit_wrap(
+            TrajectoryUniformSamplingQueue(
+                max_replay_size=self.max_replay_size,
+                dummy_data_sample=dummy_transition,
+                sample_batch_size=self.batch_size,
+                num_envs=config.num_envs,
+                episode_length=config.episode_length,  # Will contain only deterministic steps
+            )
+        )
+        goal_conditioned_buffer_state = jax.jit(goal_conditioned_replay_buffer.init)(buffer_key)
+        
+        # Exploratory policy replay buffer (for exploratory part only)
+        exploratory_replay_buffer = jit_wrap(
+            TrajectoryUniformSamplingQueue(
+                max_replay_size=self.max_replay_size,
+                dummy_data_sample=dummy_transition,
+                sample_batch_size=self.batch_size,
+                num_envs=config.num_envs,
+                episode_length=config.episode_length,  # Will contain only exploratory steps
+            )
+        )
+        exploratory_buffer_state = jax.jit(exploratory_replay_buffer.init)(buffer_key)
+        
+        # For backward compatibility, also set replay_buffer and buffer_state
+        replay_buffer = main_replay_buffer
+        buffer_state = main_buffer_state
 
         if self.goal_proposer_name == "quantile":
             goal_proposer = MediumEnergyGoalProposal(
@@ -528,13 +573,16 @@ class CRL:
                 extras={"state_extras": state_extras},
             )
 
-        def actor_step(actor_state, env, env_state, proposed_goals, was_proposed_goal_mask, key, extra_fields):
+        def actor_step(actor_state, env, env_state, proposed_goals, was_proposed_goal_mask, key, extra_fields, deterministic=False):
             new_obs = env_state.obs.at[:, -len(env.goal_indices):].set(proposed_goals)
             env_state = env_state.replace(obs=new_obs)
 
             means, log_stds = actor.apply(actor_state.params, env_state.obs)
-            stds = jnp.exp(log_stds)
-            actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
+            if deterministic:
+                actions = nn.tanh(means)
+            else:
+                stds = jnp.exp(log_stds)
+                actions = nn.tanh(means + stds * jax.random.normal(key, shape=means.shape, dtype=means.dtype))
             nstate = env.step(env_state, actions)
             state_extras = {x: nstate.info[x] for x in extra_fields}
             state_extras["was_proposed_goal_mask"] = was_proposed_goal_mask
@@ -612,49 +660,39 @@ class CRL:
             return proposed_goals, was_proposed_goal_mask, buffer_state
 
         @jax.jit
-        def get_experience(actor_state, env_state, training_state, buffer_state, key):        
-            @jax.jit
-            def f(carry, unused_t):
-                env_state, training_state, buffer_state, current_key = carry
-                current_key, next_key, proposal_key = jax.random.split(current_key, 3)
-                
-                # Check for new episodes and propose goals only for those environments
-                proposed_goals, was_proposed_goal_mask, buffer_state = propose_goals_for_new_episodes(
-                    env_state, training_state, buffer_state, proposal_key
-                )
-                
-                # Store the current traj_id before the step (to detect changes after step)
-                pre_step_traj_id = env_state.info["traj_id"]
-                
-                # Update env_state.info with the current goals
-                env_state.info["proposed_goals"] = proposed_goals
-                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
-                
-                env_state, transition = actor_step(
-                    actor_state,
-                    train_env,
-                    env_state,
-                    proposed_goals,
-                    was_proposed_goal_mask,
-                    current_key,
-                    extra_fields=("truncation", "traj_id"),
-                )
-                
-                # Preserve info in the new state returned by env.step()
-                # last_traj_id is set to pre-step value so we can detect if traj_id changed
-                env_state.info["proposed_goals"] = proposed_goals
-                env_state.info["was_proposed_goal_mask"] = was_proposed_goal_mask
-                env_state.info["last_traj_id"] = pre_step_traj_id
-                
-                return (env_state, training_state, buffer_state, next_key), transition
-
-            # data.observation has shape (unroll_length, batch_size, obs_size)
-            (env_state, _, buffer_state, _), data = jax.lax.scan(
-                f, (env_state, training_state, buffer_state, key), (), length=self.unroll_length
+        def get_experience(actor_state, env_state, training_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key):
+            """Unified experience collection using algorithm interface."""
+            # Step 1: Roll out goal-conditioned policy deterministically
+            key1, key2 = jax.random.split(key)
+            env_state, main_buffer_state, goal_conditioned_buffer_state, goal_conditioned_data = self.algorithm.rollout_goal_conditioned_deterministic(
+                training_state=training_state,
+                env_state=env_state,
+                main_buffer_state=main_buffer_state,
+                goal_conditioned_buffer_state=goal_conditioned_buffer_state,
+                key=key1,
+                env=train_env,
+                main_replay_buffer=main_replay_buffer,
+                goal_conditioned_replay_buffer=goal_conditioned_replay_buffer,
+                propose_goals_fn=propose_goals_for_new_episodes,
+                actor_step_fn=actor_step,
             )
-
-            buffer_state = replay_buffer.insert(buffer_state, data)
-            return env_state, buffer_state
+            
+            # Step 2: Roll out exploratory policy with noise (passes goal_conditioned_data for combining)
+            env_state, main_buffer_state, exploratory_buffer_state = self.algorithm.rollout_exploratory(
+                training_state=training_state,
+                env_state=env_state,
+                main_buffer_state=main_buffer_state,
+                exploratory_buffer_state=exploratory_buffer_state,
+                key=key2,
+                env=train_env,
+                main_replay_buffer=main_replay_buffer,
+                exploratory_replay_buffer=exploratory_replay_buffer,
+                propose_goals_fn=propose_goals_for_new_episodes,
+                actor_step_fn=actor_step,
+                unroll_length=self.unroll_length,
+                goal_conditioned_data=goal_conditioned_data,
+            )
+            return env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state
 
         def prefill_replay_buffer(training_state, env_state, buffer_state, key):
             @jax.jit
@@ -682,7 +720,76 @@ class CRL:
             )[0]
 
         @jax.jit
+        def update_goal_conditioned_policy(carry, transitions):
+            """Step 3: Update goal-conditioned policy parameters (and any additional networks)."""
+            training_state, key = carry
+
+            context = dict(
+                **vars(self),
+                **vars(config),
+                state_size=state_size,
+                action_size=action_size,
+                goal_size=goal_size,
+                obs_size=obs_size,
+                goal_indices=train_env.goal_indices,
+                target_entropy=target_entropy,
+            )
+
+            networks = dict(
+                actor=actor,
+                sa_encoder=sa_encoder,
+                g_encoder=g_encoder,
+            )
+
+            # Use algorithm's update method
+            training_state, metrics = self.algorithm.update_goal_conditioned_policy(
+                training_state=training_state,
+                transitions=transitions,
+                networks=networks,
+                context=context,
+                key=key,
+            )
+            
+            training_state = training_state.replace(gradient_steps=training_state.gradient_steps + 1)
+
+            return (training_state, key), metrics
+        
+        @jax.jit
+        def update_exploratory_policy(carry, transitions):
+            """Step 4: Update exploratory policy parameters (and any additional networks)."""
+            training_state, key = carry
+
+            context = dict(
+                **vars(self),
+                **vars(config),
+                state_size=state_size,
+                action_size=action_size,
+                goal_size=goal_size,
+                obs_size=obs_size,
+                goal_indices=train_env.goal_indices,
+                target_entropy=target_entropy,
+            )
+
+            networks = dict(
+                actor=actor,
+                sa_encoder=sa_encoder,
+                g_encoder=g_encoder,
+            )
+
+            # Use algorithm's update method
+            training_state, metrics = self.algorithm.update_exploratory_policy(
+                training_state=training_state,
+                transitions=transitions,
+                networks=networks,
+                context=context,
+                key=key,
+            )
+
+            return (training_state, key), metrics
+        
+        @jax.jit
         def update_networks(carry, transitions):
+            """Legacy function for backward compatibility."""
             training_state, key = carry
             key, critic_key, actor_key = jax.random.split(key, 3)
 
@@ -721,15 +828,23 @@ class CRL:
             ), metrics
 
         @jax.jit
-        def training_step(training_state, env_state, buffer_state, key):
+        def training_step(training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key):
+            """Unified training step following the structure:
+            1. Roll out goal-conditioned policy with no noise
+            2. Roll out exploratory policy with noise
+            3. Update goal-conditioned policy parameters (and any additional networks)
+            4. Update exploratory policy parameters (and any additional networks)
+            """
             experience_key1, experience_key2, sampling_key, training_key = jax.random.split(key, 4)
 
-            # update buffer
-            env_state, buffer_state = get_experience(
+            # Steps 1 & 2: Rollout (deterministic goal-conditioned + exploratory)
+            env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state = get_experience(
                 training_state.actor_state,
                 env_state,
                 training_state,
-                buffer_state,
+                main_buffer_state,
+                goal_conditioned_buffer_state,
+                exploratory_buffer_state,
                 experience_key1,
             )
 
@@ -737,11 +852,12 @@ class CRL:
                 env_steps=training_state.env_steps + env_steps_per_actor_step,
             )
 
-            # sample actor-step worth of transitions
-            buffer_state, transitions = replay_buffer.sample(buffer_state)
+            # Sample transitions for training from MAIN buffer (combined trajectories)
+            # The separate buffers are only for external algorithm use, not for training
+            main_buffer_state, transitions = main_replay_buffer.sample(main_buffer_state)
             # transitions.observation has shape (num_envs, episode_length, obs_dim)
 
-            # process transitions for training
+            # Process transitions for training
             batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
             transitions = jax.vmap(flatten_batch, in_axes=(None, 0, 0))(
                 (self.discounting, state_size, tuple(train_env.goal_indices)),
@@ -755,7 +871,7 @@ class CRL:
             )
             # Shape of obs is (num_envs * episode_length, obs_dim) after flattening
 
-            # permute transitions
+            # Permute transitions
             permutation = jax.random.permutation(experience_key2, len(transitions.observation))
             transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
             transitions = jax.tree_util.tree_map(
@@ -765,15 +881,35 @@ class CRL:
             # Shape of transitions.observation is (..., batch_size, obs_dim)
             
             last_batch = transitions
+            
+            # Filter/process transitions for each update (algorithm can customize this)
+            # Both policies train on the same main buffer transitions
+            goal_conditioned_transitions = self.algorithm.get_transitions_for_goal_conditioned_update(
+                transitions, training_state=training_state
+            )
+            exploratory_transitions = self.algorithm.get_transitions_for_exploratory_update(
+                transitions, training_state=training_state
+            )
+            
+            # Split training key
+            goal_key, expl_key = jax.random.split(training_key)
 
-            # take actor-step worth of training-step
+            # Step 3: Update goal-conditioned policy
             (
-                (
-                    training_state,
-                    _,
-                ),
-                metrics,
-            ) = jax.lax.scan(update_networks, (training_state, training_key), transitions)
+                (training_state, _),
+                goal_conditioned_metrics,
+            ) = jax.lax.scan(update_goal_conditioned_policy, (training_state, goal_key), goal_conditioned_transitions)
+            
+            # Step 4: Update exploratory policy
+            (
+                (training_state, _),
+                exploratory_metrics,
+            ) = jax.lax.scan(update_exploratory_policy, (training_state, expl_key), exploratory_transitions)
+            
+            # Combine metrics
+            metrics = {}
+            metrics.update(goal_conditioned_metrics)
+            metrics.update(exploratory_metrics)
 
             # Adaptive mixing estimation - only if enabled
             if self.use_adaptive_mixing:
@@ -804,7 +940,9 @@ class CRL:
             return (
                 training_state,
                 env_state,
-                buffer_state,
+                main_buffer_state,
+                goal_conditioned_buffer_state,
+                exploratory_buffer_state,
                 last_batch
             ), metrics
 
@@ -812,34 +950,38 @@ class CRL:
         def training_epoch(
             training_state,
             env_state,
-            buffer_state,
+            main_buffer_state,
+            goal_conditioned_buffer_state,
+            exploratory_buffer_state,
             key,
         ):
             @jax.jit
             def f(carry, unused_t):
-                ts, es, bs, k, _ = carry
+                ts, es, mbs, gcbs, ebs, k, _ = carry
                 k, train_key = jax.random.split(k, 2)
                 (
                     (
                         ts,
                         es,
-                        bs,
+                        mbs,
+                        gcbs,
+                        ebs,
                         last_batch
                     ),
                     metrics,
-                ) = training_step(ts, es, bs, train_key)
+                ) = training_step(ts, es, mbs, gcbs, ebs, train_key)
                 # Keep last_batch in carry to avoid stacking all batches in memory
-                return (ts, es, bs, k, last_batch), metrics
+                return (ts, es, mbs, gcbs, ebs, k, last_batch), metrics
 
             # Run one step to get initial last_batch structure for carry
             key, first_key = jax.random.split(key)
-            ((training_state, env_state, buffer_state, init_batch), first_metrics) = training_step(
-                training_state, env_state, buffer_state, first_key
+            ((training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, init_batch), first_metrics) = training_step(
+                training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, first_key
             )
 
-            (training_state, env_state, buffer_state, _, last_batch), rest_metrics = jax.lax.scan(
+            (training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, _, last_batch), rest_metrics = jax.lax.scan(
                 f,
-                (training_state, env_state, buffer_state, key, init_batch),
+                (training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, key, init_batch),
                 (),
                 length=num_training_steps_per_epoch - 1,
             )
@@ -902,8 +1044,8 @@ class CRL:
             
         key, prefill_key = jax.random.split(key, 2)
 
-        training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-            training_state, env_state, buffer_state, prefill_key
+        training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, _ = prefill_replay_buffer(
+            training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, prefill_key
         )
 
         """Setting up evaluator"""
@@ -922,8 +1064,8 @@ class CRL:
 
             key, epoch_key = jax.random.split(key)
 
-            training_state, env_state, buffer_state, metrics, last_batch = training_epoch(
-                training_state, env_state, buffer_state, epoch_key
+            training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, metrics, last_batch = training_epoch(
+                training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, epoch_key
             )
 
             visualize_goals(train_env, last_batch, training_state.actor_state, training_state.critic_state, sa_encoder, g_encoder, self.energy_fn, num_samples=5, wandb_key="training")
