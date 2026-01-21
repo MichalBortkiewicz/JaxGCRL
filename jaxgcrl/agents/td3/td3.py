@@ -43,9 +43,7 @@ from jaxgcrl.utils.goals import (
     mix_goals,
 )
 from jaxgcrl.utils.visualize import (
-    visualize_td3_goals_2d,
     visualize_kde_heatmap,
-    visualize_td3_q_function_2d,
 )
 
 from . import losses as losses
@@ -790,12 +788,12 @@ class TD3:
                 intermediate_xy = None
             
             # Visualize goal proposals (shows start, proposed goal, and final achieved state with trajectory)
-            visualize_td3_goals_2d(
-                start_xy, proposed_xy, final_xy,
-                f"{wandb_key}/goal_proposals",
-                intermediate_xy=intermediate_xy,
-                x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
-            )
+            # visualize_td3_goals_2d(
+            #     start_xy, proposed_xy, final_xy,
+            #     f"{wandb_key}/goal_proposals",
+            #     intermediate_xy=intermediate_xy,
+            #     x_bounds=train_env.x_bounds, y_bounds=train_env.y_bounds
+            # )
             
             # Visualize heatmaps
             visualize_kde_heatmap(
@@ -811,19 +809,19 @@ class TD3:
             )
             
             # Visualize Q-functions for a few samples
-            for i in range(min(3, num_samples)):
-                idx = sample_indices[i]
-                visualize_td3_q_function_2d(
-                    td3_network.policy_network,
-                    td3_network.q_network,
-                    training_state.normalizer_params,
-                    training_state.policy_params,
-                    training_state.q_params,
-                    np.array(states[idx]),
-                    train_env.goal_indices,
-                    train_env.x_bounds, train_env.y_bounds,
-                    f"{wandb_key}/q_function_sample_{i}",
-                )
+            # for i in range(min(3, num_samples)):
+            #     idx = sample_indices[i]
+                # visualize_td3_q_function_2d(
+                #     td3_network.policy_network,
+                #     td3_network.q_network,
+                #     training_state.normalizer_params,
+                #     training_state.policy_params,
+                #     training_state.q_params,
+                #     np.array(states[idx]),
+                #     train_env.goal_indices,
+                #     train_env.x_bounds, train_env.y_bounds,
+                #     f"{wandb_key}/q_function_sample_{i}",
+                # )
             
             logging.info(f"Plotted TD3 visualizations at env step {training_state.env_steps.item()}")
 
