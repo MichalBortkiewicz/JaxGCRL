@@ -468,37 +468,43 @@ class CRL:
             return buffer
 
         # Main replay buffer (for combined trajectories)
+        # Stores full trajectories of length unroll_length
         main_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
                 sample_batch_size=self.batch_size,
                 num_envs=config.num_envs,
-                episode_length=config.episode_length,
+                episode_length=self.unroll_length,
             )
         )
         main_buffer_state = jax.jit(main_replay_buffer.init)(buffer_key)
         
         # Goal-conditioned policy replay buffer (for deterministic part only)
+        # Stores only deterministic steps (num_deterministic_steps)
+        goal_conditioned_episode_length = max(1, self.num_deterministic_steps)  # At least 1 to avoid errors
         goal_conditioned_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
                 sample_batch_size=self.batch_size,
                 num_envs=config.num_envs,
-                episode_length=config.episode_length,  # Will contain only deterministic steps
+                episode_length=goal_conditioned_episode_length,
             )
         )
         goal_conditioned_buffer_state = jax.jit(goal_conditioned_replay_buffer.init)(buffer_key)
         
         # Exploratory policy replay buffer (for exploratory part only)
+        # Stores only exploratory steps (unroll_length - num_deterministic_steps)
+        num_exploratory_steps = self.unroll_length - self.num_deterministic_steps
+        exploratory_episode_length = max(1, num_exploratory_steps)  # At least 1 to avoid errors
         exploratory_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
                 max_replay_size=self.max_replay_size,
                 dummy_data_sample=dummy_transition,
                 sample_batch_size=self.batch_size,
                 num_envs=config.num_envs,
-                episode_length=config.episode_length,  # Will contain only exploratory steps
+                episode_length=exploratory_episode_length,
             )
         )
         exploratory_buffer_state = jax.jit(exploratory_replay_buffer.init)(buffer_key)
