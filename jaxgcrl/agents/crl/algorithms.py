@@ -9,6 +9,7 @@ from jaxgcrl.agents.crl.types import TrainingState, Transition
 from jaxgcrl.agents.crl.losses import update_actor_and_alpha, update_critic
 from jaxgcrl.agents.crl.goals import ReplayBufferGoalProposal, mix_goals
 from jaxgcrl.agents.crl.goals_utils import get_final_states_from_batch
+from jaxgcrl.agents.crl.proposers import GoalProposer, FinalReplayBufferProposer
 
 
 @dataclass
@@ -346,6 +347,8 @@ class DualCRLAlgorithm(Algorithm):
     
     num_deterministic_steps: int = 0
     goal_proposal_prob: float = 1.0  # Probability of using proposed goals (typically 1.0 for dual_crl)
+    goal_proposer: GoalProposer = None  # Goal proposer instance (will be initialized if None)
+   
     
     def propose_goals(
         self,
@@ -357,59 +360,32 @@ class DualCRLAlgorithm(Algorithm):
         main_replay_buffer: Any,
         networks: Dict[str, Any],
         context: Dict[str, Any],
-        goal_conditioned_replay_buffer: Any,
-        goal_conditioned_buffer_state: Any,
+        source_replay_buffer: Any,
+        source_buffer_state: Any,
         **kwargs
     ):
-        """Propose goals from final states of goal-conditioned policy's replay buffer."""
-        proposal_key, mix_key = jax.random.split(key)
+        """Propose goals using the configured goal proposer.
         
-        # Compare current traj_id with stored traj_id to detect resets
-        current_traj_id = env_state.info["traj_id"]
-        stored_traj_id = env_state.info.get("last_traj_id", current_traj_id - 1)
-        is_new_episode = current_traj_id != stored_traj_id  # shape (num_envs,)
-        
-        # Sample trajectories from goal-conditioned replay buffer
-        goal_conditioned_buffer_state, candidate_transitions = goal_conditioned_replay_buffer.sample(
-            goal_conditioned_buffer_state
+        Args:
+            source_replay_buffer: The replay buffer to sample goals from
+            source_buffer_state: The state of the source replay buffer
+            
+        Returns:
+            Tuple of (proposed_goals, was_proposed_goal_mask, main_buffer_state, source_buffer_state)
+        """
+        return self.goal_proposer.propose_goals(
+            env_state=env_state,
+            training_state=training_state,
+            main_buffer_state=main_buffer_state,
+            key=key,
+            env=env,
+            main_replay_buffer=main_replay_buffer,
+            networks=networks,
+            context=context,
+            source_replay_buffer=source_replay_buffer,
+            source_buffer_state=source_buffer_state,
+            **kwargs
         )
-        
-        # Extract final states from sampled trajectories
-        traj_ids = candidate_transitions.extras["state_extras"]["traj_id"]
-        candidate_obs = candidate_transitions.observation
-        goal_indices = context["goal_indices"]
-        if isinstance(goal_indices, (list, tuple)):
-            goal_indices = jnp.array(goal_indices)
-        
-        # Get final states (goals) from each trajectory
-        final_goals = get_final_states_from_batch(candidate_obs, traj_ids, goal_indices)
-        
-        # Sample one goal per environment from the candidate goals
-        batch_size = env_state.obs.shape[0]
-        num_candidates = final_goals.shape[0]
-        indices = jax.random.randint(proposal_key, (batch_size,), 0, num_candidates)
-        new_goals = final_goals[indices]  # (batch_size, goal_dim)
-        
-        # Get original goals from environment
-        goal_size = goal_indices.shape[0] if hasattr(goal_indices, 'shape') else len(goal_indices)
-        original_goals = env_state.obs[:, -goal_size:]
-        
-        # Mix goals (but with goal_proposal_prob = 1.0, so always use proposed)
-        mixed_goals, use_proposed_mask = mix_goals(original_goals, new_goals, self.goal_proposal_prob, mix_key)
-        
-        # Only update goals for environments that are starting a new episode
-        proposed_goals = jnp.where(
-            is_new_episode[:, None],
-            mixed_goals,
-            env_state.info.get("proposed_goals", original_goals)
-        )
-        was_proposed_goal_mask = jnp.where(
-            is_new_episode,
-            use_proposed_mask.squeeze(-1),
-            env_state.info.get("was_proposed_goal_mask", jnp.zeros_like(use_proposed_mask.squeeze(-1)))
-        )
-        
-        return proposed_goals, was_proposed_goal_mask, main_buffer_state
     
     def rollout_goal_conditioned_deterministic(
         self,
@@ -436,7 +412,7 @@ class DualCRLAlgorithm(Algorithm):
             current_key, next_key, proposal_key = jax.random.split(current_key, 3)
             
             # Propose goals from goal-conditioned buffer
-            proposed_goals, was_proposed_goal_mask, main_buffer_state = self.propose_goals(
+            proposed_goals, was_proposed_goal_mask, main_buffer_state, goal_conditioned_buffer_state = self.propose_goals(
                 env_state=env_state,
                 training_state=training_state,
                 main_buffer_state=main_buffer_state,
@@ -445,8 +421,8 @@ class DualCRLAlgorithm(Algorithm):
                 main_replay_buffer=main_replay_buffer,
                 networks=networks,
                 context=context,
-                goal_conditioned_replay_buffer=goal_conditioned_replay_buffer,
-                goal_conditioned_buffer_state=goal_conditioned_buffer_state,
+                source_replay_buffer=goal_conditioned_replay_buffer,
+                source_buffer_state=goal_conditioned_buffer_state,
             )
             
             # Store traj_id before step
@@ -509,8 +485,8 @@ class DualCRLAlgorithm(Algorithm):
             env_state, training_state, main_buffer_state, exploratory_buffer_state, goal_conditioned_buffer_state, current_key = carry
             current_key, next_key, proposal_key = jax.random.split(current_key, 3)
             
-            # Propose goals from goal-conditioned buffer (same as deterministic rollout)
-            proposed_goals, was_proposed_goal_mask, main_buffer_state = self.propose_goals(
+            # Propose goals from exploratory buffer for exploratory policy
+            proposed_goals, was_proposed_goal_mask, main_buffer_state, exploratory_buffer_state = self.propose_goals(
                 env_state=env_state,
                 training_state=training_state,
                 main_buffer_state=main_buffer_state,
@@ -519,8 +495,8 @@ class DualCRLAlgorithm(Algorithm):
                 main_replay_buffer=main_replay_buffer,
                 networks=networks,
                 context=context,
-                goal_conditioned_replay_buffer=goal_conditioned_replay_buffer,
-                goal_conditioned_buffer_state=goal_conditioned_buffer_state,
+                source_replay_buffer=exploratory_replay_buffer,
+                source_buffer_state=exploratory_buffer_state,
             )
             
             # Store traj_id before step

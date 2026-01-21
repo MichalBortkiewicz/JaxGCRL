@@ -24,7 +24,7 @@ from flax.training.train_state import TrainState
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
-from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, visualize_q_function_2d
+from jaxgcrl.utils.visualize import visualize_goals_2d, visualize_kde_heatmap, visualize_q_function_2d, visualize_dual_crl_trajectories_2d, visualize_dual_crl_trajectories_2d
 
 from .losses import update_actor_and_alpha, update_critic
 from .networks import Actor, Encoder
@@ -227,8 +227,6 @@ class CRL:
     interpolate_to_env_goals: bool = False
     # What goal selection percentile to use for MediumEnergyGoalProposal
     goal_selection_percentile: float = 0.5
-    # Which goal proposer to use
-    goal_proposer_name: Literal["quantile", "replay_buffer", "metric", "metric_one_env_goal", "waypoint_ratio", "waypoint_ratio_one_env_goal", "max_waypoint_ratio", "fisher_trace", "fisher_trace_actor", "fisher_trace_combined", "q_epistemic", "mega", "omega", "ucgr", "discover"] = "replay_buffer"
     # For metric proposal whether to use KDE correction term
     use_kde_correction: bool = False
     # Whether to zero out the goals in metric proposal
@@ -254,6 +252,9 @@ class CRL:
     
     # Go-Explore / Dual CRL algorithm parameters
     num_deterministic_steps: int = 0  # Number of deterministic (no noise) steps in rollout (exploratory steps = unroll_length - num_deterministic_steps)
+    
+    # Goal proposer selection
+    goal_proposer_name: str = "final_replay_buffer"  # Name of goal proposer to use ("final_replay_buffer", etc.)
 
     def check_config(self, config):
         """
@@ -407,11 +408,21 @@ class CRL:
         # Initialize algorithm based on algorithm_name (set as instance attribute, not dataclass field)
         # Lazy import to avoid circular dependency
         from .algorithms import DefaultCRLAlgorithm, DualCRLAlgorithm
+        from .proposers import FinalReplayBufferProposer
+        
+        # Initialize goal proposer based on goal_proposer_name
+        if self.goal_proposer_name == "final_replay_buffer":
+            goal_proposer = FinalReplayBufferProposer(
+                goal_proposal_prob=self.goal_proposal_prob,
+            )
+        else:
+            raise ValueError(f"Unknown goal proposer: {self.goal_proposer_name}")
         
         if self.algorithm_name == "dual_crl":
             algorithm = DualCRLAlgorithm(
                 num_deterministic_steps=self.num_deterministic_steps,
                 goal_proposal_prob=self.goal_proposal_prob,
+                goal_proposer=goal_proposer,
             )
         else:
             algorithm = DefaultCRLAlgorithm(
@@ -971,6 +982,147 @@ class CRL:
                 )
 
             logging.info(f"Plotted visualizations at env step {training_state.env_steps.item()}")
+        
+        def visualize_dual_crl_goals(
+            train_env, 
+            transitions, 
+            goal_conditioned_replay_buffer,
+            goal_conditioned_buffer_state,
+            exploratory_replay_buffer,
+            exploratory_buffer_state,
+            actor_state, 
+            critic_state, 
+            sa_encoder, 
+            g_encoder, 
+            energy_fn, 
+            num_samples, 
+            wandb_key,
+            num_deterministic_steps,
+            state_size,
+            training_state
+        ):
+            """Visualize dual CRL trajectories with separate goal-conditioned and exploratory rollouts."""
+            import numpy as np
+            from jaxgcrl.agents.crl.goals_utils import get_final_states_from_batch
+            
+            # Extract data from main buffer (combined trajectories)
+            obs = transitions.observation  # (episode_len-1, batch_size, obs_dim)
+            last_traj_state = transitions.extras["last_traj_state"][:, :, :state_size]  # (episode_len-1, batch_size, state_size)
+            last_traj_state_flat = last_traj_state.reshape(-1, state_size)
+            intermediate_traj = transitions.extras["intermediate_traj"]  # (episode_len-1, batch_size, num_intermediate_states, obs_dim)
+            proposed_goals = transitions.extras["proposed_goals"].reshape(-1, len(train_env.goal_indices))
+            
+            states = obs[:, :, :state_size].reshape(-1, state_size)
+            
+            # Flatten intermediate trajectories
+            intermediate_traj_flat = intermediate_traj.reshape(-1, intermediate_traj.shape[-2], intermediate_traj.shape[-1])
+            
+            # Sample from goal-conditioned buffer to get final states
+            goal_conditioned_buffer_state, gc_transitions = goal_conditioned_replay_buffer.sample(goal_conditioned_buffer_state)
+            gc_obs = gc_transitions.observation  # (num_envs, num_deterministic_steps, obs_dim)
+            gc_traj_ids = gc_transitions.extras["state_extras"]["traj_id"]
+            gc_final_states = get_final_states_from_batch(gc_obs, gc_traj_ids, train_env.goal_indices)
+            
+            # Sample from exploratory buffer to get final states
+            exploratory_buffer_state, exp_transitions = exploratory_replay_buffer.sample(exploratory_buffer_state)
+            exp_obs = exp_transitions.observation  # (num_envs, num_exploratory_steps, obs_dim)
+            exp_traj_ids = exp_transitions.extras["state_extras"]["traj_id"]
+            exp_final_states = get_final_states_from_batch(exp_obs, exp_traj_ids, train_env.goal_indices)
+            
+            # Extract goal proposals from buffers
+            gc_proposed_goals = gc_transitions.extras["state_extras"].get("proposed_goals", gc_final_states)
+            if gc_proposed_goals.ndim == 3:  # (num_envs, episode_length, goal_dim)
+                gc_proposed_goals = gc_proposed_goals.reshape(-1, len(train_env.goal_indices))
+            else:
+                gc_proposed_goals = gc_proposed_goals.reshape(-1, len(train_env.goal_indices))
+            
+            exp_proposed_goals = exp_transitions.extras["state_extras"].get("proposed_goals", exp_final_states)
+            if exp_proposed_goals.ndim == 3:  # (num_envs, episode_length, goal_dim)
+                exp_proposed_goals = exp_proposed_goals.reshape(-1, len(train_env.goal_indices))
+            else:
+                exp_proposed_goals = exp_proposed_goals.reshape(-1, len(train_env.goal_indices))
+            
+            total_samples = states.shape[0]
+            if num_samples > total_samples:
+                num_samples = total_samples
+            
+            sample_indices = np.random.choice(total_samples, num_samples, replace=False)
+            
+            start_xy = states[sample_indices][:, train_env.goal_indices]
+            prop_xy = proposed_goals[sample_indices]
+            lts_xy = last_traj_state_flat[sample_indices][:, train_env.goal_indices]
+            intermediate_xy = intermediate_traj_flat[sample_indices][:, :, train_env.goal_indices]
+            
+            # Sample corresponding indices from buffer samples (may have different batch sizes)
+            gc_sample_size = min(num_samples, gc_final_states.shape[0])
+            gc_sample_indices = np.random.choice(gc_final_states.shape[0], gc_sample_size, replace=False)
+            gc_final_xy = gc_final_states[gc_sample_indices]
+            
+            exp_sample_size = min(num_samples, exp_final_states.shape[0])
+            exp_sample_indices = np.random.choice(exp_final_states.shape[0], exp_sample_size, replace=False)
+            exp_final_xy = exp_final_states[exp_sample_indices]
+            
+            # Pad or trim to match num_samples
+            if gc_sample_size < num_samples:
+                # Repeat last element to pad
+                padding = np.tile(gc_final_xy[-1:], (num_samples - gc_sample_size, 1))
+                gc_final_xy = np.vstack([gc_final_xy, padding])
+            elif gc_sample_size > num_samples:
+                gc_final_xy = gc_final_xy[:num_samples]
+            
+            if exp_sample_size < num_samples:
+                # Repeat last element to pad
+                padding = np.tile(exp_final_xy[-1:], (num_samples - exp_sample_size, 1))
+                exp_final_xy = np.vstack([exp_final_xy, padding])
+            elif exp_sample_size > num_samples:
+                exp_final_xy = exp_final_xy[:num_samples]
+            
+            # Visualize trajectories
+            visualize_dual_crl_trajectories_2d(
+                start_xy, prop_xy, lts_xy, intermediate_xy,
+                gc_final_xy, exp_final_xy,
+                f"{wandb_key}/dual_crl_trajectories",
+                x_bounds=train_env.x_bounds, 
+                y_bounds=train_env.y_bounds
+            )
+            
+            # Heatmap of goal proposals for goal-conditioned policy
+            visualize_kde_heatmap(
+                gc_proposed_goals, 
+                "Goal-Conditioned Policy Goal Proposals", 
+                f"{wandb_key}/goal_conditioned_proposals_heatmap", 
+                x_bounds=train_env.x_bounds, 
+                y_bounds=train_env.y_bounds
+            )
+            
+            # Heatmap of goal proposals for exploratory policy (if goal-conditioned)
+            visualize_kde_heatmap(
+                exp_proposed_goals, 
+                "Exploratory Policy Goal Proposals", 
+                f"{wandb_key}/exploratory_proposals_heatmap", 
+                x_bounds=train_env.x_bounds, 
+                y_bounds=train_env.y_bounds
+            )
+            
+            # Heatmap of final states from goal-conditioned rollout
+            visualize_kde_heatmap(
+                gc_final_states, 
+                "Goal-Conditioned Rollout Final States", 
+                f"{wandb_key}/goal_conditioned_final_heatmap", 
+                x_bounds=train_env.x_bounds, 
+                y_bounds=train_env.y_bounds
+            )
+            
+            # Heatmap of final states from exploratory rollout
+            visualize_kde_heatmap(
+                exp_final_states, 
+                "Exploratory Rollout Final States", 
+                f"{wandb_key}/exploratory_final_heatmap", 
+                x_bounds=train_env.x_bounds, 
+                y_bounds=train_env.y_bounds
+            )
+            
+            logging.info(f"Plotted dual CRL visualizations at env step {training_state.env_steps.item()}")
             
         key, prefill_key = jax.random.split(key, 2)
 
@@ -998,7 +1150,21 @@ class CRL:
                 training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, epoch_key
             )
 
-            visualize_goals(train_env, last_batch, training_state.actor_state, training_state.critic_state, sa_encoder, g_encoder, self.energy_fn, num_samples=5, wandb_key="training")
+            # Use dual CRL visualization if using dual_crl algorithm
+            if self.algorithm_name == "dual_crl":
+                visualize_dual_crl_goals(
+                    train_env, last_batch, 
+                    goal_conditioned_replay_buffer, goal_conditioned_buffer_state,
+                    exploratory_replay_buffer, exploratory_buffer_state,
+                    training_state.actor_state, training_state.critic_state, 
+                    sa_encoder, g_encoder, self.energy_fn, 
+                    num_samples=5, wandb_key="training",
+                    num_deterministic_steps=self.algorithm.num_deterministic_steps,
+                    state_size=state_size,
+                    training_state=training_state
+                )
+            else:
+                visualize_goals(train_env, last_batch, training_state.actor_state, training_state.critic_state, sa_encoder, g_encoder, self.energy_fn, num_samples=5, wandb_key="training")
 
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
