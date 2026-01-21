@@ -922,8 +922,8 @@ class CRL:
                 first_metrics,
                 rest_metrics,
             )
-            metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
-            return training_state, env_state, buffer_state, metrics, last_batch
+            metrics["buffer_current_size"] = main_replay_buffer.size(main_buffer_state)
+            return training_state, env_state, main_buffer_state, goal_conditioned_buffer_state, exploratory_buffer_state, metrics, last_batch
         
         def visualize_goals(train_env, transitions, actor_state, critic_state, sa_encoder, g_encoder, energy_fn, num_samples, wandb_key):
             # Shape is now (episode_len-1, batch_size, ...) since we only keep the last training step's batch
