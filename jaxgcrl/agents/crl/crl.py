@@ -495,8 +495,9 @@ class CRL:
         goal_conditioned_buffer_state = jax.jit(goal_conditioned_replay_buffer.init)(buffer_key)
         
         # Exploratory policy replay buffer (for exploratory part only)
-        # Stores only exploratory steps (unroll_length - num_deterministic_steps)
-        num_exploratory_steps = self.unroll_length - self.num_deterministic_steps
+        # Stores only exploratory steps (total_steps_per_rollout - num_deterministic_steps)
+        # Total steps per rollout is unroll_length (the number of steps we actually roll out)
+        num_exploratory_steps = self.episode_length - self.num_deterministic_steps
         exploratory_episode_length = max(1, num_exploratory_steps)  # At least 1 to avoid errors
         exploratory_replay_buffer = jit_wrap(
             TrajectoryUniformSamplingQueue(
@@ -590,7 +591,8 @@ class CRL:
             
             # Step 2: Roll out exploratory policy with noise (passes goal_conditioned_data for combining)
             # Calculate number of exploratory steps
-            num_exploratory_steps = self.unroll_length - self.algorithm.num_deterministic_steps
+            # Total steps per rollout is unroll_length (the number of steps we actually roll out)
+            num_exploratory_steps = self.episode_length - self.algorithm.num_deterministic_steps
             
             env_state, main_buffer_state, exploratory_buffer_state = self.algorithm.rollout_exploratory(
                 training_state=training_state,
