@@ -275,9 +275,15 @@ class CRL:
             use_ln=self.use_ln,
         )
         g_encoder_params = g_encoder.init(g_key, np.ones([1, goal_size]))
+        critic_params = {"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params}
+        if self.energy_fn == "cosine":
+            # Learned temperature rescaling the (necessarily bounded, [-1, 1])
+            # cosine similarity into a useful InfoNCE logit range. Initialized
+            # to CLIP's initial value (1 / 0.07 =~ 14.3).
+            critic_params["log_logit_scale"] = jnp.log(jnp.asarray(1 / 0.07, dtype=jnp.float32))
         critic_state = TrainState.create(
             apply_fn=None,
-            params={"sa_encoder": sa_encoder_params, "g_encoder": g_encoder_params},
+            params=critic_params,
             tx=optax.adam(learning_rate=self.critic_lr),
         )
 

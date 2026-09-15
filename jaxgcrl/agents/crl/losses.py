@@ -2,6 +2,8 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
+MAX_LOGIT_SCALE = 100.0  # matches CLIP's clamp on the learned temperature
+
 
 def energy_fn(name, x, y):
     if name == "norm":
@@ -9,11 +11,25 @@ def energy_fn(name, x, y):
     elif name == "dot":
         return jnp.sum(x * y, axis=-1)
     elif name == "cosine":
-        return jnp.sum(x * y, axis=-1) / (jnp.linalg.norm(x) * jnp.linalg.norm(y) + 1e-6)
+        # NOTE: norm is taken over the last (feature) axis so this is a per-pair
+        # cosine similarity, not a single global scalar over the whole batch.
+        return jnp.sum(x * y, axis=-1) / (jnp.linalg.norm(x, axis=-1) * jnp.linalg.norm(y, axis=-1) + 1e-6)
     elif name == "l2":
         return -jnp.sum((x - y) ** 2, axis=-1)
     else:
         raise ValueError(f"Unknown energy function: {name}")
+
+
+def apply_logit_scale(config, critic_params, energy):
+    """Cosine similarity is bounded to [-1, 1], which is too small a logit range
+    for InfoNCE to produce a useful (non-near-uniform) softmax. Rescale it by a
+    learned temperature, following CLIP; other energy functions are unbounded
+    and left as-is.
+    """
+    if config["energy_fn"] != "cosine":
+        return energy
+    scale = jnp.exp(jnp.minimum(critic_params["log_logit_scale"], jnp.log(MAX_LOGIT_SCALE)))
+    return energy * scale
 
 
 def contrastive_loss_fn(name, logits):
@@ -56,6 +72,7 @@ def update_actor_and_alpha(config, networks, transitions, training_state, key):
         g_repr = networks["g_encoder"].apply(g_encoder_params, goal)
 
         qf_pi = energy_fn(config["energy_fn"], sa_repr, g_repr)
+        qf_pi = apply_logit_scale(config, critic_params, qf_pi)
 
         actor_loss = jnp.mean(jnp.exp(log_alpha) * log_prob - qf_pi)
 
@@ -107,6 +124,7 @@ def update_critic(config, networks, transitions, training_state, key):
 
         # InfoNCE
         logits = energy_fn(config["energy_fn"], sa_repr[:, None, :], g_repr[None, :, :])
+        logits = apply_logit_scale(config, critic_params, logits)
         critic_loss = contrastive_loss_fn(config["contrastive_loss_fn"], logits)
 
         # logsumexp regularisation
