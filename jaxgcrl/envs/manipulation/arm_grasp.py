@@ -1,3 +1,4 @@
+import os
 import jax
 from brax import base
 from jax import numpy as jnp
@@ -15,7 +16,7 @@ See _get_obs() and ArmEnvs._convert_action() for details.
 
 class ArmGrasp(ArmEnvs):
     def _get_xml_path(self):
-        return "envs/assets/panda_grasp.xml"
+        return os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "assets", "panda_grasp.xml")
 
     @property
     def action_size(self) -> int:
