@@ -32,6 +32,58 @@ def apply_logit_scale(config, critic_params, energy):
     return energy * scale
 
 
+def _matmul_t(x, y):
+    """x @ y.T at full float32 precision. Plain `@`/`jnp.dot` let XLA pick a
+    reduced-precision (e.g. TF32-style) algorithm on GPU matmul hardware for
+    speed, which is fine for most matmuls but introduces up to ~0.4% relative
+    error here -- too much for a training signal we want left unchanged.
+    `HIGHEST` recovers float32-accumulation-order-level agreement (~1e-5)
+    with the elementwise reduction this replaces, at a modest (not zero)
+    speed cost.
+    """
+    return jnp.matmul(x, y.T, precision=jax.lax.Precision.HIGHEST)
+
+
+def pairwise_energy_fn(name, x, y):
+    """All-pairs (B, B) energy matrix for x, y of shape (B, D), equivalent to
+    `energy_fn(name, x[:, None, :], y[None, :, :])` but computed from B*D-sized
+    matmuls/norms instead of ever materializing the broadcasted (B, B, D)
+    intermediate that the naive elementwise-multiply-then-sum requires. That
+    intermediate is what makes computing all-pairs energies for a batch of
+    size B expensive (both in memory and compute) as repr_dim D grows, since
+    a GEMM never needs it.
+    """
+    if name == "dot":
+        return _matmul_t(x, y)
+    elif name == "cosine":
+        # per-row norms outer-producted against each other, matching
+        # energy_fn("cosine", x[:, None, :], y[None, :, :])'s axis=-1 norms
+        x_norm = jnp.linalg.norm(x, axis=-1)[:, None]
+        y_norm = jnp.linalg.norm(y, axis=-1)[None, :]
+        return _matmul_t(x, y) / (x_norm * y_norm + 1e-6)
+    elif name == "l2":
+        # ||x_i - y_j||^2 = ||x_i||^2 - 2 * x_i . y_j + ||y_j||^2
+        x_sq = jnp.sum(x**2, axis=-1)[:, None]
+        y_sq = jnp.sum(y**2, axis=-1)[None, :]
+        # clip: floating-point cancellation in the expansion above can
+        # otherwise push near-zero distances slightly negative
+        return -jnp.maximum(x_sq - 2 * _matmul_t(x, y) + y_sq, 0.0)
+    elif name == "norm":
+        # Deliberately NOT reformulated via the ||x-y||^2 = ||x||^2 - 2xy +
+        # ||y||^2 expansion used for "l2" above. That expansion mixes a
+        # matmul-computed cross term with elementwise-computed squared norms,
+        # which use different float32 summation orders; the resulting ~1e-5
+        # discrepancy is negligible for "l2" but gets blown up by this
+        # branch's sqrt (unbounded derivative near 0) into a >5x relative
+        # error exactly on near-identical x/y -- i.e. exactly on correctly
+        # matched positive pairs, which is the one place this metric most
+        # needs to be accurate. Falls back to the O(batch^2 * repr_dim)
+        # broadcast path.
+        return energy_fn(name, x[:, None, :], y[None, :, :])
+    else:
+        raise ValueError(f"Unknown energy function: {name}")
+
+
 def contrastive_loss_fn(name, logits):
     if name == "fwd_infonce":
         critic_loss = -jnp.mean(jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1))
@@ -123,7 +175,7 @@ def update_critic(config, networks, transitions, training_state, key):
         )
 
         # InfoNCE
-        logits = energy_fn(config["energy_fn"], sa_repr[:, None, :], g_repr[None, :, :])
+        logits = pairwise_energy_fn(config["energy_fn"], sa_repr, g_repr)
         logits = apply_logit_scale(config, critic_params, logits)
         critic_loss = contrastive_loss_fn(config["contrastive_loss_fn"], logits)
 
