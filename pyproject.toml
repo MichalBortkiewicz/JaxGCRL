@@ -23,6 +23,7 @@ dependencies = [
   "tyro>=0.9.16",
   "wandb",
   "wandb-osh",
+  "optax>=0.2.2",
 ]
 
 [project.scripts]
