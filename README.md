@@ -74,7 +74,7 @@ pip install jaxgcrl -f https://storage.googleapis.com/jax-releases/jax_cuda_rele
 
 To verify the installation, run a test experiment:
 ```bash
-jaxgcrl crl --env ant
+jaxgcrl --env ant crl
 ```
 
 The `jaxgcrl` command is equivalent to invoking `python run.py` with the same arguments
