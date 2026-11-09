@@ -1,6 +1,7 @@
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
 
 MAX_LOGIT_SCALE = 100.0  # matches CLIP's clamp on the learned temperature
 
@@ -94,7 +95,10 @@ def contrastive_loss_fn(name, logits):
             2 * jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1) - jax.nn.logsumexp(logits, axis=0)
         )
     elif name == "binary_nce":
-        critic_loss = -jnp.mean(jax.nn.sigmoid(logits))
+        labels = jnp.eye(logits.shape[0], dtype=logits.dtype)
+        critic_loss = jnp.mean(
+            optax.sigmoid_binary_cross_entropy(logits=logits, labels=labels)
+        )
     else:
         raise ValueError(f"Unknown contrastive loss function: {name}")
     return critic_loss
