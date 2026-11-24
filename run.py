@@ -1,12 +1,19 @@
+import hashlib
+import json
 import logging
 import os
 import pickle
 import pprint
+import socket
+import subprocess
+import sys
+import time
 
 import tyro
 from brax.io import model
 
 import wandb
+from jaxgcrl.agents.common.train_utils import NonFiniteError, write_marker
 from jaxgcrl.utils.config import Config
 from jaxgcrl.utils.env import MetricsRecorder, create_env
 
@@ -34,6 +41,15 @@ def main(config: Config):
         level=logging.INFO,
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    run_dir = config.run.run_dir or f"./runs/run_{config.run.exp_name}_s_{config.run.seed}"
+    if config.run.auto_resume:
+        for marker in ("DONE", "FAILED_NAN"):
+            if os.path.exists(os.path.join(run_dir, marker)):
+                logging.info("SKIP, %s exists in %s", marker, run_dir)
+                print(f"SKIP {run_dir}: {marker} exists", flush=True)
+                return
+    resuming = config.run.auto_resume and os.path.exists(os.path.join(run_dir, "latest.pkl"))
+
     info = {**vars(config.run), **vars(config.agent)}
 
     utd_ratio = (
@@ -47,13 +63,42 @@ def main(config: Config):
 
     logging.info("Arguments:\n%s", pprint.pformat(info))
 
+    os.makedirs(run_dir, exist_ok=True)
+    repo = os.path.dirname(os.path.abspath(__file__))
+    try:
+        commit = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
+        dirty = bool(subprocess.check_output(["git", "-C", repo, "status", "--porcelain", "--untracked-files=no"], text=True).strip())
+    except Exception:  # noqa: BLE001
+        commit, dirty = "unknown", None
+    run_meta = {
+        "commit": commit,
+        "dirty": dirty,
+        "hostname": socket.gethostname(),
+        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+        "start": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "resuming": resuming,
+        "argv": sys.argv,
+    }
+    if not os.path.exists(os.path.join(run_dir, "config.json")):
+        with open(os.path.join(run_dir, "config.json"), "w") as f:
+            json.dump({"config": info, **run_meta}, f, indent=2, default=str)
+    with open(os.path.join(run_dir, "starts.jsonl"), "a") as f:
+        f.write(json.dumps(run_meta, default=str) + "\n")
+
+    wandb_id = config.run.wandb_id
+    if wandb_id is None and config.run.auto_resume:
+        name = "".join(c if c.isalnum() or c in "-_" else "-" for c in config.run.exp_name)[:100]
+        wandb_id = f"{name}-{hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:8]}"
     wandb.init(
         project=config.run.wandb_project_name,
         group=config.run.wandb_group,
         name=config.run.exp_name,
-        config=info,
-        mode="online" if config.run.log_wandb else "disabled",
+        config={**info, **run_meta},
+        mode=config.run.wandb_mode if config.run.log_wandb else "disabled",
+        id=wandb_id,
+        resume="allow" if wandb_id else None,
     )
+    print(f"W&B run: {getattr(wandb.run, 'url', None)}", flush=True)
 
     env = create_env(env_name=config.run.env, backend=config.run.backend)
     if config.run.eval_env:
@@ -61,8 +106,6 @@ def main(config: Config):
     else:
         eval_env = env
 
-    os.makedirs("./runs", exist_ok=True)
-    run_dir = f"./runs/run_{config.run.exp_name}_s_{config.run.seed}"
     ckpt_dir = run_dir + "/ckpt"
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(ckpt_dir, exist_ok=True)
@@ -86,6 +129,19 @@ def main(config: Config):
         "training/critic_loss",
         "training/entropy",
         "training/sps",
+        # scaled-depth study diagnostics (also written, with every other scalar metric, to metrics.csv)
+        "training/alpha",
+        "training/walltime",
+        "training/q_mean",
+        "training/q_max",
+        "training/target_q_mean",
+        "training/critic_grad_norm",
+        "training/actor_grad_norm",
+        "training/reward_mean",
+        "training/her_relabel_frac",
+        "training/truncation_frac",
+        "training/buffer_current_size",
+        "eval/avg_episode_length",
     ]
 
     metrics_recorder = MetricsRecorder(
@@ -94,15 +150,35 @@ def main(config: Config):
         run_dir,
         config.run.exp_name,
         mode=config.run.wandb_mode,
+        csv_path=os.path.join(run_dir, "metrics.csv"),
+        render=config.run.render,
     )
 
-    _, params, _ = config.agent.train_fn(
-        train_env=env,
-        eval_env=eval_env,
-        config=config.run,
-        progress_fn=metrics_recorder.progress,
-    )
+    try:
+        _, params, _ = config.agent.train_fn(
+            train_env=env,
+            eval_env=eval_env,
+            config=config.run,
+            progress_fn=metrics_recorder.progress,
+        )
+    except NonFiniteError as e:
+        logging.error("FAILED_NAN: %s", e)
+        write_marker(run_dir, "FAILED_NAN", {"error": str(e), "last_metrics": metrics_recorder.last_metrics, **run_meta})
+        if wandb.run is not None:
+            wandb.run.summary["status"] = "FAILED_NAN"
+        wandb.finish()
+        print(f"FAILED_NAN {run_dir}: {e}", flush=True)
+        return
     model.save_params(ckpt_dir + "/final", params)
+    write_marker(
+        run_dir,
+        "DONE",
+        {"final_metrics": metrics_recorder.last_metrics, "end": time.strftime("%Y-%m-%d %H:%M:%S"), **run_meta},
+    )
+    if wandb.run is not None:
+        wandb.run.summary["status"] = "DONE"
+    wandb.finish()
+    print(f"DONE {run_dir}", flush=True)
 
 
 def cli():

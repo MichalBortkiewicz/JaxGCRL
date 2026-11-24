@@ -134,6 +134,9 @@ class ActorEvaluator:
                         "dist",
                         "distance_from_origin",
                     ]
+                    # Fix (scaled-depth study): arm envs have no "dist"/"distance_from_origin" metric, so the
+                    # original code raised KeyError at the first CRL evaluation on any arm env.
+                    if name in eval_metrics.episode_metrics
                 }
             )
 

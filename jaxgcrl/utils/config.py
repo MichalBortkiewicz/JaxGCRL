@@ -79,6 +79,18 @@ class RunConfig:
     max_devices_per_host: int = 1
     cuda: bool = True
 
+    # ---- scaled-depth study additions (defaults reproduce unmodified JaxGCRL) ----
+    # Output directory for this run (config.json, metrics.csv, checkpoints, DONE). None = ./runs/run_<exp>_s_<seed>
+    run_dir: Optional[str] = None
+    # Resume from run_dir/latest.pkl if present; skip if run_dir/DONE or FAILED_NAN exists.
+    auto_resume: bool = False
+    # Minimum minutes between resume checkpoints (saved at evaluation boundaries).
+    ckpt_interval_min: float = 30.0
+    # Render an HTML rollout every `visualization_interval` evals (slow; turn off for sweeps).
+    render: bool = True
+    # W&B run id. None = random (original behaviour), or derived from run_dir when auto_resume is on.
+    wandb_id: Optional[str] = None
+
 
 @dataclass
 class Config:

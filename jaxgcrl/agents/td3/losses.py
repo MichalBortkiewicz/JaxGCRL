@@ -24,6 +24,7 @@ def make_losses(
     max_action: float = 1.0,
     bc: bool = False,
     alpha: float = 2.5,
+    mask_truncation: bool = False,
 ):
     """Creates the TD3 losses."""
     policy_network = td3_network.policy_network
@@ -62,6 +63,11 @@ def make_losses(
         )
 
         q_error = current_q1_q2 - jnp.expand_dims(target_q, -1)
+        if mask_truncation:
+            # Same as Brax SAC: drop time-limit steps, whose stored next_observation belongs to the next
+            # episode (auto-reset), so they can be neither bootstrapped nor treated as terminal.
+            truncation = transitions.extras["state_extras"]["truncation"]
+            q_error *= jnp.expand_dims(1 - truncation, -1)
         q_loss = 0.5 * jnp.mean(jnp.square(q_error))
 
         return q_loss

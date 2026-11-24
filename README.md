@@ -1,5 +1,7 @@
 <h1 align="center"> JaxGCRL</h1>
 
+> **This fork** adds the depth-scaling study for SAC+HER and TD3+HER: see [SCALING.md](SCALING.md).
+
 
 <p align="center">
     <a href= "https://arxiv.org/abs/2408.11052">

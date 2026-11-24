@@ -17,7 +17,7 @@
 import functools
 import logging
 import time
-from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -32,6 +32,12 @@ from brax.training.types import Params, Policy, PRNGKey
 from brax.v1 import envs as envs_v1
 from flax.struct import dataclass
 
+from jaxgcrl.agents.common.her import flatten_batch  # noqa: F401  (moved from this file, see her.py)
+from jaxgcrl.agents.common.her import flatten_batch_with_n_step
+from jaxgcrl.agents.common import rep_metrics
+from jaxgcrl.agents.common import categorical
+from jaxgcrl.agents.common.scaled_net import get_activation
+from jaxgcrl.agents.common.train_utils import Checkpointer, gradient_update_fn_with_norm
 from jaxgcrl.envs.wrappers import TrajectoryIdWrapper
 from jaxgcrl.utils.evaluator import Evaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
@@ -88,57 +94,7 @@ ReplayBufferState = Any
 _PMAP_AXIS_NAME = "i"
 
 
-@functools.partial(jax.jit, static_argnames=["config", "env"])
-def flatten_batch(config, env, transition: Transition, sample_key: PRNGKey) -> Transition:
-    if config.use_her:
-        # Find truncation indexes if present
-        seq_len = transition.observation.shape[0]
-        arrangement = jnp.arange(seq_len)
-        is_future_mask = jnp.array(arrangement[:, None] < arrangement[None], dtype=jnp.float32)
-        single_trajectories = jnp.concatenate(
-            [transition.extras["state_extras"]["traj_id"][:, jnp.newaxis].T] * seq_len,
-            axis=0,
-        )
-
-        # final_step_mask.shape == (seq_len, seq_len)
-        final_step_mask = (
-            is_future_mask * jnp.equal(single_trajectories, single_trajectories.T) + jnp.eye(seq_len) * 1e-5
-        )
-        final_step_mask = jnp.logical_and(
-            final_step_mask,
-            transition.extras["state_extras"]["truncation"][None, :],
-        )
-        non_zero_columns = jnp.nonzero(final_step_mask, size=seq_len)[1]
-
-        # If final state is not present use original goal (i.e. don't change anything)
-        new_goals_idx = jnp.where(non_zero_columns == 0, arrangement, non_zero_columns)
-        binary_mask = jnp.logical_and(non_zero_columns, non_zero_columns)
-
-        new_goals = (
-            binary_mask[:, None] * transition.observation[new_goals_idx][:, env.goal_indices]
-            + jnp.logical_not(binary_mask)[:, None]
-            * transition.observation[new_goals_idx][:, env.state_dim :]
-        )
-
-        # Transform observation
-        state = transition.observation[:, : env.state_dim]
-        new_obs = jnp.concatenate([state, new_goals], axis=1)
-
-        # Recalculate reward
-        dist = jnp.linalg.norm(new_obs[:, env.state_dim :] - new_obs[:, env.goal_indices], axis=1)
-        new_reward = jnp.array(dist < env.goal_reach_thresh, dtype=float)
-
-        # Transform next observation
-        next_state = transition.next_observation[:, : env.state_dim]
-        new_next_obs = jnp.concatenate([next_state, new_goals], axis=1)
-
-        return transition._replace(
-            observation=jnp.squeeze(new_obs),
-            next_observation=jnp.squeeze(new_next_obs),
-            reward=jnp.squeeze(new_reward),
-        )
-
-    return transition
+# flatten_batch (HER) now lives in jaxgcrl/agents/common/her.py and is imported above.
 
 
 @dataclass
@@ -212,6 +168,37 @@ class TD3:
     smoothing_noise: int = 0.2
     exploration_noise: float = 0.4
     use_her: bool = False
+
+    # ---- scaled-depth study additions (defaults reproduce unmodified JaxGCRL) ----
+    network_type: Literal["legacy", "scaled"] = "legacy"
+    h_dim: int = 256
+    n_hidden: int = 2
+    use_ln: bool = False
+    use_residual: bool = False
+    activation: Literal["relu", "swish"] = "relu"
+    actor_n_hidden: Optional[int] = None
+    her_strategy: Literal["final", "future"] = "final"
+    her_ratio: float = 0.8
+    her_reward_obs: Literal["next", "current"] = "next"
+    # n-step TD targets inside the sampled window (1 = original 1-step TD); see common/her.py
+    n_step: int = 1
+    # drop time-limit steps from the critic loss, as Brax SAC does (False = original TD3 behaviour)
+    mask_truncation: bool = False
+    # Original code (td3.py:389 at a2740ce) soft-updates the target policy from the *online* policy's old
+    # params, so the target policy tracks the online policy almost exactly. True = standard TD3 target.
+    fix_target_policy: bool = False
+    diag_batch: int = 64
+    # representation diagnostics once per epoch (weight norms, feature rank, dormant fraction); see rep_metrics.py
+    rep_metrics: bool = True
+    rep_batch: int = 1024
+    # Categorical critic (LAC, Kang et al. 2026; see common/categorical.py). "mse" = original TD loss.
+    # LAC-like preset: --critic-loss categorical --n-step 4 --actor-n-hidden 4 --critic-head-ln
+    critic_loss: Literal["mse", "categorical"] = "mse"
+    num_atoms: int = 51
+    v_min: Optional[float] = None  # default 0 (rewards are 0/1)
+    v_max: Optional[float] = None  # default reward_scaling / (1 - discounting)
+    cat_projection: Literal["scalar", "distributional"] = "scalar"
+    critic_head_ln: bool = False  # LayerNorm before the critic head (LAC Eq. 9)
 
     def train_fn(
         self,
@@ -293,11 +280,34 @@ class TD3:
         normalize_fn = lambda x, y: x
         if self.normalize_observations:
             normalize_fn = running_statistics.normalize
-        td3_network = network_factory(
-            observation_size=obs_size,
-            action_size=action_size,
-            preprocess_observations_fn=normalize_fn,
-        )
+        cat_v_min, cat_v_max = categorical.default_support(self.v_min, self.v_max, self.discounting, self.reward_scaling)
+        if self.critic_loss == "categorical" and self.network_type != "scaled":
+            raise ValueError("--critic-loss categorical needs --network-type scaled")
+        if self.network_type == "scaled":
+            td3_network = networks.make_scaled_td3_networks(
+                observation_size=obs_size,
+                action_size=action_size,
+                preprocess_observations_fn=normalize_fn,
+                width=self.h_dim,
+                depth=self.n_hidden,
+                actor_depth=self.actor_n_hidden or self.n_hidden,
+                use_ln=self.use_ln,
+                use_residual=self.use_residual,
+                activation=self.activation,
+                num_atoms=self.num_atoms if self.critic_loss == "categorical" else 1,
+                v_min=cat_v_min,
+                v_max=cat_v_max,
+                critic_head_ln=self.critic_head_ln,
+            )
+        else:
+            td3_network = network_factory(
+                observation_size=obs_size,
+                action_size=action_size,
+                preprocess_observations_fn=normalize_fn,
+                hidden_layer_sizes=[self.h_dim] * self.n_hidden,
+                activation=get_activation(self.activation),
+                layer_norm=self.use_ln,
+            )
         make_policy = networks.make_inference_fn(td3_network)
 
         policy_optimizer = optax.adam(learning_rate=self.learning_rate)
@@ -335,14 +345,42 @@ class TD3:
             discounting=self.discounting,
             smoothing=0.2,
             noise_clip=0.5,
+            mask_truncation=self.mask_truncation,
         )
+        if self.critic_loss == "categorical":
+            critic_loss = categorical.make_td3_critic_loss(
+                td3_network, self.reward_scaling, self.discounting, cat_v_min, cat_v_max, self.cat_projection,
+                self.mask_truncation,
+            )
 
-        critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
-        actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-            actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
-        )
+        # Same math as brax gradients.gradient_update_fn; additionally returns the global gradient norm.
+        critic_update = gradient_update_fn_with_norm(critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME)
+        actor_update = gradient_update_fn_with_norm(actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME)
+
+        def cat_diag(target_q):
+            # fraction of (scalar) TD targets outside the categorical support; empty for the MSE critic
+            if self.critic_loss != "categorical":
+                return {}
+            out = jnp.logical_or(target_q < cat_v_min, target_q > cat_v_max)
+            return {"cat_clip_frac": jnp.mean(out.astype(jnp.float32))}
+
+        def q_diagnostics(training_state, transitions, key):
+            sub = jax.tree_util.tree_map(lambda x: x[: self.diag_batch], transitions)
+            q = td3_network.q_network.apply(
+                training_state.normalizer_params, training_state.q_params, sub.observation, sub.action
+            )
+            next_actions = td3_network.policy_network.apply(
+                training_state.normalizer_params, training_state.target_policy_params, sub.next_observation
+            )
+            noise = (jax.random.normal(key, next_actions.shape) * 0.2).clip(-0.5, 0.5)
+            next_actions = (next_actions + noise).clip(-1.0, 1.0)
+            next_q = td3_network.q_network.apply(
+                training_state.normalizer_params, training_state.target_q_params, sub.next_observation, next_actions
+            )
+            target_q = sub.reward * self.reward_scaling + sub.discount * self.discounting * jnp.min(next_q, axis=-1)
+            return jax.lax.stop_gradient(
+                {"q_mean": jnp.mean(q), "q_max": jnp.max(q), "target_q_mean": jnp.mean(target_q), **cat_diag(target_q)}
+            )
 
         def update_step(
             carry: Tuple[TrainingState, PRNGKey], transitions: Transition
@@ -350,8 +388,9 @@ class TD3:
             training_state, key = carry
 
             key, key_critic, key_actor = jax.random.split(key, 3)
+            diag = q_diagnostics(training_state, transitions, jax.random.fold_in(key_critic, 1))
 
-            critic_loss, q_params, q_optimizer_state = critic_update(
+            critic_loss, q_params, q_optimizer_state, critic_grad_norm = critic_update(
                 training_state.q_params,
                 training_state.target_q_params,
                 training_state.target_policy_params,
@@ -360,7 +399,7 @@ class TD3:
                 key_critic,
                 optimizer_state=training_state.q_optimizer_state,
             )
-            actor_loss, policy_params, policy_optimizer_state = actor_update(
+            actor_loss, policy_params, policy_optimizer_state, actor_grad_norm = actor_update(
                 training_state.policy_params,
                 training_state.q_params,
                 training_state.normalizer_params,
@@ -371,6 +410,7 @@ class TD3:
             def dont_policy_update(training_state):
                 return (
                     0.0,
+                    0.0,
                     training_state.policy_params,
                     training_state.policy_optimizer_state,
                     training_state.target_q_params,
@@ -378,7 +418,7 @@ class TD3:
                 )
 
             def do_policy_update(training_state):
-                actor_loss, policy_params, policy_optimizer_state = actor_update(
+                actor_loss, policy_params, policy_optimizer_state, actor_grad_norm = actor_update(
                     training_state.policy_params,
                     training_state.q_params,
                     training_state.normalizer_params,
@@ -386,9 +426,13 @@ class TD3:
                     optimizer_state=training_state.policy_optimizer_state,
                 )
                 new_target_q_params = soft_update(training_state.target_q_params, q_params, self.tau)
-                new_target_policy_params = soft_update(training_state.policy_params, policy_params, self.tau)
+                target_policy_source = (
+                    training_state.target_policy_params if self.fix_target_policy else training_state.policy_params
+                )
+                new_target_policy_params = soft_update(target_policy_source, policy_params, self.tau)
                 return (
                     actor_loss,
+                    actor_grad_norm,
                     policy_params,
                     policy_optimizer_state,
                     new_target_q_params,
@@ -398,6 +442,7 @@ class TD3:
             update_policy = training_state.gradient_steps % self.policy_delay == 0
             (
                 actor_loss,
+                actor_grad_norm,
                 policy_params,
                 policy_optimizer_state,
                 new_target_q_params,
@@ -407,6 +452,13 @@ class TD3:
             metrics = {
                 "critic_loss": critic_loss,
                 "actor_loss": actor_loss,
+                "critic_grad_norm": critic_grad_norm,
+                # averaged over all steps incl. the delayed ones, where it is 0 (as actor_loss is)
+                "actor_grad_norm": actor_grad_norm,
+                "reward_mean": jnp.mean(transitions.reward),
+                "her_relabel_frac": jnp.mean(transitions.extras["her_relabeled"]),
+                "truncation_frac": jnp.mean(transitions.extras["state_extras"]["truncation"]),
+                **diag,
             }
 
             new_training_state = TrainingState(
@@ -531,7 +583,7 @@ class TD3:
 
             batch_keys = jax.random.split(sampling_key, transitions.observation.shape[0])
             transitions = jax.vmap(
-                flatten_batch,
+                flatten_batch_with_n_step,
                 in_axes=(None, None, 0, 0),
             )(self, env, transitions, batch_keys)
 
@@ -561,6 +613,25 @@ class TD3:
 
             return jax.lax.scan(body, (ts, bs, update_key), (), length=n)
 
+        def rep_metrics_fn(ts, bs, key):
+            obs, act = rep_metrics.sample_states(replay_buffer, bs, key, self.rep_batch)
+            norm = ts.normalizer_params
+            qf, pf = td3_network.q_features, td3_network.policy_features
+            m = {}
+            m.update(
+                rep_metrics.network_rep_metrics(
+                    "rep_q", ts.q_params, None if qf is None else (lambda p, o, a: qf(norm, p, o, a)), obs, act
+                )
+            )
+            m.update(
+                rep_metrics.network_rep_metrics(
+                    "rep_pi", ts.policy_params, None if pf is None else (lambda p, o: pf(norm, p, o)), obs
+                )
+            )
+            # TD3 actor saturation: fraction of action components with |tanh(.)| > 0.995 (actor gradient ~ 0)
+            m["rep_pi_tanh_sat"] = jnp.mean(jnp.abs(td3_network.policy_network.apply(norm, ts.policy_params, obs)) > 0.995)
+            return jax.lax.stop_gradient(m)
+
         def training_epoch(
             training_state: TrainingState,
             env_state: envs.State,
@@ -580,6 +651,8 @@ class TD3:
                 (),
                 length=num_training_steps_per_epoch,
             )
+            if self.rep_metrics:
+                metrics.update(rep_metrics_fn(training_state, buffer_state, jax.random.fold_in(key, 7)))
             metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
             metrics = jax.tree_util.tree_map(jnp.mean, metrics)
             return training_state, env_state, buffer_state, metrics
@@ -668,36 +741,54 @@ class TD3:
             key=eval_key,
         )
 
-        # Run initial eval
-        metrics = {}
-        if process_id == 0 and config.num_evals > 1:
-            metrics = evaluator.run_evaluation(
-                _unpmap((training_state.normalizer_params, training_state.policy_params)),
-                training_metrics={},
-            )
-            progress_fn(
-                0,
-                metrics,
-                make_policy,
-                _unpmap((training_state.normalizer_params, training_state.policy_params)),
-                unwrapped_env,
-            )
-
-        # Create and initialize the replay buffer.
-        t = time.time()
-        prefill_key, local_key = jax.random.split(local_key)
-        prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
-        training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-            training_state, env_state, buffer_state, prefill_keys
+        ckpt = Checkpointer(
+            getattr(config, "run_dir", None),
+            getattr(config, "ckpt_interval_min", 30.0),
+            enabled=getattr(config, "auto_resume", False),
         )
+        start_epoch = 0
+        resumed = False
+        if ckpt.exists():
+            template = (training_state, env_state, buffer_state, local_key, evaluator._key)
+            (training_state, env_state, buffer_state, local_key, evaluator._key), meta = ckpt.load(template)
+            start_epoch = int(meta["epochs_done"])
+            training_walltime = float(meta["training_walltime"])
+            current_step = int(meta["env_steps"])
+            resumed = True
+            logging.info("resumed from step %d (epochs done %d)", current_step, start_epoch)
 
-        replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
-        logging.info("replay size after prefill %s", replay_size)
-        assert replay_size >= self.min_replay_size
-        training_walltime = time.time() - t
+        if not resumed:
+            # Run initial eval
+            metrics = {}
+            if process_id == 0 and config.num_evals > 1:
+                metrics = evaluator.run_evaluation(
+                    _unpmap((training_state.normalizer_params, training_state.policy_params)),
+                    training_metrics={},
+                )
+                progress_fn(
+                    0,
+                    metrics,
+                    make_policy,
+                    _unpmap((training_state.normalizer_params, training_state.policy_params)),
+                    unwrapped_env,
+                )
 
-        current_step = 0
-        for eval_epoch_num in range(num_evals_after_init):
+            # Create and initialize the replay buffer.
+            t = time.time()
+            prefill_key, local_key = jax.random.split(local_key)
+            prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
+            training_state, env_state, buffer_state, _ = prefill_replay_buffer(
+                training_state, env_state, buffer_state, prefill_keys
+            )
+
+            replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
+            logging.info("replay size after prefill %s", replay_size)
+            assert replay_size >= self.min_replay_size
+            training_walltime = time.time() - t
+            current_step = 0
+
+        metrics = {}
+        for eval_epoch_num in range(start_epoch, num_evals_after_init):
             logging.info("step %s", current_step)
 
             # Optimization
@@ -730,9 +821,18 @@ class TD3:
                     unwrapped_env,
                     do_render,
                 )
+                ckpt.maybe_save(
+                    (training_state, env_state, buffer_state, local_key, evaluator._key),
+                    {
+                        "epochs_done": eval_epoch_num + 1,
+                        "env_steps": current_step,
+                        "training_walltime": training_walltime,
+                    },
+                )
 
         total_steps = current_step
         assert total_steps >= config.total_env_steps
+        ckpt.finalize(training_state, {"env_steps": current_step, "training_walltime": training_walltime})
 
         params = _unpmap((training_state.normalizer_params, training_state.policy_params))
 

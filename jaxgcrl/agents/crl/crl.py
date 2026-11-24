@@ -22,7 +22,9 @@ from jaxgcrl.utils.evaluator import ActorEvaluator
 from jaxgcrl.utils.replay_buffer import TrajectoryUniformSamplingQueue
 
 from .losses import update_actor_and_alpha, update_critic
-from .networks import Actor, Encoder
+from jaxgcrl.agents.common.train_utils import Checkpointer
+
+from .networks import Actor, Encoder, ScaledActor, ScaledEncoder
 
 Metrics = types.Metrics
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -162,6 +164,10 @@ class CRL:
     contrastive_loss_fn: Literal["fwd_infonce", "sym_infonce", "bwd_infonce", "binary_nce"] = "fwd_infonce"
     energy_fn: Literal["norm", "l2", "dot", "cosine"] = "norm"
 
+    # scaled-depth study: "scaled" = ScaledMLP trunk (stem + n_hidden/4 residual blocks of 4 x
+    # Dense-LN-Swish) for the actor and both encoders, i.e. the same trunk as SAC/TD3 "full".
+    network_type: Literal["legacy", "scaled"] = "legacy"
+
     def check_config(self, config):
         """
         episode_length: the maximum length of an episode
@@ -242,8 +248,12 @@ class CRL:
         )
 
         # Network setup
+        if self.network_type == "scaled":
+            actor = ScaledActor(action_size=action_size, network_width=self.h_dim, network_depth=self.n_hidden)
+            sa_encoder = ScaledEncoder(repr_dim=self.repr_dim, network_width=self.h_dim, network_depth=self.n_hidden)
+            g_encoder = ScaledEncoder(repr_dim=self.repr_dim, network_width=self.h_dim, network_depth=self.n_hidden)
         # Actor
-        actor = Actor(
+        actor = actor if self.network_type == "scaled" else Actor(
             action_size=action_size,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
@@ -257,7 +267,7 @@ class CRL:
         )
 
         # Critic
-        sa_encoder = Encoder(
+        sa_encoder = sa_encoder if self.network_type == "scaled" else Encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
@@ -266,7 +276,7 @@ class CRL:
             use_ln=self.use_ln,
         )
         sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, state_size + action_size]))
-        g_encoder = Encoder(
+        g_encoder = g_encoder if self.network_type == "scaled" else Encoder(
             repr_dim=self.repr_dim,
             network_width=self.h_dim,
             network_depth=self.n_hidden,
@@ -538,9 +548,16 @@ class CRL:
 
         key, prefill_key = jax.random.split(key, 2)
 
-        training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-            training_state, env_state, buffer_state, prefill_key
+        ckpt = Checkpointer(
+            getattr(config, "run_dir", None),
+            getattr(config, "ckpt_interval_min", 30.0),
+            enabled=getattr(config, "auto_resume", False),
         )
+        resumed = ckpt.exists()
+        if not resumed:
+            training_state, env_state, buffer_state, _ = prefill_replay_buffer(
+                training_state, env_state, buffer_state, prefill_key
+            )
 
         """Setting up evaluator"""
         evaluator = ActorEvaluator(
@@ -552,8 +569,16 @@ class CRL:
         )
 
         training_walltime = 0
+        start_epoch = 0
+        if resumed:
+            template = (training_state, env_state, buffer_state, key, evaluator._key)
+            (training_state, env_state, buffer_state, key, evaluator._key), meta = ckpt.load(template)
+            start_epoch = int(meta["epochs_done"])
+            training_walltime = float(meta["training_walltime"])
+            logging.info("resumed from step %d (epochs done %d)", int(meta["env_steps"]), start_epoch)
         logging.info("starting training....")
-        for ne in range(config.num_evals):
+        current_step = int(training_state.env_steps.item())
+        for ne in range(start_epoch, config.num_evals):
             t = time.time()
 
             key, epoch_key = jax.random.split(key)
@@ -602,8 +627,19 @@ class CRL:
                 path = f"{config.checkpoint_logdir}/step_{int(training_state.env_steps)}.pkl"
                 save_params(path, params)
 
+            ckpt.maybe_save(
+                (training_state, env_state, buffer_state, key, evaluator._key),
+                {"epochs_done": ne + 1, "env_steps": current_step, "training_walltime": training_walltime},
+            )
+
         total_steps = current_step
-        assert total_steps >= config.total_env_steps
+        # Original: `assert total_steps >= config.total_env_steps`. The step count above rounds down, so this
+        # failed at the end of most runs (after training). Logged instead; training is unaffected.
+        if total_steps < config.total_env_steps:
+            logging.warning("CRL ran %d env steps, fewer than total_env_steps=%d", total_steps, config.total_env_steps)
+        # Original returned `params`, which is only defined when checkpoint_logdir is set (NameError otherwise).
+        params = training_state.actor_state.params
+        ckpt.finalize(training_state, {"env_steps": total_steps, "training_walltime": training_walltime})
 
         logging.info("total steps: %s", total_steps)
 

@@ -1,4 +1,5 @@
 import argparse
+import csv
 import logging
 import math
 import os
@@ -189,7 +190,12 @@ class MetricsRecorder:
         exp_dir,
         exp_name,
         mode,
+        csv_path=None,
+        render=True,
     ):
+        self.csv_path = csv_path
+        self.render = render
+        self.last_metrics = {}
         self.x_data = []
         self.y_data = {}
         self.y_data_err = {}
@@ -203,7 +209,9 @@ class MetricsRecorder:
 
         if mode == "offline":
             wandb_osh.set_log_level("ERROR")
-        self.trigger_sync = TriggerWandbSyncHook()
+        # scaled-depth study: keep wandb-osh's command directory inside the project when WANDB_OSH_COMMAND_DIR is set
+        osh_dir = os.environ.get("WANDB_OSH_COMMAND_DIR")
+        self.trigger_sync = TriggerWandbSyncHook(communication_dir=osh_dir) if osh_dir else TriggerWandbSyncHook()
 
     def record(self, num_steps, metrics):
         self.times.append(datetime.now())
@@ -263,26 +271,74 @@ class MetricsRecorder:
         logging.info(f"time to train: {self.times[-1] - self.times[1]}")
 
     def progress(self, num_steps, metrics, make_policy, params, env, do_render=True):
-        for key in self.metrics_to_collect:
-            self.ensure_metric(metrics, key)
+        # Changed for the scaled-depth study: metrics are written to CSV / W&B *before* the NaN check, so a
+        # failing run leaves its last diagnostics on disk; missing metrics are no longer filled with 0.
+        scalars = {}
+        try:  # real device memory use (nvidia-smi only shows XLA's preallocation)
+            stats = jax.local_devices()[0].memory_stats() or {}
+            if "peak_bytes_in_use" in stats:
+                scalars["system/peak_gpu_mem_gb"] = stats["peak_bytes_in_use"] / 1e9
+        except Exception:  # noqa: BLE001
+            pass
+        for key, value in metrics.items():
+            try:
+                scalars[key] = float(value)
+            except (TypeError, ValueError):
+                pass
+        self.last_metrics = {"step": int(num_steps), **scalars}
+        self.write_csv(num_steps, scalars)
 
-        if do_render:
+        if do_render and self.render:
             render(make_policy, params, env, self.exp_dir, self.exp_name, num_steps)
 
         self.record(
             num_steps,
-            {key: value for key, value in metrics.items() if key in self.metrics_to_collect},
+            {key: value for key, value in scalars.items() if key in self.metrics_to_collect},
         )
         self.log_wandb()
         self.print_progress()
+        for key in self.metrics_to_collect:
+            self.ensure_metric(scalars, key)
+
+    def write_csv(self, num_steps, scalars):
+        """Append one row. If this row has keys the header lacks (e.g. SAC's step-0 eval has no training
+        metrics), rewrite the file with the union header; existing rows are kept unchanged."""
+        if not self.csv_path:
+            return
+        row = {"step": int(num_steps), "wallclock": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), **scalars}
+        exists = os.path.exists(self.csv_path) and os.path.getsize(self.csv_path) > 0
+        if exists:
+            with open(self.csv_path, newline="") as f:
+                reader = csv.DictReader(f)
+                header = list(reader.fieldnames or [])
+                missing = [k for k in row if k not in header]
+                old_rows = list(reader) if missing else None
+            if missing:
+                header = header + sorted(missing)
+                tmp = self.csv_path + ".tmp"
+                with open(tmp, "w", newline="") as f:
+                    w = csv.DictWriter(f, fieldnames=header)
+                    w.writeheader()
+                    w.writerows(old_rows)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, self.csv_path)
+        else:
+            header = ["step", "wallclock"] + sorted(scalars)
+        with open(self.csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+            if not exists:
+                writer.writeheader()
+            writer.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
 
     @staticmethod
     def ensure_metric(metrics, key):
-        if key not in metrics:
-            metrics[key] = 0
-        else:
-            if math.isnan(metrics[key]):
-                raise Exception(f"Metric: {key} is NaN in metrics: {metrics}")
+        if key in metrics and not math.isfinite(metrics[key]):
+            from jaxgcrl.agents.common.train_utils import NonFiniteError
+
+            raise NonFiniteError(f"Metric: {key} is {metrics[key]} at this evaluation")
 
 
 def render(make_policy, params, env, exp_dir, exp_name, num_steps):

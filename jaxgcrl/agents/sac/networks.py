@@ -36,6 +36,12 @@ class SACNetworks:
     policy_network: networks.FeedForwardNetwork
     q_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
+    # feature hooks for rep_metrics (scaled networks only): fn(processor_params, params, *inputs) -> sown state
+    q_features: Any = flax.struct.field(pytree_node=False, default=None)
+    policy_features: Any = flax.struct.field(pytree_node=False, default=None)
+    # categorical critic (num_atoms > 1): fn(processor_params, params, obs, actions) -> (B, C, I) logits; support z
+    q_logits: Any = flax.struct.field(pytree_node=False, default=None)
+    atoms: Any = flax.struct.field(pytree_node=False, default=None)
 
 
 class MLP(linen.Module):
@@ -179,4 +185,92 @@ def make_sac_networks(
         policy_network=policy_network,
         q_network=q_network,
         parametric_action_distribution=parametric_action_distribution,
+    )
+
+
+# ---------------------------------------------------------------------------------------------
+# Scaled networks (network_type="scaled"): ScaledMLP from jaxgcrl/agents/common/scaled_net.py.
+# ---------------------------------------------------------------------------------------------
+
+
+def make_scaled_sac_networks(
+    observation_size: int,
+    action_size: int,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    width: int = 256,
+    depth: int = 4,
+    actor_depth: int = 4,
+    use_ln: bool = True,
+    use_residual: bool = True,
+    activation: str = "swish",
+    n_critics: int = 2,
+    num_atoms: int = 1,
+    v_min: float = 0.0,
+    v_max: float = 100.0,
+    critic_head_ln: bool = False,
+) -> SACNetworks:
+    """SAC networks built from ScaledMLP. Same interfaces as make_sac_networks, so Brax's SAC losses apply."""
+    from jaxgcrl.agents.common.scaled_net import ScaledMLP
+    from jaxgcrl.agents.common.categorical import expectation, support
+
+    z = support(v_min, v_max, num_atoms) if num_atoms > 1 else None
+
+    parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
+    net_kwargs = dict(width=width, use_ln=use_ln, use_residual=use_residual, activation=activation)
+
+    policy_module = ScaledMLP(depth=actor_depth, out_size=parametric_action_distribution.param_size, **net_kwargs)
+
+    def policy_apply(processor_params, policy_params, obs):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return policy_module.apply(policy_params, obs)
+
+    class QModule(linen.Module):
+        @linen.compact
+        def __call__(self, obs: jnp.ndarray, actions: jnp.ndarray):
+            hidden = jnp.concatenate([obs, actions], axis=-1)
+            heads = [
+                ScaledMLP(depth=depth, out_size=num_atoms, head_ln=critic_head_ln, **net_kwargs)(hidden)
+                for _ in range(n_critics)
+            ]
+            if num_atoms == 1:
+                return jnp.concatenate(heads, axis=-1)  # (B, n_critics) Q-values
+            return jnp.stack(heads, axis=-2)  # (B, n_critics, num_atoms) logits (categorical critic)
+
+    q_module = QModule()
+
+    def q_apply(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        out = q_module.apply(q_params, obs, actions)
+        if num_atoms == 1:
+            return out
+        return expectation(out, z)  # expected Q per critic, so the actor losses are unchanged
+
+    def q_logits(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return q_module.apply(q_params, obs, actions)
+
+    def q_features(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return q_module.apply(q_params, obs, actions, mutable=["intermediates"])[1]
+
+    def policy_features(processor_params, policy_params, obs):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return policy_module.apply(policy_params, obs, mutable=["intermediates"])[1]
+
+    dummy_obs = jnp.zeros((1, observation_size))
+    dummy_action = jnp.zeros((1, action_size))
+    policy_network = networks.FeedForwardNetwork(
+        init=lambda key: policy_module.init(key, dummy_obs), apply=policy_apply
+    )
+    q_network = networks.FeedForwardNetwork(
+        init=lambda key: q_module.init(key, dummy_obs, dummy_action), apply=q_apply
+    )
+    return SACNetworks(
+        policy_network=policy_network,
+        q_network=q_network,
+        parametric_action_distribution=parametric_action_distribution,
+        q_features=q_features,
+        policy_features=policy_features,
+        q_logits=q_logits if num_atoms > 1 else None,
+        atoms=z,
     )

@@ -319,3 +319,17 @@ experiments/
 notebooks/data/
 notebooks/figures/
 
+
+# scaled-TD study: run outputs live on scratch, not in git
+checkpoints/
+logs/
+runs/
+wandb/
+*.pkl
+
+# not part of the public code: job scripts, reports, results, handoff notes
+scripts/
+reports/
+results/
+frozen/
+*HANDOFF*.md

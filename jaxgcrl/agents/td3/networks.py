@@ -1,6 +1,6 @@
 """TD3 networks."""
 
-from typing import Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -14,6 +14,12 @@ from flax import linen, struct
 class TD3Networks:
     policy_network: networks.FeedForwardNetwork
     q_network: networks.FeedForwardNetwork
+    # feature hooks for rep_metrics (scaled networks only); the policy hook returns pre-tanh trunk features
+    q_features: Any = struct.field(pytree_node=False, default=None)
+    policy_features: Any = struct.field(pytree_node=False, default=None)
+    # categorical critic (num_atoms > 1): fn(processor_params, params, obs, actions) -> (B, C, I) logits; support z
+    q_logits: Any = struct.field(pytree_node=False, default=None)
+    atoms: Any = struct.field(pytree_node=False, default=None)
 
 
 def make_inference_fn(td3_networks: TD3Networks):
@@ -93,6 +99,7 @@ def make_td3_networks(
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     hidden_layer_sizes: Sequence[int] = (256, 256),
     activation: networks.ActivationFn = linen.relu,
+    layer_norm: bool = False,
 ) -> TD3Networks:
     """Make TD3 networks."""
     policy_network = make_policy_network(
@@ -101,6 +108,7 @@ def make_td3_networks(
         preprocess_observations_fn=preprocess_observations_fn,
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
+        layer_norm=layer_norm,
     )
 
     q_network = networks.make_q_network(
@@ -109,6 +117,82 @@ def make_td3_networks(
         preprocess_observations_fn=preprocess_observations_fn,
         hidden_layer_sizes=hidden_layer_sizes,
         activation=activation,
+        layer_norm=layer_norm,
     )
 
     return TD3Networks(policy_network=policy_network, q_network=q_network)
+
+
+def make_scaled_td3_networks(
+    observation_size: int,
+    action_size: int,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    width: int = 256,
+    depth: int = 4,
+    actor_depth: int = 4,
+    use_ln: bool = True,
+    use_residual: bool = True,
+    activation: str = "swish",
+    n_critics: int = 2,
+    num_atoms: int = 1,
+    v_min: float = 0.0,
+    v_max: float = 100.0,
+    critic_head_ln: bool = False,
+) -> TD3Networks:
+    """TD3 networks built from ScaledMLP (network_type="scaled"). Policy output goes through tanh, as in
+    make_policy_network above; the twin Q-network concatenates (obs, action) like Brax's make_q_network."""
+    from jaxgcrl.agents.common.scaled_net import ScaledMLP
+    from jaxgcrl.agents.common.categorical import expectation, support
+
+    z = support(v_min, v_max, num_atoms) if num_atoms > 1 else None
+
+    net_kwargs = dict(width=width, use_ln=use_ln, use_residual=use_residual, activation=activation)
+    policy_module = ScaledMLP(depth=actor_depth, out_size=action_size, **net_kwargs)
+
+    def policy_apply(processor_params, policy_params, obs):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return linen.tanh(policy_module.apply(policy_params, obs))
+
+    class QModule(linen.Module):
+        @linen.compact
+        def __call__(self, obs: jnp.ndarray, actions: jnp.ndarray):
+            hidden = jnp.concatenate([obs, actions], axis=-1)
+            heads = [
+                ScaledMLP(depth=depth, out_size=num_atoms, head_ln=critic_head_ln, **net_kwargs)(hidden)
+                for _ in range(n_critics)
+            ]
+            if num_atoms == 1:
+                return jnp.concatenate(heads, axis=-1)  # (B, n_critics) Q-values
+            return jnp.stack(heads, axis=-2)  # (B, n_critics, num_atoms) logits (categorical critic)
+
+    q_module = QModule()
+
+    def q_apply(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        out = q_module.apply(q_params, obs, actions)
+        if num_atoms == 1:
+            return out
+        return expectation(out, z)  # expected Q per critic, so the actor losses are unchanged
+
+    def q_logits(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return q_module.apply(q_params, obs, actions)
+
+    def q_features(processor_params, q_params, obs, actions):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return q_module.apply(q_params, obs, actions, mutable=["intermediates"])[1]
+
+    def policy_features(processor_params, policy_params, obs):
+        obs = preprocess_observations_fn(obs, processor_params)
+        return policy_module.apply(policy_params, obs, mutable=["intermediates"])[1]
+
+    dummy_obs = jnp.zeros((1, observation_size))
+    dummy_action = jnp.zeros((1, action_size))
+    return TD3Networks(
+        policy_network=FeedForwardNetwork(init=lambda key: policy_module.init(key, dummy_obs), apply=policy_apply),
+        q_network=FeedForwardNetwork(init=lambda key: q_module.init(key, dummy_obs, dummy_action), apply=q_apply),
+        q_features=q_features,
+        policy_features=policy_features,
+        q_logits=q_logits if num_atoms > 1 else None,
+        atoms=z,
+    )

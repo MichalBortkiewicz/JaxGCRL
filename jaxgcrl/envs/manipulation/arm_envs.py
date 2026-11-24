@@ -1,3 +1,4 @@
+import os
 import jax
 from brax import base
 from brax.envs.base import PipelineEnv, State
@@ -10,6 +11,10 @@ class ArmEnvs(PipelineEnv):
         # Configure environment information (e.g. env name, noise scale, observation dimension, goal indices) and load XML
         self._set_environment_attributes()
         xml_path = self._get_xml_path()
+        # Path fix only (scaled-depth study): the asset paths are relative to the jaxgcrl package directory,
+        # so the arm envs failed unless the process ran from inside jaxgcrl/. Behaviour is unchanged.
+        if not os.path.isabs(xml_path) and not os.path.exists(xml_path):
+            xml_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), xml_path)
         sys = mjcf.load(xml_path)
 
         # Configure backend
