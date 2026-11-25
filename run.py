@@ -4,9 +4,9 @@ import pickle
 import pprint
 
 import tyro
-from brax.io import model
-
 import wandb
+from brax.io import model
+from jaxgcrl.train import train
 from jaxgcrl.utils.config import Config
 from jaxgcrl.utils.env import MetricsRecorder, create_env
 
@@ -96,7 +96,8 @@ def main(config: Config):
         mode=config.run.wandb_mode,
     )
 
-    _, params, _ = config.agent.train_fn(
+    _, params, _ = train(
+        agent=config.agent,
         train_env=env,
         eval_env=eval_env,
         config=config.run,
